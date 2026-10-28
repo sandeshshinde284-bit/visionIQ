@@ -4,19 +4,20 @@
 
 .DESCRIPTION
   Default mode only CHECKS. It prints what is missing and the exact fix. Nothing is installed or changed.
-  With -Install it offers to install each missing tool with winget and asks before every install.
+  With -Install it offers missing tool installations and copies .env.example to .env when needed.
+  It never overwrites an existing .env, creates passwords, or shares local secrets.
 
-  Run it from any folder for the tool checks.
-  Run it from inside the cloned repository to include the project checks (.env, database, Git ignore).
+  Keep this script inside the repository's scripts folder. It detects the repository from its own location,
+  even when the terminal's current working directory is different.
 
   It never prints secrets and never changes the PowerShell execution policy.
   Works in Windows PowerShell 5.1 and PowerShell 7.
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File .\check-env.ps1
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-env.ps1
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File .\check-env.ps1 -Install
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-env.ps1 -Install
 #>
 [CmdletBinding()]
 param(
@@ -81,24 +82,25 @@ function Get-EnvFileValue([string]$Path, [string]$Key) {
     return ''
 }
 
-# ---------------------------------------------------------------- find the repository (optional)
+# ---------------------------------------------------------------- find repository from the script directory, independent of the caller's directory
 $repoRoot = $null
-$g = Invoke-Tool 'git' @('rev-parse', '--show-toplevel')
+$scriptRepo = Split-Path -Parent $PSScriptRoot
+$g = Invoke-Tool 'git' @('-C', $scriptRepo, 'rev-parse', '--show-toplevel')
 if ($g.Found -and $g.Code -eq 0 -and $g.Text) {
     if (Test-Path (Join-Path $g.Text 'docker-compose.yml')) { $repoRoot = $g.Text }
 }
 
 # versions pinned by the repository win over the defaults
-$wantPython = '3.11'
+$wantPython = '3.12'
 $wantDotnet = '8'
 if ($repoRoot) {
-    foreach ($c in @((Join-Path $repoRoot '.python-version'), (Join-Path $repoRoot 'src/python/.python-version'))) {
+    foreach ($c in @((Join-Path $repoRoot '.python-version'))) {
         if (Test-Path $c) {
             $first = (Get-Content $c -TotalCount 1)
             if ($first -match '^\s*(\d+)\.(\d+)') { $wantPython = $Matches[1] + '.' + $Matches[2]; break }
         }
     }
-    foreach ($c in @((Join-Path $repoRoot 'global.json'), (Join-Path $repoRoot 'src/dotnet/global.json'))) {
+    foreach ($c in @((Join-Path $repoRoot 'global.json'))) {
         if (Test-Path $c) {
             try {
                 $v = (Get-Content $c -Raw | ConvertFrom-Json).sdk.version
@@ -147,10 +149,10 @@ $pyId = 'Python.Python.' + $wantPython
 $pyOk = $false
 $pyText = ''
 $r = Invoke-Tool 'py' @(('-' + $wantPython), '--version')
-if ($r.Found -and $r.Code -eq 0 -and $r.Text -match ('^Python ' + [regex]::Escape($wantPython))) { $pyOk = $true; $pyText = Get-FirstLine $r.Text }
+if ($r.Found -and $r.Code -eq 0 -and $r.Text -match ('^Python ' + [regex]::Escape($wantPython) + '(?:\.|\s|$)')) { $pyOk = $true; $pyText = Get-FirstLine $r.Text }
 else {
     $r2 = Invoke-Tool 'python' @('--version')
-    if ($r2.Found -and $r2.Text -match ('^Python ' + [regex]::Escape($wantPython))) { $pyOk = $true; $pyText = Get-FirstLine $r2.Text }
+    if ($r2.Found -and $r2.Code -eq 0 -and $r2.Text -match ('^Python ' + [regex]::Escape($wantPython) + '(?:\.|\s|$)')) { $pyOk = $true; $pyText = Get-FirstLine $r2.Text }
 }
 if ($pyOk) { Add-Item 'OK' ('Python ' + $wantPython) $pyText }
 else { Add-Item 'MISSING' ('Python ' + $wantPython) 'not found' ('winget install --id ' + $pyId + ' -e') $pyId }
@@ -198,7 +200,7 @@ else { Add-Item 'MISSING' 'Editor (VS Code or Visual Studio)' 'neither found' 'w
 # ---------------------------------------------------------------- 7. Google Cloud CLI
 $r = Invoke-Tool 'gcloud' @('version')
 if (-not ($r.Found -and $r.Code -eq 0)) {
-    Add-Item 'MISSING' 'Google Cloud CLI' 'not found' 'winget install --id Google.CloudSDK -e' 'Google.CloudSDK'
+    Add-Item 'WARN' 'Google Cloud CLI' 'not installed (optional for local FND-02)' 'Install when authorized Google Cloud integration begins: winget install --id Google.CloudSDK -e'
 }
 else {
     Add-Item 'OK' 'Google Cloud CLI' (Get-FirstLine $r.Text)
@@ -227,7 +229,23 @@ else {
             Add-Item 'FIX' '.env file' 'saved as ".env.txt" (Windows added .txt)' 'Inside the project folder run: Rename-Item .env.txt .env'
         }
         else {
-            Add-Item 'FIX' '.env file' 'not found' 'Copy the .env file from the team lead into the project folder (named exactly .env).'
+            $template = Join-Path $repoRoot '.env.example'
+            if (-not (Test-Path $template)) {
+                Add-Item 'FIX' '.env template' 'not found' 'Restore the tracked .env.example file before continuing.'
+            }
+            elseif ($Install) {
+                try {
+                    Copy-Item -LiteralPath $template -Destination $envFile -ErrorAction Stop
+                    Add-Item 'OK' '.env file' 'created from .env.example; edit only your own local settings'
+                    Add-Item 'FIX' 'DB_LOCAL_PASSWORD' 'not set' 'Edit your private .env and enter your own DB_LOCAL_PASSWORD. Never share .env.'
+                }
+                catch {
+                    Add-Item 'FIX' '.env file' 'could not copy .env.example' 'Check local file permissions; do not overwrite any existing .env.'
+                }
+            }
+            else {
+                Add-Item 'FIX' '.env file' 'missing' 'Run this checker with -Install, or run: Copy-Item .env.example .env'
+            }
         }
     }
     else {
@@ -243,7 +261,7 @@ else {
     }
     $ign = Invoke-Tool 'git' @('-C', $repoRoot, 'check-ignore', '-q', '.env')
     if ($ign.Code -eq 0) { Add-Item 'OK' '.env is ignored by Git' '' }
-    else { Add-Item 'FIX' '.env is NOT ignored by Git' '' 'Do not commit. Check that .gitignore from the Project-setup branch is present, and tell the team lead.' }
+    else { Add-Item 'FIX' '.env is NOT ignored by Git' '' 'Do not commit. Check that .gitignore excludes .env on this branch.' }
     $trk = Invoke-Tool 'git' @('-C', $repoRoot, 'ls-files', '.env')
     if ($trk.Text) { Add-Item 'FIX' '.env is tracked by Git' '' 'Tell the team lead now. Adding it to .gitignore is not enough. Do not print its contents.' }
 
