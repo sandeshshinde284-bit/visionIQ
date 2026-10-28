@@ -1,0 +1,19 @@
+# Normalize line endings so formatting checks give the same result on Windows and Linux.
+* text=auto
+
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.sql text eol=lf
+*.ps1 text eol=lf
+Dockerfile text eol=lf
+.editorconfig text eol=lf
+.gitignore text eol=lf
+.dockerignore text eol=lf
+*.sln text eol=crlf

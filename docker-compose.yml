@@ -1,7 +1,9 @@
-# Local development database: PostgreSQL with pgvector.
-# Start:  docker compose up -d postgres
+# Local development stack: PostgreSQL with pgvector, the .NET API and the Python Intelligence service.
+# Everything:        docker compose up --build -d
+# Database only:     docker compose up -d postgres
 # Needs DB_LOCAL_PASSWORD in your .env (see .env.example).
-# This container always uses the DB_LOCAL_* settings, whichever target ./scripts/use-db.ps1 has selected.
+# The containers always use the DB_LOCAL_* settings and talk to each other by service name
+# (postgres, intelligence), whichever target ./scripts/use-db.ps1 has selected for host runs.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -22,6 +24,65 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: src/VisionIQ.Api/Dockerfile
+    image: visioniq-api:local
+    container_name: visioniq-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://+:5100
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_LOCAL_NAME:-visioniq}
+      DB_USER: ${DB_LOCAL_USER:-visioniq}
+      DB_PASSWORD: ${DB_LOCAL_PASSWORD:?Set DB_LOCAL_PASSWORD in .env}
+      DB_SSL_MODE: disable
+      PYTHON_SERVICE_URL: http://intelligence:8000
+    ports:
+      - "5100:5100"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5100/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  intelligence:
+    build:
+      context: .
+      dockerfile: src/VisionIQ.Intelligence/Dockerfile
+    image: visioniq-intelligence:local
+    container_name: visioniq-intelligence
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+      PORT: "8000"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_LOCAL_NAME:-visioniq}
+      DB_USER: ${DB_LOCAL_USER:-visioniq}
+      DB_PASSWORD: ${DB_LOCAL_PASSWORD:?Set DB_LOCAL_PASSWORD in .env}
+      DB_SSL_MODE: disable
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
 volumes:
   pgdata:
-

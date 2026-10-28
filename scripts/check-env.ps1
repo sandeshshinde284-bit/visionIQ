@@ -1,14 +1,13 @@
-﻿<#
+<#
 .SYNOPSIS
   Checks that this Windows machine is ready for VisionIQ development.
 
 .DESCRIPTION
   Default mode only CHECKS. It prints what is missing and the exact fix. Nothing is installed or changed.
-  With -Install it offers missing approved tool installs and creates .env from .env.example when absent.
-  It never deploys cloud resources or creates passwords.
+  With -Install it offers to install each missing tool with winget and asks before every install.
 
-  Run from the repository root with -Install for guided setup; plain invocation is read-only.
-  With -Install, an absent .env is copied from the tracked .env.example; existing .env is never overwritten.
+  Run it from any folder for the tool checks.
+  Run it from inside the cloned repository to include the project checks (.env, database, Git ignore).
 
   It never prints secrets and never changes the PowerShell execution policy.
   Works in Windows PowerShell 5.1 and PowerShell 7.
@@ -82,23 +81,21 @@ function Get-EnvFileValue([string]$Path, [string]$Key) {
     return ''
 }
 
-# ---------------------------------------------------------------- find repository based on script location, not current directory
+# ---------------------------------------------------------------- find the repository (optional)
 $repoRoot = $null
-$scriptRepo = Split-Path -Parent $PSScriptRoot
-$g = Invoke-Tool 'git' @('-C', $scriptRepo, 'rev-parse', '--show-toplevel')
+$g = Invoke-Tool 'git' @('rev-parse', '--show-toplevel')
 if ($g.Found -and $g.Code -eq 0 -and $g.Text) {
     if (Test-Path (Join-Path $g.Text 'docker-compose.yml')) { $repoRoot = $g.Text }
 }
 
 # versions pinned by the repository win over the defaults
 $wantPython = '3.11'
-$pythonPinned = $false
 $wantDotnet = '8'
 if ($repoRoot) {
     foreach ($c in @((Join-Path $repoRoot '.python-version'), (Join-Path $repoRoot 'src/python/.python-version'))) {
         if (Test-Path $c) {
             $first = (Get-Content $c -TotalCount 1)
-            if ($first -match '^\s*(\d+)\.(\d+)') { $wantPython = $Matches[1] + '.' + $Matches[2]; $pythonPinned = $true; break }
+            if ($first -match '^\s*(\d+)\.(\d+)') { $wantPython = $Matches[1] + '.' + $Matches[2]; break }
         }
     }
     foreach ($c in @((Join-Path $repoRoot 'global.json'), (Join-Path $repoRoot 'src/dotnet/global.json'))) {
@@ -115,9 +112,8 @@ if ($repoRoot) {
 Write-Host ''
 Write-Host 'VisionIQ environment check' -ForegroundColor White
 if ($repoRoot) { Write-Host ('Repository found: ' + $repoRoot) -ForegroundColor DarkGray }
-else { Write-Host 'Repository not detected alongside script: tool checks only.' -ForegroundColor DarkGray }
-if ($pythonPinned) { Write-Host ('Required: .NET SDK ' + $wantDotnet + '.x; repository-pinned Python ' + $wantPython + '.x') -ForegroundColor DarkGray }
-else { Write-Host ('Required: .NET SDK ' + $wantDotnet + '.x; Python 3.11 or newer (compatibility validated by pip/tests)') -ForegroundColor DarkGray }
+else { Write-Host 'Not inside the VisionIQ repository: tool checks only.' -ForegroundColor DarkGray }
+Write-Host ('Expecting .NET SDK ' + $wantDotnet + '.x and Python ' + $wantPython + '.x') -ForegroundColor DarkGray
 Write-Host ''
 
 # ---------------------------------------------------------------- 1. winget
@@ -146,43 +142,24 @@ elseif ($r.Text -match ('(?m)^' + [regex]::Escape($wantDotnet) + '\.')) {
 }
 else { Add-Item 'MISSING' ('.NET SDK ' + $wantDotnet) 'installed SDKs do not include it' ('winget install --id ' + $dotnetId + ' -e') $dotnetId }
 
-# ---------------------------------------------------------------- 4. Python: pinned version if declared, otherwise compatible 3.11+
+# ---------------------------------------------------------------- 4. Python
 $pyId = 'Python.Python.' + $wantPython
-$foundVersions = @()
-$launcherList = Invoke-Tool 'py' @('-0p')
-$pythonVersion = Invoke-Tool 'python' @('--version')
-foreach ($res in @($launcherList, $pythonVersion)) {
-    if ($res.Found -and $res.Code -eq 0) {
-        foreach ($line in ($res.Text -split "`r?`n")) {
-            if ($line -match '(?<!\d)(3\.(\d+))(?:\.(\d+))?') {
-                $foundVersions += [pscustomobject]@{ Major = 3; Minor = [int]$Matches[2]; Version = $Matches[0] }
-            }
-        }
-    }
+$pyOk = $false
+$pyText = ''
+$r = Invoke-Tool 'py' @(('-' + $wantPython), '--version')
+if ($r.Found -and $r.Code -eq 0 -and $r.Text -match ('^Python ' + [regex]::Escape($wantPython))) { $pyOk = $true; $pyText = Get-FirstLine $r.Text }
+else {
+    $r2 = Invoke-Tool 'python' @('--version')
+    if ($r2.Found -and $r2.Text -match ('^Python ' + [regex]::Escape($wantPython))) { $pyOk = $true; $pyText = Get-FirstLine $r2.Text }
 }
-# Explicit version probes also work with older Python launchers.
-foreach ($minor in @(11,12,13,14,15)) {
-    $probe = Invoke-Tool 'py' @("-3.$minor", '--version')
-    if ($probe.Found -and $probe.Code -eq 0 -and $probe.Text -match '^Python 3\.(\d+)(?:\.(\d+))?') {
-        $foundVersions += [pscustomobject]@{ Major = 3; Minor = [int]$Matches[1]; Version = Get-FirstLine $probe.Text }
-    }
-}
-$validPython = @($foundVersions | Where-Object {
-    if ($pythonPinned) { $_.Minor -eq [int]($wantPython.Split('.')[1]) }
-    else { $_.Minor -ge 11 }
-} | Sort-Object Minor -Descending | Select-Object -First 1)
-if ($validPython.Count -gt 0) {
-    Add-Item 'OK' 'Python' ($validPython[0].Version + ' detected; install requirements and run tests to confirm compatibility')
-} else {
-    $detail = if ($foundVersions.Count) { 'installed Python does not match the project requirement' } else { 'Python 3.11+ not found' }
-    Add-Item 'MISSING' 'Python' $detail ('winget install --id ' + $pyId + ' -e') $pyId
-}
+if ($pyOk) { Add-Item 'OK' ('Python ' + $wantPython) $pyText }
+else { Add-Item 'MISSING' ('Python ' + $wantPython) 'not found' ('winget install --id ' + $pyId + ' -e') $pyId }
 
 # ---------------------------------------------------------------- 5. Docker
 $dockerRunning = $false
 $r = Invoke-Tool 'docker' @('--version')
 if (-not ($r.Found -and $r.Code -eq 0)) {
-    Add-Item 'MISSING' 'Docker Desktop' 'Docker CLI not found; install Docker Desktop (includes Engine and Compose)' 'winget install --id Docker.DockerDesktop -e (admin approval, WSL 2 and restart may be required); or use approved IT installer' 'Docker.DockerDesktop'
+    Add-Item 'MISSING' 'Docker Desktop' 'not found' 'winget install --id Docker.DockerDesktop -e   (needs administrator rights and usually a restart) or use your IT channel' 'Docker.DockerDesktop'
 }
 else {
     Add-Item 'OK' 'Docker' (Get-FirstLine $r.Text)
@@ -230,12 +207,7 @@ else {
     else { Add-Item 'WARN' 'Google Cloud sign-in' 'no signed-in account' 'gcloud auth login   and   gcloud auth application-default login   (your own company account)' }
     $p = Invoke-Tool 'gcloud' @('config', 'get-value', 'project')
     $proj = (Get-FirstLine $p.Text)
-    if ($proj -and $proj -notmatch '^\(unset\)$' -and $p.Code -eq 0) {
-        $expected = if ($repoRoot) { Get-EnvFileValue (Join-Path $repoRoot '.env') 'GCP_PROJECT_ID' } else { '' }
-        if ($expected -and $expected -ne $proj) { Add-Item 'WARN' 'Google Cloud project' ('active ' + $proj + '; .env expects ' + $expected) ('gcloud config set project ' + $expected) }
-        elseif (-not $expected) { Add-Item 'INFO' 'Google Cloud project' ($proj + ' (VisionIQ project ID not yet configured in .env)') }
-        else { Add-Item 'OK' 'Google Cloud project' $proj }
-    }
+    if ($proj -and $proj -notmatch '^\(unset\)$' -and $p.Code -eq 0) { Add-Item 'OK' 'Google Cloud project' $proj }
     else { Add-Item 'WARN' 'Google Cloud project' 'not set' 'Ask the team for the project ID, then: gcloud config set project <PROJECT_ID>' }
 }
 
@@ -255,22 +227,13 @@ else {
             Add-Item 'FIX' '.env file' 'saved as ".env.txt" (Windows added .txt)' 'Inside the project folder run: Rename-Item .env.txt .env'
         }
         else {
-            $template = Join-Path $repoRoot '.env.example'
-            if (Test-Path $template) {
-                if ($Install) {
-                    Copy-Item -LiteralPath $template -Destination $envFile -ErrorAction Stop
-                    Add-Item 'OK' '.env file' 'created from .env.example; edit local values before starting Docker'
-                    Add-Item 'FIX' 'DB_LOCAL_PASSWORD' 'not configured' 'Open .env and enter your own nonempty local database password. Do not share it.'
-                } else {
-                    Add-Item 'FIX' '.env file' 'not found' 'Run with -Install to create .env from .env.example, or run: Copy-Item .env.example .env'
-                }
-            } else { Add-Item 'FIX' '.env template' '.env.example not found' 'Restore .env.example from the repository before continuing.' }
+            Add-Item 'FIX' '.env file' 'not found' 'Copy the .env file from the team lead into the project folder (named exactly .env).'
         }
     }
     else {
         Add-Item 'OK' '.env file' 'exists'
         if (Get-EnvFileValue $envFile 'DB_LOCAL_PASSWORD') { Add-Item 'OK' 'DB_LOCAL_PASSWORD' 'is set' }
-        else { Add-Item 'FIX' 'DB_LOCAL_PASSWORD' 'empty in .env' 'Open .env and set a strong password for your own local Docker database.' }
+        else { Add-Item 'FIX' 'DB_LOCAL_PASSWORD' 'empty in .env' 'Open .env and set any password (it only protects your own machine).' }
         $tgt = Get-EnvFileValue $envFile 'DB_TARGET'
         if ($tgt) {
             $hostName = Get-EnvFileValue $envFile 'DB_HOST'
@@ -310,10 +273,9 @@ if ($Install) {
         foreach ($m in $installable) {
             $ans = Read-Host ('Install ' + $m.Name + ' with winget now? (y/N)')
             if ($ans -match '^(y|yes)$') {
-                if ($m.WingetId -eq 'Docker.DockerDesktop') { Write-Host 'Docker Desktop includes Docker Engine and Compose. Windows may require WSL 2, administrator approval, restart, and starting Docker Desktop manually.' -ForegroundColor Yellow }
+                if ($m.WingetId -eq 'Docker.DockerDesktop') { Write-Host 'Docker Desktop needs administrator rights and usually a restart.' -ForegroundColor Yellow }
                 & winget install --id $m.WingetId -e --accept-source-agreements --accept-package-agreements
-                if ($LASTEXITCODE -eq 0) { Write-Host ('Install command completed for ' + $m.Name) -ForegroundColor Green; $did++ }
-                else { Write-Host ('Install failed or was cancelled for ' + $m.Name + '; review winget output.') -ForegroundColor Red }
+                $did++
             }
             else { Write-Host ('Skipped ' + $m.Name) -ForegroundColor DarkGray }
         }
@@ -325,8 +287,8 @@ elseif ($missing.Count -gt 0) {
 }
 
 if (($missing.Count + $fixes.Count) -eq 0) {
-    if ($warns.Count -gt 0) { Write-Host 'Prerequisite checks passed with warnings; resolve these before the relevant integration tests.' -ForegroundColor Yellow }
-    else { Write-Host 'Prerequisite checks passed. Application build, tests and cloud resource setup require separate validation.' -ForegroundColor Green }
+    if ($warns.Count -gt 0) { Write-Host 'Ready. The warnings are things to finish before Part B or cloud work.' -ForegroundColor Green }
+    else { Write-Host 'Ready. Nothing else to do.' -ForegroundColor Green }
     exit 0
 }
 Write-Host 'Not ready yet. Work through the [MISSING] and [FIX] lines, then run this check again.' -ForegroundColor Red

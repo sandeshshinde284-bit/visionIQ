@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{09C8122D-09DA-4D4B-912E-C17CC7FE7411}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionIQ.Api", "src\VisionIQ.Api\VisionIQ.Api.csproj", "{873BE1E4-44AE-4FE3-BFEF-C9470FBEA57A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{E0BD1986-1F13-4324-BE4B-10C732A028B0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionIQ.Api.Tests", "tests\VisionIQ.Api.Tests\VisionIQ.Api.Tests.csproj", "{D509D91F-55B2-49B3-85DC-A52B5F347BF6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{873BE1E4-44AE-4FE3-BFEF-C9470FBEA57A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{873BE1E4-44AE-4FE3-BFEF-C9470FBEA57A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{873BE1E4-44AE-4FE3-BFEF-C9470FBEA57A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{873BE1E4-44AE-4FE3-BFEF-C9470FBEA57A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D509D91F-55B2-49B3-85DC-A52B5F347BF6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D509D91F-55B2-49B3-85DC-A52B5F347BF6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D509D91F-55B2-49B3-85DC-A52B5F347BF6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D509D91F-55B2-49B3-85DC-A52B5F347BF6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{873BE1E4-44AE-4FE3-BFEF-C9470FBEA57A} = {09C8122D-09DA-4D4B-912E-C17CC7FE7411}
+		{D509D91F-55B2-49B3-85DC-A52B5F347BF6} = {E0BD1986-1F13-4324-BE4B-10C732A028B0}
+	EndGlobalSection
+EndGlobal

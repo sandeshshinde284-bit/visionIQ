@@ -1,0 +1,30 @@
+# Keep secrets, local artifacts and everything the images do not need out of the build context.
+.git
+.github
+.claude
+.vs
+.vscode
+.idea
+
+# Secrets and local configuration. The example file is not needed in an image either.
+**/.env
+**/.env.*
+
+# Build output and caches
+**/bin
+**/obj
+**/.venv
+**/venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+**/TestResults
+
+# Not part of any image
+tests
+db
+scripts
+docs
+*.md
+VisionIQ.sln
