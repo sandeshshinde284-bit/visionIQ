@@ -1,0 +1,51 @@
+# VisionIQ — Python service runtime dependencies
+# Scope: v1.11 hybrid architecture (.NET API + Python AI service)
+# Python: 3.11+ recommended; verify the team's exact Python version in FND-02.
+# This is the full PLANNED direct-dependency baseline, not a tested lockfile.
+# Do not commit generated .venv folders or credentials.
+
+# REST API, validation, configuration, and HTTP clients
+fastapi
+uvicorn[standard]
+pydantic-settings
+httpx
+
+# AI providers: Gemini through Vertex AI, and Anthropic Claude
+# Use google-genai for new Gemini / Vertex AI implementations.
+google-genai
+anthropic
+
+# Persistence: only required if Python accesses PostgreSQL directly.
+# Keep migrations in one owner/service; do not independently migrate
+# the same schema from both .NET and Python.
+sqlalchemy
+psycopg[binary]
+
+# Retrieval, similarity scoring, and graph/dependency analysis
+# Vector indexing/search is provided by PostgreSQL + pgvector on the DB side.
+numpy
+networkx
+
+# Google Cloud integrations anticipated by the v1.11 design
+# Add only the libraries for Cloud services actually used by Python.
+google-cloud-storage
+google-cloud-secret-manager
+google-cloud-logging
+
+# Operational reliability and observability
+tenacity
+structlog
+
+# Testing and linting (kept in this single requirements file on purpose)
+pytest
+pytest-asyncio
+pytest-cov
+ruff
+
+# Packages NOT included by default:
+# - alembic: include only if Python is responsible for DB migrations
+# - apscheduler: include only if jobs run in the Python process
+# - google-cloud-pubsub: include only if Pub/Sub is adopted
+# - tree-sitter, langchain, llama-index: only if implementation requires them
+# - pgvector Python package: only if ORM vector column mappings require it
+# - python-dotenv: pydantic-settings already supports .env configuration

@@ -1,0 +1,27 @@
+# Local development database: PostgreSQL with pgvector.
+# Start:  docker compose up -d postgres
+# Needs DB_LOCAL_PASSWORD in your .env (see .env.example).
+# This container always uses the DB_LOCAL_* settings, whichever target ./scripts/use-db.ps1 has selected.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: visioniq-postgres
+    environment:
+      POSTGRES_DB: ${DB_LOCAL_NAME:-visioniq}
+      POSTGRES_USER: ${DB_LOCAL_USER:-visioniq}
+      POSTGRES_PASSWORD: ${DB_LOCAL_PASSWORD:?Set DB_LOCAL_PASSWORD in .env}
+    ports:
+      - "${DB_LOCAL_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, when the data volume is first created.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_LOCAL_USER:-visioniq} -d ${DB_LOCAL_NAME:-visioniq}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+

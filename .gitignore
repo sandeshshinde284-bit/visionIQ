@@ -1,0 +1,69 @@
+# ---------- Claude Code (personal overrides) ----------
+.claude/settings.local.json
+
+# ---------- Secrets and environment ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+service-account*.json
+credentials.json
+*.tfvars
+!*.tfvars.example
+
+# ---------- .NET / Visual Studio ----------
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.nupkg
+publish/
+TestResults/
+[Dd]ebug/
+[Rr]elease/
+*.log
+.nuget/
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version.local
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+
+# ---------- Editors and IDEs ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.swp
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Terraform ----------
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# ---------- Local data ----------
+pgdata/
+.docker-data/
