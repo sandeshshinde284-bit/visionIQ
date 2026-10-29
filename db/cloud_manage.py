@@ -63,8 +63,13 @@ class CloudConfig(LocalConfig):
         if self.db_cloud_name in ("", "postgres", "template0", "template1"):
             raise ValueError("DB_CLOUD_NAME must be a dedicated application database.")
         users = (self.db_cloud_user, self.db_api_user, self.db_intelligence_user)
+        # The existing Cloud SQL login may be mixed-case, e.g. "visionIQ".
+        # Only runtime role names follow our lowercase naming convention.
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.db_cloud_user):
+            raise ValueError("Invalid Cloud SQL administrator username.")
+        runtime_users = (self.db_api_user, self.db_intelligence_user)
         if len(set(users)) != 3 or any(
-            not re.fullmatch(r"[a-z_][a-z0-9_]*", name) for name in users
+            not re.fullmatch(r"[a-z_][a-z0-9_]*", name) for name in runtime_users
         ):
             raise ValueError("Provide three distinct, valid PostgreSQL account names.")
         passwords = (
