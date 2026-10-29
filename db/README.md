@@ -1,35 +1,45 @@
-# Database
+# VisionIQ Database Foundation
 
-PostgreSQL with pgvector. Local development uses Docker; the shared development database is Cloud SQL.
-The same migrations run against both.
+PostgreSQL 16 plus pgvector. Python SQLAlchemy and Alembic provide the single schema migration system. The .NET service does not require EF Core solely for schema migrations.
 
-## Local
+| Schema | Runtime writer | Other runtime |
+| --- | --- | --- |
+| workflow | .NET API | read-only |
+| evidence | .NET API/ingestor | read-only |
+| knowledge | Python Intelligence | read-only |
 
-1. Copy `.env.example` to `.env` and set `DB_LOCAL_PASSWORD` (any password, it is only for your machine).
-2. `docker compose up -d postgres`
-3. `docker compose ps` shows the container as healthy.
-4. `./scripts/use-db.ps1 local` points the services at it.
+All schema objects are created by a separate admin/migration identity. Runtime identities do not have CREATE permission. Future business-table migrations are added to the same Alembic chain with explicit schema qualification.
 
-Start over with a clean local database (local only, this deletes its data): `docker compose down -v`
+## Local setup
 
-## Cloud SQL (development database)
+1. Copy .env.example to .env if necessary. Set DB_LOCAL_PASSWORD, DB_API_PASSWORD and DB_INTELLIGENCE_PASSWORD to three different nonempty secrets. Do not change DB_LOCAL_PASSWORD on an existing volume unless you also rotate the actual PostgreSQL password.
+2. Run: powershell -ExecutionPolicy Bypass -File .\scripts\use-db.ps1 local
+3. Run: docker compose up --build -d
+4. Run: docker compose ps -a
+5. Check logs: docker compose logs --tail=100 db-migrate postgres
 
-1. Set `DB_CLOUD_INSTANCE`, `DB_CLOUD_NAME`, `DB_CLOUD_USER` and `DB_CLOUD_PASSWORD` in `.env`.
-2. `gcloud auth application-default login` (your own Google account).
-3. In a separate terminal, start the Cloud SQL Auth Proxy: `cloud-sql-proxy --port 5433 <project:region:instance>`
-4. `./scripts/use-db.ps1 cloud` points the services at `localhost:5433`. It asks for confirmation first.
+The one-shot db-migrate container runs after PostgreSQL becomes healthy and before the API containers start. It applies Alembic migrations, creates/updates runtime roles, grants table/sequence permissions and tests permitted and rejected writes. It is rerunnable on an existing volume. Do NOT delete Docker volumes to apply migrations.
 
-Rules for the cloud database: never run destructive migrations or reset scripts against it, and never
-point every laptop at the demo database. Use a separate development database.
+## Running migrations directly
 
-## Switching
+From the repository root after installing root requirements.txt and configuring the local .env:
 
-`./scripts/use-db.ps1 local` or `./scripts/use-db.ps1 cloud` rewrites `DB_TARGET`, `DB_HOST`, `DB_PORT`,
-`DB_NAME`, `DB_USER`, `DB_PASSWORD` and `DB_SSL_MODE` in `.env`. The services only read those variables,
-so they do not need to know which database they are talking to.
+    python -m db.manage migrate
+    python -m db.manage roles
+    python -m db.manage verify
 
-## Schemas and migrations
+Or run all steps: python -m db.manage all
 
-`workflow`, `evidence` and `knowledge`, each written only by its owning service (proposed in FND-03,
-decision D07). The first two are managed from .NET (EF Core), `knowledge` from Python (Alembic).
-`db/init/01-extensions-and-schemas.sql` creates the extension and the empty schemas on first start.
+To inspect migration history: python -m alembic -c db/alembic.ini history
+
+To opt into the real PostgreSQL pytest role test:
+
+    $env:VISIONIQ_DB_INTEGRATION = '1'
+    .\.venv\Scripts\python.exe -m pytest tests/intelligence/test_database_foundation.py
+    Remove-Item Env:\VISIONIQ_DB_INTEGRATION
+
+Existing db/init SQL only executes on a brand-new Docker volume. Alembic is used for subsequent revisions; the first migration is safe when the three schemas and vector extension already exist.
+
+## Security and scope
+
+DB_LOCAL_USER remains the local database owner/admin; do not pass its password to the .NET or Python runtime containers. Database roles are independent and have SELECT on every service schema, but INSERT/UPDATE/DELETE only on owned schemas. Default grants apply to future objects created by DB_LOCAL_USER. Cloud SQL/Google Cloud IAM, Cloud SQL roles and deployment are not configured by this local-only command; coordinate them with FND-04. DB_TARGET=cloud is intentionally refused.

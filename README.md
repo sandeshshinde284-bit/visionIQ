@@ -21,9 +21,9 @@ backed by PostgreSQL with pgvector. Cloud deployment (Google Cloud) comes later.
 ## Run locally (Windows PowerShell, repository root)
 
 1. Check your machine: `powershell -ExecutionPolicy Bypass -File .\scripts\check-env.ps1`
-2. Create `.env` from `.env.example` and set `DB_LOCAL_PASSWORD` (never commit `.env`).
+2. Create `.env` from `.env.example` and set distinct `DB_LOCAL_PASSWORD`, `DB_API_PASSWORD` and `DB_INTELLIGENCE_PASSWORD` (never commit `.env`).
 3. Select the local database: `powershell -ExecutionPolicy Bypass -File .\scripts\use-db.ps1 local`
-4. Start everything: `docker compose up --build -d`
+4. Start everything (including one-time migration/role bootstrap): `docker compose up --build -d`
 5. Check both services: `http://localhost:5100/health` and `http://localhost:8000/health`
 
 Each service can also run on the host without Docker (the database still runs in Docker):
@@ -35,6 +35,10 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 # .NET (from the repository root)
 dotnet run --project src/VisionIQ.Api
 ```
+
+## Database foundation
+
+SQLAlchemy/Alembic handles database migrations, with PostgreSQL enforcing separate .NET and Python runtime permissions. See [db/README.md](db/README.md). The bootstrap supports existing local volumes without deleting data. Cloud SQL provisioning is deferred to the approved cloud infrastructure story.
 
 ## Checks
 

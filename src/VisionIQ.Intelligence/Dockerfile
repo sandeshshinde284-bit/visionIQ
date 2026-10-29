@@ -17,6 +17,7 @@ COPY requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
 COPY src/VisionIQ.Intelligence/app ./app
+COPY db ./db
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 appuser

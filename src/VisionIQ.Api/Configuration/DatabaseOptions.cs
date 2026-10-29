@@ -20,8 +20,10 @@ public sealed record DatabaseOptions(
             Host: ValueOrDefault(configuration["DB_HOST"], "localhost"),
             Port: ParsePort(configuration["DB_PORT"]),
             Name: ValueOrDefault(configuration["DB_NAME"], "visioniq"),
-            User: ValueOrDefault(configuration["DB_USER"], "visioniq"),
-            Password: string.IsNullOrWhiteSpace(configuration["DB_PASSWORD"]) ? null : configuration["DB_PASSWORD"],
+            User: ValueOrDefault(configuration["DB_API_USER"], ValueOrDefault(configuration["DB_USER"], "visioniq_api")),
+            Password: string.IsNullOrWhiteSpace(configuration["DB_API_PASSWORD"])
+                ? configuration["DB_PASSWORD"]
+                : configuration["DB_API_PASSWORD"],
             SslMode: ValueOrDefault(configuration["DB_SSL_MODE"], "disable"));
     }
 

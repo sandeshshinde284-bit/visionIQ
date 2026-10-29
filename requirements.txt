@@ -19,6 +19,7 @@ anthropic
 # Keep migrations in one owner/service; do not independently migrate
 # the same schema from both .NET and Python.
 sqlalchemy
+alembic>=1.16,<2
 psycopg[binary]
 
 # Retrieval, similarity scoring, and graph/dependency analysis

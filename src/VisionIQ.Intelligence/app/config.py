@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     db_user: str = "visioniq"
     db_password: SecretStr | None = None
     db_ssl_mode: SslMode = "disable"
+    db_intelligence_user: str | None = None
+    db_intelligence_password: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def prefer_runtime_role(self) -> "Settings":
+        # Shared host .env may contain admin DB_* credentials for Alembic.
+        if self.db_intelligence_user and self.db_intelligence_password:
+            self.db_user = self.db_intelligence_user
+            self.db_password = self.db_intelligence_password
+        return self
 
     @field_validator("app_env", "db_ssl_mode", mode="before")
     @classmethod
