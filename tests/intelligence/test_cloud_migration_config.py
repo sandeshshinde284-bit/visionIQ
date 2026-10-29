@@ -32,6 +32,12 @@ def test_approved_cloud_configuration():
     assert "cloud-admin-secret" not in str(settings.url())
 
 
+def test_existing_mixed_case_cloud_admin_username():
+    settings = make_config(db_cloud_user="visionIQ")
+    settings.check()
+    assert settings.url().username == "visionIQ"
+
+
 @pytest.mark.parametrize("changed", [
     {"db_target": "local"},
     {"db_host": "127.0.0.1"},
