@@ -12,6 +12,8 @@ import argparse
 import ipaddress
 import os
 import re
+import socket
+import time
 from typing import Literal
 
 import psycopg
@@ -122,6 +124,48 @@ class CloudConfig(LocalConfig):
         )
 
 
+def wait_for_private_database(
+    host: str,
+    port: int,
+    *,
+    timeout_seconds: float = 180,
+    probe_timeout_seconds: float = 5,
+    interval_seconds: float = 5,
+) -> None:
+    """Wait for Direct VPC egress to become usable before modifying Cloud SQL.
+
+    Cloud Run Direct VPC egress can take a minute or more to become available.
+    A TCP check distinguishes startup/routing failures from authentication or
+    migration errors. Do not log credentials.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            with socket.create_connection((host, port), timeout=probe_timeout_seconds):
+                pass
+            print(
+                f"Cloud SQL TCP endpoint {host}:{port} reachable "
+                f"after {attempt} attempt(s).",
+                flush=True,
+            )
+            return
+        except OSError as error:
+            remaining = deadline - time.monotonic()
+            print(
+                f"Cloud SQL TCP attempt {attempt} failed ({type(error).__name__}); "
+                f"{max(0, round(remaining))}s remaining.",
+                flush=True,
+            )
+            if remaining <= 0:
+                raise RuntimeError(
+                    f"Cloud SQL private TCP endpoint {host}:{port} could not be reached "
+                    f"within {timeout_seconds:g}s. Verify VPC egress and firewall policy."
+                ) from error
+            time.sleep(min(interval_seconds, remaining))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Explicit VisionIQ DEVELOPMENT Cloud SQL migrations")
     parser.add_argument("action", choices=("migrate", "roles", "verify", "all"))
@@ -136,6 +180,8 @@ def main() -> None:
         parser.error("The --instance argument must exactly match DB_CLOUD_INSTANCE.")
     if os.getenv("VISIONIQ_CLOUD_RUN_MIGRATIONS") != "approved":
         parser.error("Set VISIONIQ_CLOUD_RUN_MIGRATIONS=approved explicitly.")
+
+    wait_for_private_database(settings.db_host, settings.db_port)
 
     # The Alembic environment selects CloudConfig only inside this guarded command.
     if args.action in ("migrate", "all"):
