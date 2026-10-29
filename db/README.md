@@ -43,3 +43,20 @@ Existing db/init SQL only executes on a brand-new Docker volume. Alembic is used
 ## Security and scope
 
 DB_LOCAL_USER remains the local database owner/admin; do not pass its password to the .NET or Python runtime containers. Database roles are independent and have SELECT on every service schema, but INSERT/UPDATE/DELETE only on owned schemas. Default grants apply to future objects created by DB_LOCAL_USER. Cloud SQL/Google Cloud IAM, Cloud SQL roles and deployment are not configured by this local-only command; coordinate them with FND-04. DB_TARGET=cloud is intentionally refused.
+
+
+## Cloud SQL development — explicit migration job
+
+Cloud SQL is manually provisioned in the approved project; no Terraform required. The local Docker stack must remain isolated. Cloud SQL migration is a separate Cloud Run Job routed via Direct VPC egress and a regional subnet on the approved project VPC.
+
+Build and publish the Python Intelligence image into an approved Artifact Registry repository. Create a Cloud Run Job (not an API service) in the Cloud SQL region, using that image with the container command:
+
+    python -m db.cloud_manage all --instance PROJECT:REGION:INSTANCE
+
+Use the actual instance connection identifier, never a sample placeholder. Required nonsecret job variables are: DB_TARGET=cloud, DB_CLOUD_INSTANCE, GCP_PROJECT_ID, DB_HOST (Cloud SQL private IP), DB_PORT=5432, DB_CLOUD_NAME (existing app database), DB_CLOUD_USER (existing administrative SQL username), DB_API_USER, DB_INTELLIGENCE_USER and VISIONIQ_CLOUD_RUN_MIGRATIONS=approved. Supply DB_CLOUD_PASSWORD, DB_CLOUD_API_PASSWORD and DB_CLOUD_INTELLIGENCE_PASSWORD as three separate Secret Manager secrets accessible only to the Cloud Run Job identity. Cloud SQL IAM database authentication being enabled does not remove the need for SQL passwords in this version of the migration runner.
+
+The runner refuses local mode, a public/loopback database address, an unexpected project/instance identifier, missing secrets and password reuse. It runs the same Alembic chain and Postgres role/permission checks as local. Migrations are explicit and never run during a normal Docker Compose start. It requires sufficient DB privileges to create schemas, roles and extension objects. TLS is required with sslmode=require; hostname identity verification is a separate security concern for any production hardening.
+
+Expected log messages: Database roles and schema permissions configured. Then: pgvector, full-text search and role isolation verified.
+
+The standard API/Python Cloud Run deployment is a later story. Running this one-off job does not make the two APIs available in Cloud Run.

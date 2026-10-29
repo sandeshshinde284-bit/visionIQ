@@ -2,11 +2,20 @@
 from alembic import context
 from sqlalchemy import create_engine, pool
 from db.manage import LocalConfig
+import os
+
+
+def select_settings():
+    if os.getenv("VISIONIQ_MIGRATION_CONTEXT") == "cloud":
+        from db.cloud_manage import CloudConfig
+        return CloudConfig()
+    return LocalConfig()
+
 
 config = context.config
 
 def upgrade_online() -> None:
-    cfg = LocalConfig()
+    cfg = select_settings()
     cfg.check()
     engine = create_engine(cfg.url(), poolclass=pool.NullPool)
     try:
@@ -22,7 +31,7 @@ def upgrade_online() -> None:
         engine.dispose()
 
 def upgrade_offline() -> None:
-    cfg = LocalConfig()
+    cfg = select_settings()
     cfg.check()
     context.configure(
         url=cfg.url().render_as_string(hide_password=False),
