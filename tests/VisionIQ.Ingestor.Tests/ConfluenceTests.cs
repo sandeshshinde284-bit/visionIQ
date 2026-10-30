@@ -288,7 +288,8 @@ public sealed class ConfluenceTests
         Assert.True(after.IsRestricted);
         Assert.NotEqual(before.Fingerprint, after.Fingerprint);
         Assert.False(ConfluenceAccess.CanView(after, ConfluenceViewer.Create(null, [], ["ENG"])));
-        Assert.Equal(1, second.Count("confluence-pages"));
+        // Changing an ancestor to restricted also withholds its descendants.
+        Assert.Equal(0, second.Count("confluence-pages"));
         Assert.DoesNotContain(second.Items, item => item.Stream == "confluence-pages" && item.Key.Contains("/1000@", StringComparison.Ordinal));
     }
 
