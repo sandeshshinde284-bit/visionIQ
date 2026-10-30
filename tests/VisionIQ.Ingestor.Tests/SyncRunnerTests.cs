@@ -84,6 +84,30 @@ public sealed class SyncRunnerTests
         Assert.Contains("db.manage migrate", result.Reason, StringComparison.Ordinal);
     }
 
+
+    [Fact]
+    public async Task An_omitted_older_work_item_is_partial_and_does_not_advance_checkpoint()
+    {
+        var missing = new FakeAdoHandler()
+            .Json(HttpMethod.Post, "/_apis/wit/wiql", "wiql.json")
+            .Json(HttpMethod.Post, "/_apis/wit/workitemsbatch", "workitems-batch-omitted-id.json")
+            .Json(HttpMethod.Get, "/workItems/1240/revisions", "workitem-1240-revisions.json");
+        var checkpoints = new InMemoryCheckpointStore();
+        var request = new SyncRequest(new HashSet<SyncKind> { SyncKind.WorkItems }, null);
+        var report = await Runner(missing, checkpoints, new MemorySink()).RunAsync(request);
+        var outcome = Assert.Single(report.Streams);
+        Assert.Equal(StreamStatus.Partial, outcome.Status);
+        Assert.Contains("1234", outcome.Reason, StringComparison.Ordinal);
+        Assert.Null(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
+
+        // When the missing source becomes available, a replay must find it.
+        var resumed = new MemorySink();
+        var retry = await Runner(DemoAdo.Server(), checkpoints, resumed).RunAsync(request);
+        Assert.True(retry.AllSynced);
+        Assert.Equal(2, resumed.Count("work-items"));
+        Assert.NotNull(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
+    }
+
     private sealed class BrokenCheckpointStore : ICheckpointStore
     {
         public Task<SyncCheckpoint?> GetAsync(string sourceId, string scope, CancellationToken cancellationToken = default) =>
