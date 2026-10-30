@@ -66,4 +66,7 @@ class ParserRegistry:
 
     def for_path(self, path: str) -> ParserAdapter | None:
         name = path.rsplit("/", maxsplit=1)[-1].lower()
-        return self._by_extension.get("." + name.rsplit(".", maxsplit=1)[-1]) if "." in name else None
+        if "." not in name:
+            return None
+        extension = "." + name.rsplit(".", maxsplit=1)[-1]
+        return self._by_extension.get(extension)
