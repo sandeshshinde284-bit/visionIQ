@@ -9,6 +9,15 @@ public interface IRecordSink
     Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Restricted evidence can only be passed to a trusted sink that archives raw
+/// source material with canonical provenance and fail-closed access metadata.
+/// Plain JSONL never implements this marker.
+/// </summary>
+public interface ICanonicalEvidenceSink : IRecordSink
+{
+}
+
 /// <summary>Writes one JSON object per line per stream (work-items.jsonl, links.jsonl, ...), skipping repeated keys.</summary>
 public sealed class JsonLinesSink : IRecordSink, IDisposable
 {
