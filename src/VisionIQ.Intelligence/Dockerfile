@@ -12,8 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Runtime dependencies only: never install migration tools or copy admin-capable code.
-COPY requirements-runtime.txt ./requirements.txt
+# Shared Python dependencies; the runtime image deliberately excludes db/ migration code.
+COPY requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
 COPY src/VisionIQ.Intelligence/app ./app

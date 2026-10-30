@@ -1,4 +1,0 @@
-pydantic-settings
-sqlalchemy
-alembic>=1.16,<2
-psycopg[binary]

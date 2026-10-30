@@ -35,3 +35,13 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - run: dotnet test VisionIQ.sln --configuration Release
+
+  containers:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Intelligence runtime image
+        run: docker build -f src/VisionIQ.Intelligence/Dockerfile -t visioniq-intelligence:ci .
+      - name: Build migration image
+        run: docker build -f db/Dockerfile -t visioniq-db-migrate:ci .

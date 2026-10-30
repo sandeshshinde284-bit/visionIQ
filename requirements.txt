@@ -1,52 +1,61 @@
-# VisionIQ — Python service runtime dependencies
-# Scope: v1.11 hybrid architecture (.NET API + Python AI service)
-# Python: 3.11+ recommended; verify the team's exact Python version in FND-02.
-# This is the full PLANNED direct-dependency baseline, not a tested lockfile.
-# Do not commit generated .venv folders or credentials.
+# VisionIQ - shared Python dependencies
+# Used by: local development, automated tests, Python Intelligence service,
+# and the database migration job. All install from this ONE requirements.txt.
+# .NET dependencies are managed separately by NuGet (.csproj files).
+# Installing a library does not grant database privileges: keep runtime and
+# migration images, identities, secrets, and database permissions separate.
+# Versions below are not a lockfile; pin/lock before production deployment.
 
-# REST API, validation, configuration, and HTTP clients
+# --- Web API and configuration ---
+# FastAPI: defines HTTP endpoints for the Python Intelligence service.
 fastapi
+# Uvicorn: runs the FastAPI application as an ASGI server.
 uvicorn[standard]
+# Pydantic Settings: validates environment variables and .env configuration.
 pydantic-settings
+# HTTPX: makes asynchronous or synchronous HTTP requests to external APIs.
 httpx
 
-# AI providers: Gemini through Vertex AI, and Anthropic Claude
-# Use google-genai for new Gemini / Vertex AI implementations.
+# --- AI model providers ---
+# Google Gen AI SDK: calls Gemini models through Vertex AI / Google APIs.
 google-genai
+# Anthropic SDK: integrates Claude when that provider is enabled.
 anthropic
 
-# Persistence: only required if Python accesses PostgreSQL directly.
-# Keep migrations in one owner/service; do not independently migrate
-# the same schema from both .NET and Python.
+# --- PostgreSQL persistence and migrations ---
+# SQLAlchemy: builds database connections and ORM/query abstractions.
 sqlalchemy
+# Alembic: runs controlled PostgreSQL schema migrations (migration job only).
 alembic>=1.16,<2
+# Psycopg 3: PostgreSQL driver used by application and migration code.
 psycopg[binary]
 
-# Retrieval, similarity scoring, and graph/dependency analysis
-# Vector indexing/search is provided by PostgreSQL + pgvector on the DB side.
+# --- Analysis and retrieval ---
+# NumPy: numerical operations and similarity/scoring calculations.
 numpy
+# NetworkX: models cross-repository dependency and relationship graphs.
 networkx
 
-# Google Cloud integrations anticipated by the v1.11 design
-# Add only the libraries for Cloud services actually used by Python.
+# --- Google Cloud integration ---
+# Cloud Storage: stores or retrieves approved application artifacts.
 google-cloud-storage
+# Secret Manager: retrieves service secrets when required.
 google-cloud-secret-manager
+# Cloud Logging: sends structured application logs to Google Cloud.
 google-cloud-logging
 
-# Operational reliability and observability
+# --- Reliability and observability ---
+# Tenacity: retries transient failures such as temporary API errors.
 tenacity
+# Structlog: produces structured application logs.
 structlog
 
-# Testing and linting (kept in this single requirements file on purpose)
+# --- Local development and CI checks (also installed in container images) ---
+# Pytest: runs automated Python unit and integration tests.
 pytest
+# Pytest AsyncIO: supports testing asynchronous Python functions.
 pytest-asyncio
+# Pytest Cov: reports test coverage for Python code.
 pytest-cov
+# Ruff: checks Python lint rules and formatting consistency.
 ruff
-
-# Packages NOT included by default:
-# - alembic: include only if Python is responsible for DB migrations
-# - apscheduler: include only if jobs run in the Python process
-# - google-cloud-pubsub: include only if Pub/Sub is adopted
-# - tree-sitter, langchain, llama-index: only if implementation requires them
-# - pgvector Python package: only if ORM vector column mappings require it
-# - python-dotenv: pydantic-settings already supports .env configuration
