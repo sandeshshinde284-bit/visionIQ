@@ -29,7 +29,8 @@ class PythonAstAdapter:
         calls: list[CallReference] = []
 
         class Walker(ast.NodeVisitor):
-            scope: list[str] = []
+            def __init__(self) -> None:
+                self.scope: list[str] = []
 
             def _symbol(self, node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> None:
                 qualified = ".".join([*self.scope, node.name])
@@ -89,8 +90,8 @@ class CSharpTreeSitterAdapter:
     capabilities = frozenset({"symbols", "namespace_imports", "lexical_calls"})
 
     def parse(self, path: str, content: str) -> ParserResult:
-        from tree_sitter import Language, Parser
         import tree_sitter_c_sharp
+        from tree_sitter import Language, Parser
 
         raw = content.encode("utf-8")
         tree = Parser(Language(tree_sitter_c_sharp.language())).parse(raw)
