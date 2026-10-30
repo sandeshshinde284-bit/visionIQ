@@ -92,6 +92,12 @@ jobs:
           DB_HOST: "127.0.0.1"
           DB_NAME: "visioniq"
         run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~EvidenceDatabaseIntegrationTests"
+      - name: Verify LRN-05 inbox lease and replay on PostgreSQL
+        env:
+          VISIONIQ_CHANGE_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~SourceChangeDatabaseIntegrationTests"
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
