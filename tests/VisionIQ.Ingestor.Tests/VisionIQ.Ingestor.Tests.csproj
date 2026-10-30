@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VisionIQ.Ingestor\VisionIQ.Ingestor.csproj" />
+    <ProjectReference Include="..\..\src\VisionIQ.Ingestor.Cli\VisionIQ.Ingestor.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>
