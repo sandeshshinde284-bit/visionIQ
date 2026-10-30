@@ -169,7 +169,7 @@ public sealed class SyncRunner
                     }
                 }
 
-                result.Links += await WriteLinksAsync(LinkExtractor.FromWorkItem(record), cancellationToken).ConfigureAwait(false);
+                result.Links += await WriteLinksAsync(project, LinkExtractor.FromWorkItem(record), cancellationToken).ConfigureAwait(false);
                 result.Records++;
                 written.Add((record.ChangedDate, Text(record.Id)));
             }
@@ -224,7 +224,7 @@ public sealed class SyncRunner
                 var enriched = await repositories.EnrichAsync(project, repository, pullRequest, cancellationToken).ConfigureAwait(false);
                 var version = enriched.Status + "@" + Stamp(enriched.LastActivity);
                 await sink.WriteAsync("pull-requests", Key(project, "pull-request", Text(enriched.Id), version), enriched, cancellationToken).ConfigureAwait(false);
-                result.Links += await WriteLinksAsync(LinkExtractor.FromPullRequest(enriched), cancellationToken).ConfigureAwait(false);
+                result.Links += await WriteLinksAsync(project, LinkExtractor.FromPullRequest(enriched), cancellationToken).ConfigureAwait(false);
                 result.Records++;
                 written.Add((enriched.LastActivity, Text(enriched.Id)));
             }
@@ -263,7 +263,7 @@ public sealed class SyncRunner
             {
                 var enriched = await commits.EnrichAsync(project, repository, commit, cancellationToken).ConfigureAwait(false);
                 await sink.WriteAsync("commits", Key(project, "commit", enriched.CommitId, null), enriched, cancellationToken).ConfigureAwait(false);
-                result.Links += await WriteLinksAsync(LinkExtractor.FromCommit(enriched), cancellationToken).ConfigureAwait(false);
+                result.Links += await WriteLinksAsync(project, LinkExtractor.FromCommit(enriched), cancellationToken).ConfigureAwait(false);
                 result.Records++;
                 written.Add((enriched.CommitterDate, enriched.CommitId));
             }
@@ -302,7 +302,7 @@ public sealed class SyncRunner
             {
                 var enriched = await builds.EnrichAsync(project, build, cancellationToken).ConfigureAwait(false);
                 await sink.WriteAsync("builds", Key(project, "build", Text(enriched.Id), null), enriched, cancellationToken).ConfigureAwait(false);
-                result.Links += await WriteLinksAsync(LinkExtractor.FromBuild(enriched), cancellationToken).ConfigureAwait(false);
+                result.Links += await WriteLinksAsync(project, LinkExtractor.FromBuild(enriched), cancellationToken).ConfigureAwait(false);
                 result.Records++;
                 written.Add((enriched.FinishTime!.Value, Text(enriched.Id)));
             }
@@ -322,11 +322,11 @@ public sealed class SyncRunner
         await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<int> WriteLinksAsync(IReadOnlyList<SourceLink> links, CancellationToken cancellationToken)
+    private async Task<int> WriteLinksAsync(string project, IReadOnlyList<SourceLink> links, CancellationToken cancellationToken)
     {
         foreach (var link in links)
         {
-            await sink.WriteAsync("links", link.Key, link, cancellationToken).ConfigureAwait(false);
+            await sink.WriteAsync("links", Key(project, "link", link.Key, null), link, cancellationToken).ConfigureAwait(false);
         }
 
         return links.Count;
