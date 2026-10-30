@@ -83,9 +83,7 @@ def test_csharp_tree_sitter_golden_symbols() -> None:
     assert ("Worker", "class", 3) in {
         (sym.name, sym.kind, sym.start_line) for sym in result.symbols
     }
-    assert ("Run", "method", 4) in {
-        (sym.name, sym.kind, sym.start_line) for sym in result.symbols
-    }
+    assert ("Run", "method", 4) in {(sym.name, sym.kind, sym.start_line) for sym in result.symbols}
     assert result.imports and "System" in result.imports[0].target
 
 
@@ -108,17 +106,19 @@ def test_dependency_graph_uses_only_committed_explicit_references(tmp_path: Path
     repo = create_repo(tmp_path)
     write(repo, "pkg/__init__.py", "# package\n")
     write(repo, "consumer.py", "from pkg import object\n")
-    write(repo, "service/Service.csproj", (
-        '<Project><ItemGroup><ProjectReference Include="../shared/Shared.csproj" />'
-        "</ItemGroup></Project>"
-    ))
+    write(
+        repo,
+        "service/Service.csproj",
+        (
+            '<Project><ItemGroup><ProjectReference Include="../shared/Shared.csproj" />'
+            "</ItemGroup></Project>"
+        ),
+    )
     write(repo, "shared/Shared.csproj", "<Project />")
     sha = commit(repo, "deps")
     scan = scan_repository(repo, default_parser_registry())
     source = ApprovedRepository("app-project", "https://github.com/example/app", scan)
-    links = resolve_dependencies(
-        source, read_blob=lambda path: read_blob(repo, sha, path)
-    )
+    links = resolve_dependencies(source, read_blob=lambda path: read_blob(repo, sha, path))
     assert any(
         x.kind == "PYTHON_IMPORT"
         and x.target_path == "pkg/__init__.py"
@@ -137,18 +137,12 @@ def test_dependency_graph_uses_only_committed_explicit_references(tmp_path: Path
 def test_cross_repo_association_uses_declared_git_url_only(tmp_path: Path) -> None:
     app = create_repo(tmp_path, "app")
     lib = create_repo(tmp_path, "lib")
-    write(app, "package.json", (
-        '{"dependencies":{"lib":"git+https://github.com/acme/lib.git"}}'
-    ))
+    write(app, "package.json", ('{"dependencies":{"lib":"git+https://github.com/acme/lib.git"}}'))
     write(lib, "index.py", "answer = 42\n")
     app_sha = commit(app, "declare dep")
     commit(lib, "lib")
-    source = ApprovedRepository(
-        "app", "https://github.com/acme/app.git", scan_repository(app)
-    )
-    target = ApprovedRepository(
-        "lib", "https://github.com/acme/lib.git", scan_repository(lib)
-    )
+    source = ApprovedRepository("app", "https://github.com/acme/app.git", scan_repository(app))
+    target = ApprovedRepository("lib", "https://github.com/acme/lib.git", scan_repository(lib))
     links = resolve_dependencies(
         source,
         approved_repositories=(target,),
@@ -171,9 +165,7 @@ def test_no_cross_repo_link_from_similar_name(tmp_path: Path) -> None:
     commit(lib, "lib")
     source = ApprovedRepository("app", "https://github.com/acme/app", scan_repository(app))
     target = ApprovedRepository("lib", "https://github.com/acme/lib", scan_repository(lib))
-    assert resolve_dependencies(
-        source, (target,), read_blob=lambda p: read_blob(app, sha, p)
-    ) == ()
+    assert resolve_dependencies(source, (target,), read_blob=lambda p: read_blob(app, sha, p)) == ()
 
 
 def test_diff_to_symbol_uses_exact_line_overlap(tmp_path: Path) -> None:
