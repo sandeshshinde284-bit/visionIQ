@@ -92,9 +92,7 @@ def map_diff_to_symbols(
         new_lines = _lines(root, head.commit_sha, new_path, max_source_bytes)
         if old_lines is None or new_lines is None:
             results.append(
-                DiffImpact(
-                    base, head.commit_sha, old_path, new_path, change, (), (), "FILE_ONLY"
-                )
+                DiffImpact(base, head.commit_sha, old_path, new_path, change, (), (), "FILE_ONLY")
             )
             continue
         changed: set[int] = set()
