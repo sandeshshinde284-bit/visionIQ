@@ -78,9 +78,7 @@ class PythonAstAdapter:
                 self.generic_visit(node)
 
         Walker().visit(tree)
-        return ParserResult(
-            symbols=tuple(symbols), imports=tuple(imports), calls=tuple(calls)
-        )
+        return ParserResult(symbols=tuple(symbols), imports=tuple(imports), calls=tuple(calls))
 
 
 class CSharpTreeSitterAdapter:
@@ -139,9 +137,7 @@ class CSharpTreeSitterAdapter:
                 if target.startswith("using "):
                     target = target[6:].strip()
                 if target:
-                    imports.append(
-                        ImportReference(target=target, line=node.start_point.row + 1)
-                    )
+                    imports.append(ImportReference(target=target, line=node.start_point.row + 1))
             elif node_type == "invocation_expression":
                 function = node.child_by_field_name("function")
                 if function is not None:
@@ -155,9 +151,7 @@ class CSharpTreeSitterAdapter:
                 walk(child, scope)
 
         walk(tree.root_node, ())
-        return ParserResult(
-            symbols=tuple(symbols), imports=tuple(imports), calls=tuple(calls)
-        )
+        return ParserResult(symbols=tuple(symbols), imports=tuple(imports), calls=tuple(calls))
 
 
 def default_parser_registry() -> ParserRegistry:
