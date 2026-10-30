@@ -90,6 +90,12 @@ jobs:
           DB_HOST: "127.0.0.1"
           DB_NAME: "visioniq"
         run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~EvidenceDatabaseIntegrationTests"
+      - name: Verify LRN-04 reviewed link idempotency against PostgreSQL
+        env:
+          VISIONIQ_TICKET_FIX_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~TicketFixDatabaseIntegrationTests"
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
