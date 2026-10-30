@@ -93,8 +93,21 @@ public sealed class ConfluenceSyncRunner
                 .OrderBy(page => page.LastModified)
                 .ThenBy(page => page.Id, StringComparer.Ordinal);
 
+            var withheld = 0;
             foreach (var page in fresh)
             {
+                var pageAcl = acls[page.Id];
+                // JSONL is not an ACL-aware evidence store. Never write
+                // restricted or unverified page bodies into its files or
+                // downstream search/briefs. ACL fingerprints remain available.
+                // Persist these bodies only after LRN-03 can enforce the
+                // Confluence ancestor-level AND policy.
+                if (!pageAcl.Complete || pageAcl.IsRestricted)
+                {
+                    withheld++;
+                    continue;
+                }
+
                 var enriched = await source.EnrichAsync(page, cancellationToken).ConfigureAwait(false);
                 var normalized = ConfluenceText.Normalize(enriched.StorageBody);
                 var snapshot = new ConfluencePageSnapshot(source.Tenant, space, page.Id, page.Version, page.Title, page.LastModified)
@@ -122,6 +135,11 @@ public sealed class ConfluenceSyncRunner
                 written.Add((page.LastModified, page.Id + "@" + version));
             }
 
+            if (withheld > 0)
+            {
+                Fail(result, $"{withheld} page(s) withheld from JSONL export due to restricted or unknown access. Secure LRN-03 ingestion is required.");
+            }
+
             registry.Register(SourceKind.Confluence, "pages", CapabilityStatus.Supported);
             registry.Register(SourceKind.Confluence, "page-restrictions", CapabilityStatus.Supported);
         }
@@ -130,7 +148,9 @@ public sealed class ConfluenceSyncRunner
             Fail(result, error.Message);
         }
 
-        if (TimeCursor.Advance(cursor, written) is { } next)
+        // A withheld page could become public without a content revision.
+        // Retain the cursor so the next scan can safely reevaluate every page.
+        if (result.Status == StreamStatus.Synced && TimeCursor.Advance(cursor, written) is { } next)
         {
             try
             {
