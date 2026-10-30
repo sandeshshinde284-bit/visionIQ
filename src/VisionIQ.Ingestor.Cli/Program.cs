@@ -73,7 +73,7 @@ var runDirectory = Path.Combine(settings.OutputDirectory, DateTimeOffset.UtcNow.
 Directory.CreateDirectory(runDirectory);
 if (!OperatingSystem.IsWindows())
 {
-    Directory.SetUnixFileMode(runDirectory,
+    File.SetUnixFileMode(runDirectory,
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 }
 Console.WriteLine($"Azure DevOps: {settings.Ado}");
