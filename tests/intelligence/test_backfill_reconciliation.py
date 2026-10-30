@@ -74,9 +74,7 @@ class MemoryQuarantine:
         self.entries: list[tuple[str, str, str, str]] = []
         self.available = available
 
-    async def put(
-        self, source_id: str, native_id: str, revision_id: str, error_code: str
-    ) -> None:
+    async def put(self, source_id: str, native_id: str, revision_id: str, error_code: str) -> None:
         """Record a failure without the source payload."""
         if not self.available:
             raise OSError("unavailable")
@@ -85,7 +83,7 @@ class MemoryQuarantine:
 
 def change(native_id: str, revision: str, cursor: str) -> ChangeRecord:
     """Build a synthetic source change with a sensitive test-only payload."""
-    return ChangeRecord(native_id, revision, cursor, {"body": "SECRET" })
+    return ChangeRecord(native_id, revision, cursor, {"body": "SECRET"})
 
 
 @pytest.mark.asyncio
@@ -105,9 +103,7 @@ async def test_initial_backfill_and_changed_ticket_appear_within_one_sync_cycle(
     assert second.state == SyncState.SYNCED
     assert second.stored == 1
     assert source.received_cursor == "c1"
-    assert writer.seen == {
-        ("ado:project-a", "42", "1"), ("ado:project-a", "42", "2")
-    }
+    assert writer.seen == {("ado:project-a", "42", "1"), ("ado:project-a", "42", "2")}
 
 
 @pytest.mark.asyncio
@@ -115,9 +111,7 @@ async def test_failure_never_advances_checkpoint_beyond_an_older_missing_record(
     """Later successes can be stored but the failed older item must be retried."""
     writer, checkpoints, quarantine = MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine()
     writer.fail_native_ids.add("10")
-    source = FakeSource(
-        "ado:project-b", [change("10", "1", "c1"), change("11", "1", "c2")]
-    )
+    source = FakeSource("ado:project-b", [change("10", "1", "c1"), change("11", "1", "c2")])
     runner = BackfillReconciler(writer, checkpoints, quarantine)
 
     first = await runner.run_one(source)
@@ -141,23 +135,21 @@ async def test_an_unavailable_source_does_not_hide_other_source_success() -> Non
     """Source failure is NOT_SYNCED, not a successful empty history."""
     writer, checkpoints, quarantine = MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine()
     runner = BackfillReconciler(writer, checkpoints, quarantine)
-    outcome = await runner.run_all([
-        FakeSource("ado:project-failed", unavailable=True),
-        FakeSource("ado:project-ok", [change("1", "1", "c1")]),
-    ])
+    outcome = await runner.run_all(
+        [
+            FakeSource("ado:project-failed", unavailable=True),
+            FakeSource("ado:project-ok", [change("1", "1", "c1")]),
+        ]
+    )
     assert not outcome.all_synced
-    assert [item.state for item in outcome.sources] == [
-        SyncState.NOT_SYNCED, SyncState.SYNCED
-    ]
+    assert [item.state for item in outcome.sources] == [SyncState.NOT_SYNCED, SyncState.SYNCED]
     assert len(writer.seen) == 1
 
 
 @pytest.mark.asyncio
 async def test_mismatched_approved_source_count_is_partial() -> None:
     """A source-reported count must agree with the set of fetched changes."""
-    runner = BackfillReconciler(
-        MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine()
-    )
+    runner = BackfillReconciler(MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine())
     output = await runner.run_one(FakeSource("ado:a", [change("1", "1", "a")], 2))
     assert output.state is SyncState.PARTIAL
     assert output.reason_code == "SOURCE_COUNT_MISMATCH"
@@ -168,9 +160,7 @@ async def test_quarantine_unavailable_never_returns_success() -> None:
     """Failure to record a bad source item is an explicit NOT_SYNCED result."""
     writer = MemoryWriter()
     writer.fail_native_ids.add("10")
-    runner = BackfillReconciler(
-        writer, MemoryCheckpoints(), MemoryQuarantine(available=False)
-    )
+    runner = BackfillReconciler(writer, MemoryCheckpoints(), MemoryQuarantine(available=False))
     output = await runner.run_one(FakeSource("ado:p", [change("10", "1", "c1")]))
     assert output.state is SyncState.NOT_SYNCED
     assert output.reason_code == "QUARANTINE_UNAVAILABLE"
@@ -179,8 +169,6 @@ async def test_quarantine_unavailable_never_returns_success() -> None:
 @pytest.mark.asyncio
 async def test_duplicate_source_configuration_is_rejected() -> None:
     """Duplicate approved source identities must not race checkpoint state."""
-    runner = BackfillReconciler(
-        MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine()
-    )
+    runner = BackfillReconciler(MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine())
     with pytest.raises(ValueError, match="only once"):
         await runner.run_all([FakeSource("ado:a"), FakeSource("ado:a")])
