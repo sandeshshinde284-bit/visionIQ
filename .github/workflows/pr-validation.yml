@@ -69,11 +69,13 @@ jobs:
       - name: Assert expected revision and schemas
         run: |
           revision=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT version_num FROM public.alembic_version")
-          test "$revision" = "20261029_0001"
+          test "$revision" = "20261030_0002"
           schemas=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('workflow','evidence','knowledge')")
           test "$schemas" = "3"
           extension=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT extname FROM pg_extension WHERE extname='vector'")
           test "$extension" = "vector"
+          tables=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('source_items','source_revisions')")
+          test "$tables" = "2"
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
