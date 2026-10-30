@@ -1,3 +1,6 @@
+using VisionIQ.Api.Configuration;
+using VisionIQ.Api.Features.Evidence;
+using VisionIQ.Ingestor.Cli;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -29,14 +32,31 @@ if (options.Command == CliCommand.Help)
 }
 
 IngestorSettings settings;
+Dictionary<string, string?> configuration;
 try
 {
-    settings = IngestorSettings.FromValues(EnvFile.LoadMerged(Directory.GetCurrentDirectory()));
+    configuration = EnvFile.LoadMerged(Directory.GetCurrentDirectory());
+    settings = IngestorSettings.FromValues(configuration);
 }
 catch (InvalidOperationException error)
 {
     Console.Error.WriteLine("Configuration problems (check your .env):");
     Console.Error.WriteLine(error.Message);
+    return 1;
+}
+
+var outputMode = configuration.GetValueOrDefault("INGESTION_OUTPUT_MODE")?.Trim().ToLowerInvariant() ?? "jsonl";
+if (outputMode is not ("jsonl" or "canonical"))
+{
+    Console.Error.WriteLine("INGESTION_OUTPUT_MODE must be jsonl or canonical.");
+    return 1;
+}
+
+var canonicalMode = outputMode == "canonical";
+var archiveBucket = configuration.GetValueOrDefault("GCS_EVIDENCE_BUCKET");
+if (canonicalMode && (settings.Database is null || string.IsNullOrWhiteSpace(archiveBucket)))
+{
+    Console.Error.WriteLine("Canonical evidence ingestion requires CHECKPOINT_STORE=postgres and GCS_EVIDENCE_BUCKET.");
     return 1;
 }
 
@@ -51,6 +71,11 @@ using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
 var client = new AdoClient(http, settings.Ado);
 var runDirectory = Path.Combine(settings.OutputDirectory, DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
 Directory.CreateDirectory(runDirectory);
+if (!OperatingSystem.IsWindows())
+{
+    Directory.SetUnixFileMode(runDirectory,
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+}
 Console.WriteLine($"Azure DevOps: {settings.Ado}");
 Console.WriteLine(settings.Confluence is { } confluenceSettings ? $"Confluence: {confluenceSettings}" : "Confluence: not configured");
 var confluenceSource = settings.Confluence is { } configured ? ConfluenceSources.Create(http, configured) : null;
@@ -118,8 +143,29 @@ if (kinds.Contains(SyncKind.Confluence) && confluenceSource is null)
 var request = new SyncRequest(kinds, options.Since ?? settings.Since, options.Full);
 var registry = new SourceCapabilityRegistry();
 var reports = new List<SyncReport>();
-using (var sink = new JsonLinesSink(runDirectory))
+
+// LRN-03 is an opt-in trusted destination. JSONL remains a local export mode
+// with restricted/unverified Confluence bodies excluded by the runner.
+await using var evidenceStore = canonicalMode
+    ? new PostgresEvidenceStore(new DatabaseOptions(
+        settings.Database!.Host,
+        settings.Database.Port,
+        settings.Database.Name,
+        settings.Database.User,
+        settings.Database.Password!,
+        settings.Database.SslMode))
+    : null;
+using (var localSink = new JsonLinesSink(runDirectory))
 {
+    IRecordSink sink = canonicalMode
+        ? new CanonicalEvidenceSink(
+            new EvidenceIngestionService(
+                new CloudStorageEvidenceArchive(archiveBucket), evidenceStore!),
+            settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl)
+        : localSink;
+    Console.WriteLine(canonicalMode
+        ? "Evidence destination: canonical PostgreSQL + immutable Cloud Storage (unverified ACL, no retrieval access)"
+        : "Evidence destination: local JSONL (restricted/unverified Confluence bodies withheld)");
     if (kinds.Overlaps([SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds]))
     {
         reports.Add(await new SyncRunner(client, checkpoints, sink, registry).RunAsync(request));
