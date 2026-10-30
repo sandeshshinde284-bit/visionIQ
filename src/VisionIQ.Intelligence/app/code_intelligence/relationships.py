@@ -66,7 +66,8 @@ def _git_url_candidates(path: str, content: str) -> tuple[str, ...]:
             return tuple(x for x in deps if isinstance(x, str) and "https://" in x)
         if PurePosixPath(path).name.startswith("requirements"):
             return tuple(
-                line.strip() for line in content.splitlines()
+                line.strip()
+                for line in content.splitlines()
                 if "git+https://" in line and not line.lstrip().startswith("#")
             )
     except (ValueError, TypeError, AttributeError, KeyError):
