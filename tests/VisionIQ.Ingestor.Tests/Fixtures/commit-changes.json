@@ -1,0 +1,22 @@
+{
+  "changeCounts": {
+    "Edit": 1
+  },
+  "changes": [
+    {
+      "item": {
+        "path": "/src/Payments/RetryPolicy.cs",
+        "gitObjectType": "blob"
+      },
+      "changeType": "edit"
+    },
+    {
+      "item": {
+        "path": "/src/Payments",
+        "isFolder": true,
+        "gitObjectType": "tree"
+      },
+      "changeType": "edit"
+    }
+  ]
+}

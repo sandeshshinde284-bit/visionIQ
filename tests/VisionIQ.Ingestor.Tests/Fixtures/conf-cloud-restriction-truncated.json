@@ -1,0 +1,26 @@
+{
+  "operation": "read",
+  "restrictions": {
+    "user": {
+      "results": [
+        {
+          "type": "known",
+          "accountId": "a"
+        },
+        {
+          "type": "known",
+          "accountId": "b"
+        }
+      ],
+      "start": 0,
+      "limit": 2,
+      "size": 2
+    },
+    "group": {
+      "results": [],
+      "start": 0,
+      "limit": 2,
+      "size": 0
+    }
+  }
+}

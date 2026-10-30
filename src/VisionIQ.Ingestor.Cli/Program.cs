@@ -1,0 +1,149 @@
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Npgsql;
+using VisionIQ.Ingestor.Ado;
+using VisionIQ.Ingestor.Checkpoints;
+using VisionIQ.Ingestor.Configuration;
+using VisionIQ.Ingestor.Confluence;
+using VisionIQ.Ingestor.Inventory;
+using VisionIQ.Ingestor.Sources;
+using VisionIQ.Ingestor.Sync;
+
+// VisionIQ ingestor (LRN-01). Read-only: it never writes to Azure DevOps.
+// Exit codes: 0 everything synced, 2 something partial or not synced, 1 configuration or usage error.
+
+var options = CommandLine.Parse(args);
+if (options.Error is not null)
+{
+    Console.Error.WriteLine(options.Error);
+    Console.Error.WriteLine();
+    Console.Error.WriteLine(CommandLine.Usage);
+    return 1;
+}
+
+if (options.Command == CliCommand.Help)
+{
+    Console.WriteLine(CommandLine.Usage);
+    return 0;
+}
+
+IngestorSettings settings;
+try
+{
+    settings = IngestorSettings.FromValues(EnvFile.LoadMerged(Directory.GetCurrentDirectory()));
+}
+catch (InvalidOperationException error)
+{
+    Console.Error.WriteLine("Configuration problems (check your .env):");
+    Console.Error.WriteLine(error.Message);
+    return 1;
+}
+
+var json = new JsonSerializerOptions
+{
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    Converters = { new JsonStringEnumConverter() },
+};
+
+using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
+var client = new AdoClient(http, settings.Ado);
+var runDirectory = Path.Combine(settings.OutputDirectory, DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+Directory.CreateDirectory(runDirectory);
+Console.WriteLine($"Azure DevOps: {settings.Ado}");
+Console.WriteLine(settings.Confluence is { } confluenceSettings ? $"Confluence: {confluenceSettings}" : "Confluence: not configured");
+var confluenceSource = settings.Confluence is { } configured ? ConfluenceSources.Create(http, configured) : null;
+
+if (options.Command == CliCommand.Inventory)
+{
+    var inventory = await new InventoryRunner(client).RunAsync();
+    var inventoryPath = Path.Combine(runDirectory, "inventory.json");
+    await File.WriteAllTextAsync(inventoryPath, JsonSerializer.Serialize(inventory, json));
+
+    foreach (var project in inventory.Projects)
+    {
+        var count = project.WorkItems is { } workItems
+            ? workItems.ToString("N0", CultureInfo.InvariantCulture) + (project.WorkItemsCapped ? "+" : string.Empty)
+            : "?";
+        var pipelines = project.PipelineDefinitions?.ToString(CultureInfo.InvariantCulture) ?? "?";
+        Console.WriteLine($"  {project.Name}: {project.Access}; work items {count}; repositories {project.Repositories.Count}; pipelines {pipelines}");
+        foreach (var note in project.Notes)
+        {
+            Console.WriteLine($"    - {note}");
+        }
+    }
+
+    var confluenceReachable = true;
+    if (confluenceSource is not null)
+    {
+        foreach (var space in confluenceSource.SpaceKeys)
+        {
+            try
+            {
+                var pages = await confluenceSource.CountPagesAsync(space);
+                Console.WriteLine($"  Confluence space {space}: ok; pages {pages.ToString("N0", CultureInfo.InvariantCulture)}");
+            }
+            catch (ConfluenceSourceException error)
+            {
+                confluenceReachable = false;
+                Console.WriteLine($"  Confluence space {space}: {(error.IsAccessDenied ? "access denied" : "unreachable")} - {error.Message}");
+            }
+        }
+    }
+
+    Console.WriteLine($"Inventory written to {inventoryPath}");
+    return inventory.AllReachable && confluenceReachable ? 0 : 2;
+}
+
+ICheckpointStore checkpoints = settings.CheckpointStore == CheckpointStoreKind.File
+    ? new FileCheckpointStore(Path.Combine(settings.OutputDirectory, "checkpoints.json"))
+    : new DbCheckpointStore(() => new NpgsqlConnection(settings.Database!.ConnectionString));
+Console.WriteLine(settings.CheckpointStore == CheckpointStoreKind.File
+    ? "Checkpoints: local file"
+    : $"Checkpoints: PostgreSQL {settings.Database}");
+
+var kinds = new HashSet<SyncKind>(options.Kinds);
+if (kinds.Contains(SyncKind.Confluence) && confluenceSource is null)
+{
+    if (options.SourceExplicit)
+    {
+        Console.Error.WriteLine("Confluence is not configured: set CONFLUENCE_BASE_URL, CONFLUENCE_SPACE_KEYS and CONFLUENCE_API_TOKEN in .env.");
+        return 1;
+    }
+
+    kinds.Remove(SyncKind.Confluence);
+}
+
+var request = new SyncRequest(kinds, options.Since ?? settings.Since, options.Full);
+var registry = new SourceCapabilityRegistry();
+var reports = new List<SyncReport>();
+using (var sink = new JsonLinesSink(runDirectory))
+{
+    if (kinds.Overlaps([SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds]))
+    {
+        reports.Add(await new SyncRunner(client, checkpoints, sink, registry).RunAsync(request));
+    }
+
+    if (confluenceSource is not null && kinds.Contains(SyncKind.Confluence))
+    {
+        reports.Add(await new ConfluenceSyncRunner(confluenceSource, checkpoints, sink, registry).RunAsync(request));
+    }
+}
+
+var report = SyncReport.Merge(reports);
+
+await File.WriteAllTextAsync(Path.Combine(runDirectory, "report.json"), JsonSerializer.Serialize(report, json));
+foreach (var stream in report.Streams)
+{
+    var reason = stream.Reason is null ? string.Empty : " - " + stream.Reason;
+    var second = stream.Stream == SyncKind.Confluence ? $"{stream.Links} design decisions" : $"{stream.Links} links";
+    Console.WriteLine($"  [{stream.Status}] {stream.Stream} {stream.Scope}: {stream.Records} records, {second}{reason}");
+    foreach (var note in stream.Notes)
+    {
+        Console.WriteLine($"    - {note}");
+    }
+}
+
+Console.WriteLine($"Output: {runDirectory}");
+return report.AllSynced ? 0 : 2;

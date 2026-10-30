@@ -1,0 +1,14 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "id": 1240,
+      "rev": 3,
+      "fields": {
+        "System.State": "Active",
+        "System.Title": "Show retry budget in brief",
+        "System.ChangedDate": "2026-10-21T09:00:00Z"
+      }
+    }
+  ]
+}

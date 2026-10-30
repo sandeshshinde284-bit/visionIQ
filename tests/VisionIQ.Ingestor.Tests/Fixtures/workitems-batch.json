@@ -1,0 +1,64 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "id": 1234,
+      "rev": 7,
+      "fields": {
+        "System.WorkItemType": "Bug",
+        "System.State": "Resolved",
+        "System.Title": "Retry loop never stops on 503",
+        "System.Tags": "payments; retry",
+        "System.ChangedDate": "2026-10-20T10:15:00Z",
+        "System.CreatedDate": "2026-10-01T08:00:00Z",
+        "System.AreaPath": "Demo\\Payments",
+        "System.Description": "<div>Retries forever</div>"
+      },
+      "relations": [
+        {
+          "rel": "ArtifactLink",
+          "url": "vstfs:///Git/PullRequestId/proj-1%2Frepo-1%2F77",
+          "attributes": {
+            "name": "Pull Request"
+          }
+        },
+        {
+          "rel": "ArtifactLink",
+          "url": "vstfs:///Git/Commit/proj-1%2Frepo-1%2Fa1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0",
+          "attributes": {
+            "name": "Fixed in Commit"
+          }
+        },
+        {
+          "rel": "ArtifactLink",
+          "url": "vstfs:///Build/Build/501",
+          "attributes": {
+            "name": "Build"
+          }
+        },
+        {
+          "rel": "System.LinkTypes.Related",
+          "url": "https://dev.azure.com/contoso/_apis/wit/workItems/1240",
+          "attributes": {
+            "isLocked": false
+          }
+        },
+        {
+          "rel": "Hyperlink",
+          "url": "https://example.com/postmortem",
+          "attributes": {}
+        }
+      ]
+    },
+    {
+      "id": 1240,
+      "rev": 3,
+      "fields": {
+        "System.WorkItemType": "User Story",
+        "System.State": "Active",
+        "System.Title": "Show retry budget in brief",
+        "System.ChangedDate": "2026-10-21T09:00:00Z"
+      }
+    }
+  ]
+}

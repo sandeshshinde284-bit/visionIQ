@@ -1,0 +1,25 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "id": 1234,
+      "rev": 1,
+      "fields": {
+        "System.State": "New",
+        "System.Title": "Retry loop",
+        "System.ChangedDate": "2026-10-01T08:00:00Z",
+        "System.Reason": "New"
+      }
+    },
+    {
+      "id": 1234,
+      "rev": 7,
+      "fields": {
+        "System.State": "Resolved",
+        "System.Title": "Retry loop never stops on 503",
+        "System.ChangedDate": "2026-10-20T10:15:00Z",
+        "System.Reason": "Fixed"
+      }
+    }
+  ]
+}
