@@ -191,7 +191,13 @@ public sealed class SyncRunner
             return;
         }
 
-        await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
+        // Omitted/failed records may be older than the newest successful record.
+        // Never checkpoint beyond an incomplete work-item batch; replay uses the
+        // source revision key and the downstream sink must deduplicate.
+        if (result.Status == StreamStatus.Synced)
+        {
+            await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task SyncPullRequestsAsync(string project, RepositoryRecord repository, SyncRequest request, SyncReport report, CancellationToken cancellationToken)
