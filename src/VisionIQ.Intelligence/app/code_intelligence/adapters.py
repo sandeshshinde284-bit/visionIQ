@@ -1,8 +1,4 @@
-"""Explicit parser contracts. No language has structural support until an adapter is registered.
-
-An adapter's output is evidence, not proof of runtime calls, causality, or complete
-dependency coverage. Unsupported extensions must never produce invented symbols.
-"""
+"""Explicit, versioned parser contracts. Structural findings are source evidence, not causality."""
 
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -14,6 +10,7 @@ class SymbolReference:
     kind: str
     start_line: int
     end_line: int
+    qualified_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,7 +34,7 @@ class ParserResult:
 
 
 class ParserAdapter(Protocol):
-    """Review and test each implementation before registering it."""
+    """Review and test implementations before registering them."""
 
     name: str
     version: str
@@ -49,7 +46,7 @@ class ParserAdapter(Protocol):
 
 @dataclass
 class ParserRegistry:
-    """Only explicitly registered adapters are trusted for structural parsing."""
+    """Only explicitly registered adapters can produce structural evidence."""
 
     _by_extension: dict[str, ParserAdapter] = field(default_factory=dict)
 
