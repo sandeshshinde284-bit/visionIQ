@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/fnd03-sqlalchemy-alembic-local
+      - feature/learn
 
 permissions:
   contents: read
