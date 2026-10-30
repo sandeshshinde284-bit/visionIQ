@@ -44,8 +44,8 @@ those files without provider-specific ACL verification and redaction.
 
 The .NET Ingestor CLI now supports:
 
-```powershell
-# In your private .env or environment; never commit actual passwords or tokens.
+```dotenv
+# Add these entries to your private .env; never commit passwords or tokens.
 INGESTION_OUTPUT_MODE=canonical
 CHECKPOINT_STORE=postgres
 GCS_EVIDENCE_BUCKET=<approved-private-bucket-name>
