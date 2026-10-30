@@ -102,7 +102,7 @@ public sealed class ConfluenceSyncRunner
                 // downstream search/briefs. ACL fingerprints remain available.
                 // Persist these bodies only after LRN-03 can enforce the
                 // Confluence ancestor-level AND policy.
-                if (!pageAcl.Complete || pageAcl.IsRestricted)
+                if ((!pageAcl.Complete || pageAcl.IsRestricted) && sink is not ICanonicalEvidenceSink)
                 {
                     withheld++;
                     continue;
