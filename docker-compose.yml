@@ -28,8 +28,8 @@ services:
     # Runs on both new and existing volumes, before app containers start.
     build:
       context: .
-      dockerfile: src/VisionIQ.Intelligence/Dockerfile
-    image: visioniq-intelligence:local
+      dockerfile: db/Dockerfile
+    image: visioniq-db-migrate:local
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,8 +62,8 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: ${DB_LOCAL_NAME:-visioniq}
-      DB_USER: ${DB_API_USER:-visioniq_api}
-      DB_PASSWORD: ${DB_API_PASSWORD:?Set DB_API_PASSWORD in .env}
+      DB_API_USER: ${DB_API_USER:?Set DB_API_USER in .env}
+      DB_API_PASSWORD: ${DB_API_PASSWORD:?Set DB_API_PASSWORD in .env}
       DB_SSL_MODE: disable
       PYTHON_SERVICE_URL: http://intelligence:8000
     ports:
@@ -91,8 +91,8 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: ${DB_LOCAL_NAME:-visioniq}
-      DB_USER: ${DB_INTELLIGENCE_USER:-visioniq_intelligence}
-      DB_PASSWORD: ${DB_INTELLIGENCE_PASSWORD:?Set DB_INTELLIGENCE_PASSWORD in .env}
+      DB_INTELLIGENCE_USER: ${DB_INTELLIGENCE_USER:?Set DB_INTELLIGENCE_USER in .env}
+      DB_INTELLIGENCE_PASSWORD: ${DB_INTELLIGENCE_PASSWORD:?Set DB_INTELLIGENCE_PASSWORD in .env}
       DB_SSL_MODE: disable
     ports:
       - "8000:8000"

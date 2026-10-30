@@ -12,12 +12,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install dependencies first so this layer is cached until requirements.txt changes.
-COPY requirements.txt ./requirements.txt
+# Runtime dependencies only: never install migration tools or copy admin-capable code.
+COPY requirements-runtime.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
 COPY src/VisionIQ.Intelligence/app ./app
-COPY db ./db
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 appuser

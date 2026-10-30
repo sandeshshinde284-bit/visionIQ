@@ -18,7 +18,12 @@ def _fresh_settings_cache() -> Iterator[None]:
 
 @pytest.fixture
 def test_settings() -> Settings:
-    return Settings(_env_file=None, app_env="test")
+    return Settings(
+        _env_file=None,
+        app_env="test",
+        db_intelligence_user="visioniq_intelligence",
+        db_intelligence_password="test-only-intelligence-password",
+    )
 
 
 @pytest.fixture

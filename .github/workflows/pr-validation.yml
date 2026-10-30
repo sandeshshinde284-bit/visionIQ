@@ -1,0 +1,37 @@
+name: Pull request validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - feature/fnd03-sqlalchemy-alembic-local
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m pytest -q
+        env:
+          PYTHONPATH: src/VisionIQ.Intelligence
+
+  dotnet:
+    name: .NET 10 build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test VisionIQ.sln --configuration Release
