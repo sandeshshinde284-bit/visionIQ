@@ -3,6 +3,7 @@
 Run from the repository root: python -m db.manage all
 Cloud SQL setup is intentionally NOT implemented by this tool.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -83,9 +84,13 @@ class LocalConfig(BaseSettings):
         username, secret = identities[target]
         assert secret is not None
         return psycopg.connect(
-            host=self.db_host, port=self.db_port, dbname=self.db_local_name,
-            user=username, password=secret.get_secret_value(),
-            autocommit=True, connect_timeout=10,
+            host=self.db_host,
+            port=self.db_port,
+            dbname=self.db_local_name,
+            user=username,
+            password=secret.get_secret_value(),
+            autocommit=True,
+            connect_timeout=10,
         )
 
 
@@ -97,86 +102,113 @@ def migrate(settings: LocalConfig) -> None:
 def bootstrap(settings: LocalConfig) -> None:
     """Rerunnable roles/grants, including default privileges on future migration-created tables."""
     settings.check()
-    with settings.connect() as connection:
-        with connection.cursor() as cur:
-            runtime = (
-                (settings.db_api_user, settings.db_api_password),
-                (settings.db_intelligence_user, settings.db_intelligence_password),
-            )
-            for name, password in runtime:
-                assert password is not None
-                cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (name,))
-                action = "CREATE ROLE {} LOGIN PASSWORD {}" if cur.fetchone() is None else (
-                    "ALTER ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD {}"
-                )
-                cur.execute(
-                    sql.SQL(action).format(
-                        sql.Identifier(name), sql.Literal(password.get_secret_value())
-                    )
-                )
-
-            cur.execute(
-                sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(
-                    sql.Identifier(settings.db_local_name)
+    with (
+        settings.connect() as connection,
+        connection.cursor() as cur,
+    ):
+        runtime = (
+            (settings.db_api_user, settings.db_api_password),
+            (settings.db_intelligence_user, settings.db_intelligence_password),
+        )
+        for name, password in runtime:
+            assert password is not None
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (name,))
+            action = (
+                "CREATE ROLE {} LOGIN PASSWORD {}"
+                if cur.fetchone() is None
+                else (
+                    "ALTER ROLE {} LOGIN NOSUPERUSER NOCREATEDB "
+                    "NOCREATEROLE NOREPLICATION PASSWORD {}"
                 )
             )
             cur.execute(
-                sql.SQL("GRANT CONNECT ON DATABASE {} TO {}, {}").format(
-                    sql.Identifier(settings.db_local_name),
-                    sql.Identifier(settings.db_api_user),
-                    sql.Identifier(settings.db_intelligence_user),
+                sql.SQL(action).format(
+                    sql.Identifier(name), sql.Literal(password.get_secret_value())
                 )
             )
-            cur.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC")
-            for name, _ in runtime:
+
+        cur.execute(
+            sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(
+                sql.Identifier(settings.db_local_name)
+            )
+        )
+        cur.execute(
+            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}, {}").format(
+                sql.Identifier(settings.db_local_name),
+                sql.Identifier(settings.db_api_user),
+                sql.Identifier(settings.db_intelligence_user),
+            )
+        )
+        cur.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC")
+        for name, _ in runtime:
+            cur.execute(sql.SQL("REVOKE ALL ON SCHEMA public FROM {}").format(sql.Identifier(name)))
+
+        admin = sql.Identifier(settings.db_local_user)
+        for name in SCHEMAS:
+            schema = sql.Identifier(name)
+            owner_name = (
+                settings.db_intelligence_user if name == "knowledge" else settings.db_api_user
+            )
+            other_name = (
+                settings.db_api_user if name == "knowledge" else settings.db_intelligence_user
+            )
+            owner = sql.Identifier(owner_name)
+            other = sql.Identifier(other_name)
+            cur.execute(sql.SQL("REVOKE ALL ON SCHEMA {} FROM PUBLIC").format(schema))
+            cur.execute(sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA {} FROM PUBLIC").format(schema))
+            cur.execute(
+                sql.SQL("REVOKE ALL ON ALL SEQUENCES IN SCHEMA {} FROM PUBLIC").format(schema)
+            )
+            for role in (owner, other):
+                cur.execute(sql.SQL("REVOKE ALL ON SCHEMA {} FROM {}").format(schema, role))
                 cur.execute(
-                    sql.SQL("REVOKE ALL ON SCHEMA public FROM {}").format(sql.Identifier(name))
+                    sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA {} FROM {}").format(schema, role)
+                )
+                cur.execute(
+                    sql.SQL("REVOKE ALL ON ALL SEQUENCES IN SCHEMA {} FROM {}").format(schema, role)
                 )
 
-            admin = sql.Identifier(settings.db_local_user)
-            for name in SCHEMAS:
-                schema = sql.Identifier(name)
-                owner_name = settings.db_intelligence_user if name == "knowledge" else settings.db_api_user
-                other_name = settings.db_api_user if name == "knowledge" else settings.db_intelligence_user
-                owner = sql.Identifier(owner_name)
-                other = sql.Identifier(other_name)
-                cur.execute(sql.SQL("REVOKE ALL ON SCHEMA {} FROM PUBLIC").format(schema))
-                cur.execute(sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA {} FROM PUBLIC").format(schema))
-                cur.execute(sql.SQL("REVOKE ALL ON ALL SEQUENCES IN SCHEMA {} FROM PUBLIC").format(schema))
-                for role in (owner, other):
-                    cur.execute(sql.SQL("REVOKE ALL ON SCHEMA {} FROM {}").format(schema, role))
-                    cur.execute(sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA {} FROM {}").format(schema, role))
-                    cur.execute(sql.SQL("REVOKE ALL ON ALL SEQUENCES IN SCHEMA {} FROM {}").format(schema, role))
-
-                cur.execute(sql.SQL("GRANT USAGE ON SCHEMA {} TO {}, {}").format(schema, owner, other))
-                cur.execute(sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO {}, {}").format(schema, owner, other))
-                cur.execute(sql.SQL("GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {} TO {}").format(schema, owner))
-                cur.execute(sql.SQL("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA {} TO {}").format(schema, owner))
-                # Defaults apply only to objects later created by the named migration account.
-                cur.execute(
-                    sql.SQL(
-                        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                        "REVOKE INSERT, UPDATE, DELETE ON TABLES FROM {}"
-                    ).format(admin, schema, other)
+            cur.execute(sql.SQL("GRANT USAGE ON SCHEMA {} TO {}, {}").format(schema, owner, other))
+            cur.execute(
+                sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO {}, {}").format(
+                    schema, owner, other
                 )
-                cur.execute(
-                    sql.SQL(
-                        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                        "GRANT SELECT ON TABLES TO {}, {}"
-                    ).format(admin, schema, owner, other)
+            )
+            cur.execute(
+                sql.SQL("GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {} TO {}").format(
+                    schema, owner
                 )
-                cur.execute(
-                    sql.SQL(
-                        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                        "GRANT INSERT, UPDATE, DELETE ON TABLES TO {}"
-                    ).format(admin, schema, owner)
+            )
+            cur.execute(
+                sql.SQL("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA {} TO {}").format(
+                    schema, owner
                 )
-                cur.execute(
-                    sql.SQL(
-                        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                        "GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {}"
-                    ).format(admin, schema, owner)
-                )
+            )
+            # Defaults apply only to objects later created by the named migration account.
+            cur.execute(
+                sql.SQL(
+                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
+                    "REVOKE INSERT, UPDATE, DELETE ON TABLES FROM {}"
+                ).format(admin, schema, other)
+            )
+            cur.execute(
+                sql.SQL(
+                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
+                    "GRANT SELECT ON TABLES TO {}, {}"
+                ).format(admin, schema, owner, other)
+            )
+            cur.execute(
+                sql.SQL(
+                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
+                    "GRANT INSERT, UPDATE, DELETE ON TABLES TO {}"
+                ).format(admin, schema, owner)
+            )
+            cur.execute(
+                sql.SQL(
+                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
+                    "GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {}"
+                ).format(admin, schema, owner)
+            )
     print("Database roles and schema permissions configured.")
 
 
@@ -220,9 +252,7 @@ def verify(settings: LocalConfig) -> None:
                         )
                     for schema in SCHEMAS:
                         user.execute(
-                            sql.SQL("SELECT count(*) FROM {}").format(
-                                sql.Identifier(schema, name)
-                            )
+                            sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(schema, name))
                         ).fetchone()
                     for schema in forbidden:
                         try:
@@ -250,9 +280,7 @@ def verify(settings: LocalConfig) -> None:
         finally:
             for schema in created:
                 admin.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {}").format(
-                        sql.Identifier(schema, name)
-                    )
+                    sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(schema, name))
                 )
     print("pgvector, full-text search and role isolation verified.")
 

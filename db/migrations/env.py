@@ -1,18 +1,22 @@
 """Alembic environment: one controlled migration chain for the three schemas."""
-from alembic import context
-from sqlalchemy import create_engine, pool
-from db.manage import LocalConfig
+
 import os
+
+from alembic import context
+from db.manage import LocalConfig
+from sqlalchemy import create_engine, pool
 
 
 def select_settings():
     if os.getenv("VISIONIQ_MIGRATION_CONTEXT") == "cloud":
         from db.cloud_manage import CloudConfig
+
         return CloudConfig()
     return LocalConfig()
 
 
 config = context.config
+
 
 def upgrade_online() -> None:
     cfg = select_settings()
@@ -30,6 +34,7 @@ def upgrade_online() -> None:
     finally:
         engine.dispose()
 
+
 def upgrade_offline() -> None:
     cfg = select_settings()
     cfg.check()
@@ -41,6 +46,7 @@ def upgrade_offline() -> None:
     )
     with context.begin_transaction():
         context.run_migrations()
+
 
 if context.is_offline_mode():
     upgrade_offline()

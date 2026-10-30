@@ -6,6 +6,7 @@ Never invoked by normal docker compose startup.
 Usage:
   python -m db.cloud_manage all --instance PROJECT:REGION:INSTANCE
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,7 @@ class CloudConfig(LocalConfig):
     db_cloud_intelligence_password: SecretStr | None = None
 
     @model_validator(mode="after")
-    def map_cloud_credentials(self) -> "CloudConfig":
+    def map_cloud_credentials(self) -> CloudConfig:
         # The existing migration/grant functions expect these attribute names.
         # Never fall back to local passwords when running a cloud migration.
         self.db_local_name = self.db_cloud_name
@@ -146,8 +147,7 @@ def wait_for_private_database(
             with socket.create_connection((host, port), timeout=probe_timeout_seconds):
                 pass
             print(
-                f"Cloud SQL TCP endpoint {host}:{port} reachable "
-                f"after {attempt} attempt(s).",
+                f"Cloud SQL TCP endpoint {host}:{port} reachable after {attempt} attempt(s).",
                 flush=True,
             )
             return
@@ -167,10 +167,13 @@ def wait_for_private_database(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Explicit VisionIQ DEVELOPMENT Cloud SQL migrations")
+    parser = argparse.ArgumentParser(
+        description="Explicit VisionIQ DEVELOPMENT Cloud SQL migrations"
+    )
     parser.add_argument("action", choices=("migrate", "roles", "verify", "all"))
     parser.add_argument(
-        "--instance", required=True,
+        "--instance",
+        required=True,
         help="Exact approved PROJECT:REGION:INSTANCE identifier",
     )
     args = parser.parse_args()

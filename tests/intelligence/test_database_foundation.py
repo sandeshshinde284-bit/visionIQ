@@ -1,8 +1,8 @@
 """Isolated unit checks and opt-in real PostgreSQL permission test."""
+
 import os
 
 import pytest
-
 from db.manage import LocalConfig, verify
 
 

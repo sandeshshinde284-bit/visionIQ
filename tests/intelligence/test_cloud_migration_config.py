@@ -1,6 +1,6 @@
 """Offline validation for the guarded, private Cloud SQL migration configuration."""
-import pytest
 
+import pytest
 from db.cloud_manage import CloudConfig
 
 
@@ -38,14 +38,17 @@ def test_existing_mixed_case_cloud_admin_username():
     assert settings.url().username == "visionIQ"
 
 
-@pytest.mark.parametrize("changed", [
-    {"db_target": "local"},
-    {"db_host": "127.0.0.1"},
-    {"db_host": "8.8.8.8"},
-    {"gcp_project_id": "wrong-project"},
-    {"db_cloud_name": "postgres"},
-    {"db_cloud_api_password": "cloud-admin-secret"},
-])
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"db_target": "local"},
+        {"db_host": "127.0.0.1"},
+        {"db_host": "8.8.8.8"},
+        {"gcp_project_id": "wrong-project"},
+        {"db_cloud_name": "postgres"},
+        {"db_cloud_api_password": "cloud-admin-secret"},
+    ],
+)
 def test_rejects_unsafe_cloud_configuration(changed):
     with pytest.raises((ValueError, Exception)):
         make_config(**changed).check()
