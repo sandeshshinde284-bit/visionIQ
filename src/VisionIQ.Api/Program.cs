@@ -1,5 +1,6 @@
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Health;
+using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Api.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,6 +35,13 @@ builder.Services
 
 builder.Services.AddSingleton(services =>
     DatabaseOptions.FromConfiguration(services.GetRequiredService<IConfiguration>()));
+// Ingestion is an internal application service, not an unauthenticated HTTP endpoint.
+builder.Services.AddSingleton<IRawEvidenceArchive>(services =>
+    new CloudStorageEvidenceArchive(
+        services.GetRequiredService<IConfiguration>()["GCS_EVIDENCE_BUCKET"]));
+builder.Services.AddSingleton<IVersionedEvidenceStore>(services =>
+    new PostgresEvidenceStore(services.GetRequiredService<DatabaseOptions>()));
+builder.Services.AddSingleton<EvidenceIngestionService>();
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
