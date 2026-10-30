@@ -70,7 +70,7 @@ jobs:
       - name: Assert expected revision and schemas
         run: |
           revision=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT version_num FROM public.alembic_version")
-          test "$revision" = "20261030_0003"
+          test "$revision" = "20261030_0004"
           schemas=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('workflow','evidence','knowledge')")
           test "$schemas" = "3"
           extension=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT extname FROM pg_extension WHERE extname='vector'")
@@ -79,6 +79,8 @@ jobs:
           test "$tables" = "2"
           checkpoint=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name='connector_checkpoints'")
           test "$checkpoint" = "1"
+          links=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('ticket_fix_links','ticket_fix_reviews')")
+          test "$links" = "2"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
