@@ -1,6 +1,6 @@
-# LRN-03 — Canonical, versioned evidence contract (proposal)
+# LRN-03 — Canonical, versioned evidence contract and implementation
 
-**Status:** Draft interface for LRN-01, LRN-03, LRN-06 integration. **Not an approved schema or completed user story.**
+**Status:** In progress; implementation exists, but story acceptance is not complete.
 
 LRN-03 consumes approved records from source connectors and records them as
 versioned, attributed, permission-aware evidence. It must not invent historical
@@ -14,6 +14,56 @@ links, leak private content, or silently overwrite conflicting revisions.
 
 Cloud Storage and end-to-end access enforcement are **pending FND-04 and LRN-01
 integration**. This proposal alone does not satisfy any acceptance criterion.
+
+## Implementation progress — 30 October 2026
+
+This document started as a design contract. **The following is now
+implemented on the LRN-03 story branch, pending review and integration:**
+
+| Story task | Implementation |
+| --- | --- |
+| S05-01 | `db/migrations/versions/20261030_0002_versioned_evidence.py`: canonical source items and immutable revision rows in `evidence` schema; FND-03 Alembic migration chain |
+| S05-02 | `EvidenceIdentity`: deterministic SHA-256 source keys with length-prefixed provider/instance/project/repository/type/native ID |
+| S05-03 | `CloudStorageEvidenceArchive`: content-addressed raw JSON object upload with generation precondition; requires approved private bucket and workload identity |
+| S05-04 | `EvidenceNormalizer`: conservatively extracts metadata for work-item revisions |
+| S05-05 | `EvidenceNormalizer`: conservatively extracts metadata for pull requests, commits and reviews |
+| S05-06 | `EvidenceNormalizer`: conservatively extracts metadata for CI runs, deployment and incident artifacts |
+| S05-11 | `PostgresEvidenceStore`: transactional source-row lock, immutable native revision/hash conflict detection, latest pointer and replay idempotence |
+
+**API boundary:** `EvidenceIngestionService` is registered internally in
+`Program.cs` and intentionally has no unauthenticated HTTP endpoint.
+A trusted LRN-01/LRN-02 connector must create `EvidenceEnvelope` objects.
+
+**Validation:** .NET unit tests cover identity/collision separation, fail-closed
+ACL, metadata redaction, archive-before-store and archive failure. An opt-in
+real PostgreSQL integration test verifies one source with two immutable
+revisions, duplicate replay and content conflict; CI runs it against an
+isolated local PostgreSQL volume. Cloud Storage itself is not live-tested.
+
+**Privacy:** This implementation deliberately **does not** index free-text
+titles, descriptions or bodies. Only a narrow allowlist of metadata is
+normalized. This prevents unreviewed personal/sensitive text entering
+search until an approved provider-aware redaction process exists.
+`acl_verified=false` retains an empty ACL and no read API is exposed.
+Source-revision ACL enforcement in retrieval is pending the dedicated
+access-aware query layer and current provider-permission reconciliation.
+
+**Still required before story closure:**
+1. Align connectors and field mapping with completed LRN-01/LRN-02 code
+   (not present in the public companion repository yet).
+2. Create an **approved locked-down Cloud Storage bucket** and authorize
+   the runtime service identity; verify immutable raw upload, retry and
+   retention, with no sensitive object names.
+3. Implement audited current-ACL filtered retrieval and permission-change
+   invalidation (an old ACL snapshot must not authorize a newly revoked user).
+4. Approve provider-specific normalization/redaction for any content
+   actually used by retrieval, and test non-leakage.
+5. Verify authorized production-like Cloud SQL migration and credentials
+   after FND-04 permissions are available. No cloud mutation is done here.
+6. Repeat live acceptance using one actual LRN-01 source imported twice
+   with two revisions and verify access control before marking LRN-03 Done.
+
+## Original proposal and invariants
 
 ## Stable canonical identity (LRN-01 provides source metadata)
 
@@ -53,7 +103,7 @@ When the source does not give a revision number, a reviewed revision identity
 rule must be chosen per provider; do not treat `observed_at` as evidence of
 a new provider revision.
 
-## Proposed PostgreSQL model (migration not yet committed)
+## PostgreSQL model (implemented by Alembic revision 20261030_0002)
 
 All writes use the **evidence** schema, owned by the .NET API/ingestor:
 
@@ -67,9 +117,7 @@ All writes use the **evidence** schema, owned by the .NET API/ingestor:
   `CREATED`, `UNCHANGED`, `NEW_REVISION`, `CONFLICT`,
   `NOT_SYNCED`, `PARTIAL`, `FAILED` with correlation ID and counts.
 
-No new tables are being created yet: confirm the shape with the LRN-01
-source-envelope owner to avoid incompatible migrations. Continue to use
-FND-03's *single Alembic migration chain*, not a parallel EF migration system.
+The source and revision tables are committed in the existing Alembic chain. Integration with the LRN-01 source-envelope owner remains subject to review; no parallel EF migrations were created.
 
 ## Ingestion and deduplication invariants
 
@@ -123,9 +171,6 @@ confidence labels. Time proximity alone must never create a confirmed fix link.
 - Archive failure -> retry path, no false ARCHIVED state.
 - LRN-06 Git blob and source SHA -> joins correct immutable revision.
 
-## Non-goals of this first commit
+## Integration boundaries
 
-No Cloud Storage bucket creation; no Google Cloud deployment; no schema
-migration yet; no automatic ingestion from ADO; no source tokens; no approved
-source-envelope changes until integration review. All LRN-03 story and
-acceptance criteria stay **Open**.
+No Cloud Storage bucket creation or Google Cloud deployment; no automatic ingestion from ADO; no source tokens; no unapproved source-envelope changes. All LRN-03 story and acceptance criteria remain **Open** until end-to-end evidence is verified.
