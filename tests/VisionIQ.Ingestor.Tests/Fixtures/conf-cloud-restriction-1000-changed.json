@@ -1,0 +1,23 @@
+{
+  "operation": "read",
+  "restrictions": {
+    "user": {
+      "results": [],
+      "start": 0,
+      "limit": 200,
+      "size": 0
+    },
+    "group": {
+      "results": [
+        {
+          "type": "group",
+          "name": "all-staff",
+          "id": "g-all-staff"
+        }
+      ],
+      "start": 0,
+      "limit": 200,
+      "size": 1
+    }
+  }
+}

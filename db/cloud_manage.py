@@ -1,6 +1,6 @@
 """Cloud SQL DEVELOPMENT migration and schema access verification.
 
-One-shot Cloud Run Job, routed to Cloud SQL private IP through approved VPC connectivity.
+One-shot Cloud Run Job, routed to Cloud SQL private IP through Direct VPC egress.
 Never invoked by normal docker compose startup.
 
 Usage:
@@ -133,9 +133,9 @@ def wait_for_private_database(
     probe_timeout_seconds: float = 5,
     interval_seconds: float = 5,
 ) -> None:
-    """Wait for private VPC connectivity before modifying Cloud SQL.
+    """Wait for Direct VPC egress to become usable before modifying Cloud SQL.
 
-    Private network startup can take time for either VPC connector or direct VPC egress.
+    Cloud Run Direct VPC egress can take a minute or more to become available.
     A TCP check distinguishes startup/routing failures from authentication or
     migration errors. Do not log credentials.
     """

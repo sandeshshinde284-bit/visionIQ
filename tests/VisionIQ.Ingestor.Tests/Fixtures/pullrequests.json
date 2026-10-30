@@ -1,0 +1,34 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "pullRequestId": 77,
+      "status": "completed",
+      "title": "Fix retry loop",
+      "description": "Fixes AB#1234",
+      "sourceRefName": "refs/heads/fix/retry",
+      "targetRefName": "refs/heads/main",
+      "creationDate": "2026-10-18T12:00:00Z",
+      "closedDate": "2026-10-19T16:30:00Z",
+      "createdBy": {
+        "id": "user-guid-1",
+        "displayName": "Not stored"
+      },
+      "lastMergeCommit": {
+        "commitId": "f00dbabe00000000000000000000000000000077"
+      }
+    },
+    {
+      "pullRequestId": 78,
+      "status": "active",
+      "title": "Add retry budget",
+      "creationDate": "2026-10-21T10:00:00Z",
+      "createdBy": {
+        "id": "user-guid-2"
+      },
+      "lastMergeCommit": {
+        "commitId": "0000000000000000000000000000000000000078"
+      }
+    }
+  ]
+}

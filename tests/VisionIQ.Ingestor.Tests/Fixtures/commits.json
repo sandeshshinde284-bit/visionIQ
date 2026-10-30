@@ -1,0 +1,38 @@
+{
+  "count": 3,
+  "value": [
+    {
+      "commitId": "c0ffee0000000000000000000000000000000003",
+      "comment": "Revert \"Stop retrying after budget\"\n\nThis reverts commit a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0.",
+      "commentTruncated": false,
+      "author": {
+        "date": "2026-10-22T08:00:00Z"
+      },
+      "committer": {
+        "date": "2026-10-22T08:00:00Z"
+      }
+    },
+    {
+      "commitId": "f00dbabe00000000000000000000000000000077",
+      "comment": "Merged PR 77: Fix retry loop",
+      "commentTruncated": false,
+      "author": {
+        "date": "2026-10-19T16:30:00Z"
+      },
+      "committer": {
+        "date": "2026-10-19T16:30:00Z"
+      }
+    },
+    {
+      "commitId": "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0",
+      "comment": "Stop retrying after budget #1234",
+      "commentTruncated": true,
+      "author": {
+        "date": "2026-10-18T11:00:00Z"
+      },
+      "committer": {
+        "date": "2026-10-18T11:00:00Z"
+      }
+    }
+  ]
+}

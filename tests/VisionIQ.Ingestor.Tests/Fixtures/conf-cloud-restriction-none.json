@@ -1,0 +1,17 @@
+{
+  "operation": "read",
+  "restrictions": {
+    "user": {
+      "results": [],
+      "start": 0,
+      "limit": 200,
+      "size": 0
+    },
+    "group": {
+      "results": [],
+      "start": 0,
+      "limit": 200,
+      "size": 0
+    }
+  }
+}

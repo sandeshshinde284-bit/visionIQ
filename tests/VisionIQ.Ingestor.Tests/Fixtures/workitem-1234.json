@@ -1,0 +1,11 @@
+{
+  "id": 1234,
+  "rev": 7,
+  "fields": {
+    "System.WorkItemType": "Bug",
+    "System.State": "Active",
+    "System.Title": "Retry loop never stops on 503",
+    "System.Tags": "payments; retry",
+    "System.ChangedDate": "2026-10-20T10:15:00Z"
+  }
+}
