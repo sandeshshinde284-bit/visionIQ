@@ -76,6 +76,15 @@ jobs:
           test "$extension" = "vector"
           tables=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('source_items','source_revisions')")
           test "$tables" = "2"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Verify LRN-03 actual database idempotency and revisions
+        env:
+          VISIONIQ_EVIDENCE_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~EvidenceDatabaseIntegrationTests"
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
