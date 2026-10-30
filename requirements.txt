@@ -36,6 +36,12 @@ numpy
 # NetworkX: models cross-repository dependency and relationship graphs.
 networkx
 
+# --- Approved structural code parsing (LRN-06) ---
+# Tree-sitter parser runtime: used by the optional C# structural adapter.
+tree-sitter==0.26.0
+# Pinned C# grammar. No Roslyn or execution of untrusted source.
+tree-sitter-c-sharp==0.23.5
+
 # --- Google Cloud integration ---
 # Cloud Storage: stores or retrieves approved application artifacts.
 google-cloud-storage
