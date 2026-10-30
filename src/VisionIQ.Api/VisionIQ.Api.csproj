@@ -6,4 +6,9 @@
     <AssemblyName>VisionIQ.Api</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+    <PackageReference Include="Google.Cloud.Storage.V1" Version="4.13.0" />
+  </ItemGroup>
+
 </Project>
