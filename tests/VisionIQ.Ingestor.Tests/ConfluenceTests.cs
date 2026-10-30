@@ -243,14 +243,14 @@ public sealed class ConfluenceTests
         var report = await Runner(DemoConfluence.CloudServer(), new InMemoryCheckpointStore(), sink).RunAsync(Request());
 
         var result = Assert.Single(report.Streams);
-        Assert.Equal(StreamStatus.Synced, result.Status);
-        Assert.Equal(5, sink.Count("confluence-pages"));
+        Assert.Equal(StreamStatus.Partial, result.Status);
+        Assert.Equal(2, sink.Count("confluence-pages"));
         Assert.Equal(5, sink.Count("confluence-acl"));
         Assert.Equal(1, sink.Count("design-decisions"));
         Assert.Contains(result.Notes, note => note.Contains("1 page(s) have unclear permissions", StringComparison.Ordinal));
-        var timeline = Snapshot(sink, "1003");
-        Assert.Equal(new[] { "1002", "1000" }, timeline.AncestorIds);
-        Assert.True(timeline.Acl.IsRestricted);
+        var timelineAcl = Acl(sink, "1003");
+        Assert.True(timelineAcl.IsRestricted);
+        Assert.DoesNotContain(sink.Items, item => item.Stream == "confluence-pages" && item.Key.Contains("/1003@", StringComparison.Ordinal));
         var adr = Snapshot(sink, "1001");
         Assert.Equal(new[] { 1, 2, 3 }, adr.Versions.Select(version => version.Number));
         Assert.Contains(sink.Items, item => item.Key.EndsWith("/page/1001@3", StringComparison.Ordinal));
@@ -265,8 +265,10 @@ public sealed class ConfluenceTests
 
         await Runner(DemoConfluence.CloudServer(), checkpoints, second).RunAsync(Request());
 
-        Assert.Equal(0, second.Count("confluence-pages"));
-        Assert.Equal(0, second.Count("design-decisions"));
+        // Withheld pages leave the checkpoint unchanged, so public data is
+        // re-exported while permissions are rechecked on the next run.
+        Assert.Equal(2, second.Count("confluence-pages"));
+        Assert.Equal(1, second.Count("design-decisions"));
         Assert.Equal(5, second.Count("confluence-acl"));
     }
 
@@ -286,7 +288,8 @@ public sealed class ConfluenceTests
         Assert.True(after.IsRestricted);
         Assert.NotEqual(before.Fingerprint, after.Fingerprint);
         Assert.False(ConfluenceAccess.CanView(after, ConfluenceViewer.Create(null, [], ["ENG"])));
-        Assert.Equal(0, second.Count("confluence-pages"));
+        Assert.Equal(1, second.Count("confluence-pages"));
+        Assert.DoesNotContain(second.Items, item => item.Stream == "confluence-pages" && item.Key.Contains("/1000@", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -309,7 +312,7 @@ public sealed class ConfluenceTests
         var merged = SyncReport.Merge([ado, confluence]);
 
         Assert.Equal(2, merged.Streams.Count);
-        Assert.True(merged.AllSynced);
+        Assert.False(merged.AllSynced);
         Assert.Equal("contoso, contoso.atlassian.net", merged.Tenant);
     }
 
