@@ -32,10 +32,14 @@ builder.Services
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddSingleton(DatabaseOptions.FromConfiguration(builder.Configuration));
+builder.Services.AddSingleton(services =>
+    DatabaseOptions.FromConfiguration(services.GetRequiredService<IConfiguration>()));
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
+
+// Validate runtime database credentials during startup, after test-host configuration is applied.
+_ = app.Services.GetRequiredService<DatabaseOptions>();
 
 app.MapHealthEndpoints();
 

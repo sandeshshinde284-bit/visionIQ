@@ -12,7 +12,12 @@ def test_health_returns_expected_payload(client: TestClient) -> None:
 
 
 def test_health_uses_configured_service_name() -> None:
-    settings = Settings(_env_file=None, service_name="Custom.Name")
+    settings = Settings(
+        _env_file=None,
+        service_name="Custom.Name",
+        db_intelligence_user="visioniq_intelligence",
+        db_intelligence_password="test-only-intelligence-password",
+    )
 
     with TestClient(create_app(settings)) as client:
         assert client.get("/health").json()["service"] == "Custom.Name"

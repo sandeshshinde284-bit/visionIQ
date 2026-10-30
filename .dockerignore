@@ -23,7 +23,6 @@
 
 # Not part of any image
 tests
-db
 scripts
 docs
 *.md

@@ -12,7 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install dependencies first so this layer is cached until requirements.txt changes.
+# Shared Python dependencies; the runtime image deliberately excludes db/ migration code.
 COPY requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 

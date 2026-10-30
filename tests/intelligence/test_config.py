@@ -6,7 +6,12 @@ from app.logging_config import configure_logging
 
 
 def settings(**overrides: object) -> Settings:
-    return Settings(_env_file=None, **overrides)
+    values: dict[str, object] = {
+        "db_intelligence_user": "visioniq_intelligence",
+        "db_intelligence_password": "test-runtime-secret",
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)
 
 
 def test_defaults_match_the_documented_local_setup() -> None:
@@ -14,7 +19,9 @@ def test_defaults_match_the_documented_local_setup() -> None:
 
     assert (s.python_api_host, s.python_api_port) == ("127.0.0.1", 8000)
     assert (s.db_host, s.db_port, s.db_ssl_mode) == ("localhost", 5432, "disable")
-    assert s.db_password is None
+    assert s.db_user == "visioniq_intelligence"
+    assert s.db_password is not None
+    assert s.db_password.get_secret_value() == "test-runtime-secret"
 
 
 def test_environment_variables_override_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,14 +62,29 @@ def test_invalid_values_are_rejected(
         settings()
 
 
-def test_password_is_never_shown_in_text_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DB_PASSWORD", "super-secret-value")
+def test_admin_fallback_credentials_are_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DB_USER", "administrator")
+    monkeypatch.setenv("DB_PASSWORD", "admin-secret-value")
 
     s = settings()
 
+    assert s.db_user == "visioniq_intelligence"
     assert s.db_password is not None
-    assert s.db_password.get_secret_value() == "super-secret-value"
-    assert "super-secret-value" not in repr(s)
+    assert s.db_password.get_secret_value() == "test-runtime-secret"
+    assert "test-runtime-secret" not in repr(s)
+    assert "admin-secret-value" not in repr(s)
+
+
+def test_missing_runtime_password_is_rejected() -> None:
+    s = settings(db_intelligence_password=None, db_password="admin-secret")
+    with pytest.raises(ValueError, match="DB_INTELLIGENCE_PASSWORD"):
+        s.require_runtime_database_identity()
+
+
+def test_missing_runtime_user_is_rejected() -> None:
+    s = settings(db_intelligence_user=None, db_user="administrator")
+    with pytest.raises(ValueError, match="DB_INTELLIGENCE_USER"):
+        s.require_runtime_database_identity()
 
 
 def test_find_env_file_returns_none_when_no_env_exists(tmp_path) -> None:

@@ -19,6 +19,7 @@ from app.logging_config import configure_logging
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup and shutdown hooks. No external provider is contacted here."""
     settings: Settings = app.state.settings
+    settings.require_runtime_database_identity()
     configure_logging(settings.app_log_level)
     log = structlog.get_logger()
     log.info("service_starting", service=settings.service_name, environment=settings.app_env)

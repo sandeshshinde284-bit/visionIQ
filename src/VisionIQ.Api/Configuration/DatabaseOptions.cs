@@ -1,15 +1,15 @@
 namespace VisionIQ.Api.Configuration;
 
 /// <summary>
-/// Database connection settings read from the flat keys shared with the root .env file
-/// (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SSL_MODE).
+/// PostgreSQL runtime connection settings. Only API-specific credentials are accepted;
+/// generic DB_USER/DB_PASSWORD may contain migration administrator credentials.
 /// </summary>
 public sealed record DatabaseOptions(
     string Host,
     int Port,
     string Name,
     string User,
-    string? Password,
+    string Password,
     string SslMode)
 {
     public static DatabaseOptions FromConfiguration(IConfiguration configuration)
@@ -20,8 +20,8 @@ public sealed record DatabaseOptions(
             Host: ValueOrDefault(configuration["DB_HOST"], "localhost"),
             Port: ParsePort(configuration["DB_PORT"]),
             Name: ValueOrDefault(configuration["DB_NAME"], "visioniq"),
-            User: ValueOrDefault(configuration["DB_USER"], "visioniq"),
-            Password: string.IsNullOrWhiteSpace(configuration["DB_PASSWORD"]) ? null : configuration["DB_PASSWORD"],
+            User: Required(configuration["DB_API_USER"], "DB_API_USER"),
+            Password: Required(configuration["DB_API_PASSWORD"], "DB_API_PASSWORD"),
             SslMode: ValueOrDefault(configuration["DB_SSL_MODE"], "disable"));
     }
 
@@ -30,6 +30,11 @@ public sealed record DatabaseOptions(
 
     private static string ValueOrDefault(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+
+    private static string Required(string? value, string key) =>
+        string.IsNullOrWhiteSpace(value)
+            ? throw new InvalidOperationException($"{key} is required for the API runtime identity.")
+            : value.Trim();
 
     private static int ParsePort(string? value)
     {

@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using VisionIQ.Api.Features.Health;
 
 namespace VisionIQ.Api.Tests;
@@ -12,7 +12,16 @@ public sealed class HealthEndpointTests(WebApplicationFactory<Program> factory)
 {
     // "Testing" keeps the repository .env file from being loaded, so results never depend on a developer's machine.
     private readonly WebApplicationFactory<Program> testFactory =
-        factory.WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
+        factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, configuration) =>
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["DB_API_USER"] = "visioniq_api",
+                    ["DB_API_PASSWORD"] = "test-only-api-password",
+                }));
+        });
 
     [Fact]
     public async Task Health_returns_healthy_payload()

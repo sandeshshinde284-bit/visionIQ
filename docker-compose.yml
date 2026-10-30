@@ -24,6 +24,29 @@ services:
       timeout: 3s
       retries: 10
 
+  db-migrate:
+    # Runs on both new and existing volumes, before app containers start.
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    image: visioniq-db-migrate:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_TARGET: local
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_LOCAL_NAME: ${DB_LOCAL_NAME:-visioniq}
+      DB_LOCAL_USER: ${DB_LOCAL_USER:-visioniq}
+      DB_LOCAL_PASSWORD: ${DB_LOCAL_PASSWORD:?Set DB_LOCAL_PASSWORD in .env}
+      DB_API_USER: ${DB_API_USER:-visioniq_api}
+      DB_API_PASSWORD: ${DB_API_PASSWORD:?Set DB_API_PASSWORD in .env}
+      DB_INTELLIGENCE_USER: ${DB_INTELLIGENCE_USER:-visioniq_intelligence}
+      DB_INTELLIGENCE_PASSWORD: ${DB_INTELLIGENCE_PASSWORD:?Set DB_INTELLIGENCE_PASSWORD in .env}
+    command: ["python", "-m", "db.manage", "all"]
+    restart: "no"
+
   api:
     build:
       context: .
@@ -31,16 +54,16 @@ services:
     image: visioniq-api:local
     container_name: visioniq-api
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:5100
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: ${DB_LOCAL_NAME:-visioniq}
-      DB_USER: ${DB_LOCAL_USER:-visioniq}
-      DB_PASSWORD: ${DB_LOCAL_PASSWORD:?Set DB_LOCAL_PASSWORD in .env}
+      DB_API_USER: ${DB_API_USER:?Set DB_API_USER in .env}
+      DB_API_PASSWORD: ${DB_API_PASSWORD:?Set DB_API_PASSWORD in .env}
       DB_SSL_MODE: disable
       PYTHON_SERVICE_URL: http://intelligence:8000
     ports:
@@ -59,8 +82,8 @@ services:
     image: visioniq-intelligence:local
     container_name: visioniq-intelligence
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENV: ${APP_ENV:-development}
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
@@ -68,8 +91,8 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: ${DB_LOCAL_NAME:-visioniq}
-      DB_USER: ${DB_LOCAL_USER:-visioniq}
-      DB_PASSWORD: ${DB_LOCAL_PASSWORD:?Set DB_LOCAL_PASSWORD in .env}
+      DB_INTELLIGENCE_USER: ${DB_INTELLIGENCE_USER:?Set DB_INTELLIGENCE_USER in .env}
+      DB_INTELLIGENCE_PASSWORD: ${DB_INTELLIGENCE_PASSWORD:?Set DB_INTELLIGENCE_PASSWORD in .env}
       DB_SSL_MODE: disable
     ports:
       - "8000:8000"

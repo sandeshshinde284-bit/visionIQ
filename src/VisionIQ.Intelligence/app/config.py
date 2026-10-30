@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -49,9 +49,29 @@ class Settings(BaseSettings):
     db_host: str = "localhost"
     db_port: int = Field(default=5432, ge=1, le=65535)
     db_name: str = "visioniq"
-    db_user: str = "visioniq"
+    db_user: str | None = None
     db_password: SecretStr | None = None
     db_ssl_mode: SslMode = "disable"
+    db_intelligence_user: str | None = None
+    db_intelligence_password: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def select_runtime_role(self) -> "Settings":
+        # Ignore generic DB_* credentials; these may belong to the migration account.
+        self.db_user = self.db_intelligence_user
+        self.db_password = self.db_intelligence_password
+        return self
+
+    def require_runtime_database_identity(self) -> None:
+        if (
+            not self.db_intelligence_user
+            or self.db_intelligence_password is None
+            or not self.db_intelligence_password.get_secret_value()
+        ):
+            raise ValueError(
+                "DB_INTELLIGENCE_USER and DB_INTELLIGENCE_PASSWORD are required "
+                "for the Intelligence runtime."
+            )
 
     @field_validator("app_env", "db_ssl_mode", mode="before")
     @classmethod

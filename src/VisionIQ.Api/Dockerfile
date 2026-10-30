@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context is the repository root (see docker-compose.yml): docker compose build api
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Restore first so this layer is cached until the project file changes.
@@ -12,7 +12,7 @@ RUN dotnet restore src/VisionIQ.Api/VisionIQ.Api.csproj
 COPY src/VisionIQ.Api/ src/VisionIQ.Api/
 RUN dotnet publish src/VisionIQ.Api/VisionIQ.Api.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 # curl is only used by the container health check.
 # hadolint ignore=DL3008
 RUN apt-get update \
