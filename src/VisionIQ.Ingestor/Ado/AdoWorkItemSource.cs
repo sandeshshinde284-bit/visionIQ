@@ -50,7 +50,19 @@ public sealed class AdoWorkItemSource
                 ["errorPolicy"] = "Omit",
             };
             using var response = await client.PostJsonAsync(uri, body, cancellationToken).ConfigureAwait(false);
-            outcomes.AddRange(JsonRead.Items(response.Root, "value").Select(AdoWorkItemReader.ParseWorkItem));
+            // Azure DevOps errorPolicy=Omit may silently remove an inaccessible ID.
+            // Reconstruct results by requested identity, never by response index.
+            var received = JsonRead.Items(response.Root, "value")
+                .Select(AdoWorkItemReader.ParseWorkItem)
+                .Where(outcome => outcome.Record is not null)
+                .Select(outcome => outcome.Record!)
+                .ToDictionary(record => record.Id);
+            foreach (var id in batch)
+            {
+                outcomes.Add(received.TryGetValue(id, out var record)
+                    ? new ReadOutcome(record, null)
+                    : new ReadOutcome(null, $"Work item {id} is missing (deleted or not accessible)."));
+            }
         }
 
         return outcomes;
