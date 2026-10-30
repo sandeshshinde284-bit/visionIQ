@@ -26,9 +26,9 @@ public sealed class EvidenceIngestionTests
         var one = Envelope().Identity;
         Assert.Equal(one.ItemKey(), one.ItemKey());
         Assert.Equal(64, one.ItemKey().Length);
-        Assert.NotEqual(one.ItemKey(), one with { ProjectId = "project-two" }.ItemKey());
-        Assert.NotEqual(one.ItemKey(), one with { RepositoryId = null }.ItemKey());
-        Assert.NotEqual(one.ItemKey(), one with { ExternalId = "0123" }.ItemKey());
+        Assert.NotEqual(one.ItemKey(), (one with { ProjectId = "project-two" }).ItemKey());
+        Assert.NotEqual(one.ItemKey(), (one with { RepositoryId = null }).ItemKey());
+        Assert.NotEqual(one.ItemKey(), (one with { ExternalId = "0123" }).ItemKey());
         Assert.NotEqual(
             new EvidenceIdentity("ab", "c", "d", null, "x", "y").ItemKey(),
             new EvidenceIdentity("a", "bc", "d", null, "x", "y").ItemKey());
