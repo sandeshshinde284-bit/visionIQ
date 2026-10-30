@@ -46,7 +46,7 @@ jobs:
       - name: Build migration image
         run: docker build -f db/Dockerfile -t visioniq-db-migrate:ci .
 
-fresh-postgres:
+  fresh-postgres:
     name: Fresh-volume migration and rerun
     runs-on: ubuntu-latest
     env:
