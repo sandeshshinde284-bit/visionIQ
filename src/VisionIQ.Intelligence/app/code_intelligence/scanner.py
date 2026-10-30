@@ -180,7 +180,7 @@ def scan_repository(
                     diagnostics=parsed.diagnostics,
                 )
             )
-        except (Exception) as exc:
+        except Exception as exc:
             # Never include source contents or credentials in scanner diagnostics.
             errors.append(f"Parser failed for {item.path} ({adapter.name}): {type(exc).__name__}")
             analyses.append(
