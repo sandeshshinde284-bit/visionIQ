@@ -59,7 +59,26 @@ public sealed class JsonLinesSink : IRecordSink, IDisposable
 
         if (!writers.TryGetValue(stream, out var writer))
         {
-            writer = new StreamWriter(Path.Combine(directory, stream + ".jsonl"), append: true);
+            var file = Path.Combine(directory, stream + ".jsonl");
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.Append,
+                Access = FileAccess.Write,
+                Share = FileShare.Read,
+                Options = FileOptions.Asynchronous,
+            };
+            if (!OperatingSystem.IsWindows())
+            {
+                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            }
+
+            var handle = new FileStream(file, options);
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+
+            writer = new StreamWriter(handle);
             writers[stream] = writer;
         }
 
