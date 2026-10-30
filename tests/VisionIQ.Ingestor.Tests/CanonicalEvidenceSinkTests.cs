@@ -17,7 +17,7 @@ public sealed class CanonicalEvidenceSinkTests
         var key = "contoso/ado/VisionIQ Demo/work-item/1234";
 
         await sink.WriteAsync("work-item-revisions", key + "@1",
-            new WorkItemRevisionRecord(1234, 1, timestamp) { State = "Active" });
+            new WorkItemRevisionRecord(1234, 1, timestamp) { State = "Active", Title = "secret-details" });
         await sink.WriteAsync("work-item-revisions", key + "@2",
             new WorkItemRevisionRecord(1234, 2, timestamp.AddDays(1)) { State = "Closed" });
 
@@ -29,7 +29,7 @@ public sealed class CanonicalEvidenceSinkTests
             Assert.False(row.Envelope.Access.Verified);
             Assert.Equal("work_item", row.Envelope.Identity.Kind);
             Assert.StartsWith("gs://", row.RawSnapshotUri);
-            Assert.DoesNotContain("Active", row.RedactedJson, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret-details", row.RedactedJson, StringComparison.Ordinal);
         });
     }
 
