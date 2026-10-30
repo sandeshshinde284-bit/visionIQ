@@ -103,9 +103,7 @@ class CheckpointStore(Protocol):
 class QuarantineStore(Protocol):
     """Records failed items without source payloads for investigation and retry."""
 
-    async def put(
-        self, source_id: str, native_id: str, revision_id: str, error_code: str
-    ) -> None:
+    async def put(self, source_id: str, native_id: str, revision_id: str, error_code: str) -> None:
         """Record a structured failure for a particular source revision."""
 
 
@@ -138,9 +136,7 @@ class BackfillReconciler:
             )
 
         if batch.expected_count is not None and batch.expected_count < 0:
-            return SourceReport(
-                source_id, SyncState.NOT_SYNCED, reason_code="INVALID_SOURCE_COUNT"
-            )
+            return SourceReport(source_id, SyncState.NOT_SYNCED, reason_code="INVALID_SOURCE_COUNT")
 
         accepted = unchanged = failed = 0
         contiguous_cursor = saved
@@ -158,10 +154,13 @@ class BackfillReconciler:
                     )
                 except Exception:
                     return SourceReport(
-                        source_id, SyncState.NOT_SYNCED,
+                        source_id,
+                        SyncState.NOT_SYNCED,
                         received=len(batch.records),
-                        stored=accepted, unchanged=unchanged,
-                        quarantined=failed, checkpoint=saved,
+                        stored=accepted,
+                        unchanged=unchanged,
+                        quarantined=failed,
+                        checkpoint=saved,
                         reason_code="QUARANTINE_UNAVAILABLE",
                     )
                 continue
@@ -181,15 +180,20 @@ class BackfillReconciler:
                 failed += 1
                 try:
                     await self._quarantine.put(
-                        source_id, record.native_id, record.revision_id,
+                        source_id,
+                        record.native_id,
+                        record.revision_id,
                         "EVIDENCE_WRITE_FAILED",
                     )
                 except Exception:
                     return SourceReport(
-                        source_id, SyncState.NOT_SYNCED,
+                        source_id,
+                        SyncState.NOT_SYNCED,
                         received=len(batch.records),
-                        stored=accepted, unchanged=unchanged,
-                        quarantined=failed, checkpoint=saved,
+                        stored=accepted,
+                        unchanged=unchanged,
+                        quarantined=failed,
+                        checkpoint=saved,
                         reason_code="QUARANTINE_UNAVAILABLE",
                     )
 
@@ -198,23 +202,33 @@ class BackfillReconciler:
                 await self._checkpoints.put(source_id, contiguous_cursor)
         except Exception:
             return SourceReport(
-                source_id, SyncState.PARTIAL, received=len(batch.records),
-                stored=accepted, unchanged=unchanged,
-                quarantined=failed, checkpoint=saved,
+                source_id,
+                SyncState.PARTIAL,
+                received=len(batch.records),
+                stored=accepted,
+                unchanged=unchanged,
+                quarantined=failed,
+                checkpoint=saved,
                 reason_code="CHECKPOINT_WRITE_FAILED",
             )
 
-        incomplete_count = (
-            batch.expected_count is not None
-            and batch.expected_count != len(batch.records)
+        incomplete_count = batch.expected_count is not None and batch.expected_count != len(
+            batch.records
         )
         state = SyncState.PARTIAL if had_gap or incomplete_count else SyncState.SYNCED
         return SourceReport(
-            source_id, state, received=len(batch.records), stored=accepted,
-            unchanged=unchanged, quarantined=failed, checkpoint=contiguous_cursor,
+            source_id,
+            state,
+            received=len(batch.records),
+            stored=accepted,
+            unchanged=unchanged,
+            quarantined=failed,
+            checkpoint=contiguous_cursor,
             reason_code=(
-                "SOURCE_COUNT_MISMATCH" if incomplete_count
-                else "QUARANTINED_RECORDS" if had_gap
+                "SOURCE_COUNT_MISMATCH"
+                if incomplete_count
+                else "QUARANTINED_RECORDS"
+                if had_gap
                 else None
             ),
         )
