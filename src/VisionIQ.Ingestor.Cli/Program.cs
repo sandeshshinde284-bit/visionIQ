@@ -2,6 +2,7 @@ using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Api.Features.Backfill;
 using VisionIQ.Api.Features.TicketFixes;
+using VisionIQ.Api.Features.Graph;
 using VisionIQ.Ingestor.Cli;
 using System.Globalization;
 using System.Text.Json;
@@ -189,6 +190,18 @@ using (var localSink = new JsonLinesSink(runDirectory))
 }
 
 var report = SyncReport.Merge(reports);
+
+// LRN-07 graph projection is a deterministic, replayable post-ingestion step.
+// Links are materialized only when both canonical endpoints already exist;
+// importing missing source history and rerunning safely fills the gaps.
+if (canonicalMode && dbOptions is not null)
+{
+    await using var graphStore = new PostgresRelationshipGraphStore(dbOptions);
+    await using var graphMaterializer = new TicketFixGraphMaterializer(dbOptions, graphStore);
+    var edges = await graphMaterializer.ReconcileAsync(
+        settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
+    Console.WriteLine($"Relationship graph assertions processed: {edges}");
+}
 
 // Persist one sanitized audit row per attempted source stream. This is a
 // diagnostic record, not proof of complete source history or ACL verification.
