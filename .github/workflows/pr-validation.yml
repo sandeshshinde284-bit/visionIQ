@@ -114,6 +114,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+      - name: Verify actual FND-04 API SQL readiness with restricted database identity
+        env:
+          VISIONIQ_READY_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~DatabaseReadinessEndpointTests"
       - name: Verify LRN-03 actual database idempotency and revisions
         env:
           VISIONIQ_EVIDENCE_DB_INTEGRATION: "1"
