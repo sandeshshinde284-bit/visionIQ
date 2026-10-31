@@ -19,6 +19,7 @@ from app.code_intelligence.canonical import (
     ScanEvidenceIdentity,
     ingest_complete_scan,
 )
+from app.code_intelligence.graph import persist_code_graph
 from app.code_intelligence.parsers import default_parser_registry
 from app.code_intelligence.snapshots import scan_with_recovery
 
@@ -71,6 +72,10 @@ def main(args: list[str] | None = None) -> int:
         "--repository-id", required=True, help="Provider-native approved repository ID"
     )
     parser.add_argument("--source-url", required=True, help="Trusted HTTPS repository source URL")
+    parser.add_argument(
+        "--ado-source-instance",
+        help="Optional exact approved ADO organization URL for commit-to-file links",
+    )
     arguments = parser.parse_args(args)
 
     url = _source_url(arguments.source_url)
@@ -103,6 +108,22 @@ def main(args: list[str] | None = None) -> int:
         GcsScanArchive(_required_env("GCS_EVIDENCE_BUCKET")),
         PostgresScanEvidenceStore(db),
     )
+    # Source evidence has committed before graph projection begins. A failed
+    # projection exits nonzero and a repeat is safe (both stores are idempotent).
+    from app.code_intelligence.canonical import build_scan_evidence
+
+    archived = build_scan_evidence(
+        scan, identity, url, _committed_at(scan.repo_root, scan.commit_sha)
+    )
+    if state in {"CREATED", "NEW_REVISION", "UNCHANGED"}:
+        edges = persist_code_graph(
+            scan, archived, db,
+            approved_ado_instance=(
+                _source_url(arguments.ado_source_instance).rstrip("/")
+                if arguments.ado_source_instance else None
+            ),
+        )
+        print(f"LRN-07 structural graph edges processed: {edges}")
     print(f"LRN-06 canonical scan result: {state}")
     return 0
 
