@@ -89,8 +89,8 @@ def main(args: list[str] | None = None) -> int:
         host=_required_env("DB_HOST"),
         port=int(os.environ.get("DB_PORT", "5432")),
         dbname=_required_env("DB_NAME"),
-        user=_required_env("DB_INTELLIGENCE_USER"),
-        password=_required_env("DB_INTELLIGENCE_PASSWORD"),
+        user=_required_env("DB_API_USER"),
+        password=_required_env("DB_API_PASSWORD"),
         sslmode=os.environ.get("DB_SSL_MODE", "require"),
     )
     state = ingest_complete_scan(
