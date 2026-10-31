@@ -16,6 +16,12 @@ public enum EntityKind
 public sealed record SourceLink(EntityKind FromKind, string FromId, EntityKind ToKind, string ToId, string LinkType, string Evidence)
 {
     public string Key => $"{FromKind}:{FromId}->{ToKind}:{ToId}:{LinkType}";
+
+    /// <summary>
+    /// Repository of the target PR or commit when the source states it (B-11): ADO work-item
+    /// artifact links are "vstfs:///Git/{type}/{projectId}%2F{repositoryId}%2F{id}".
+    /// </summary>
+    public string? ToRepositoryId { get; init; }
 }
 
 /// <summary>Extracts explicit links from source records (S04-11). Verification and storage belong to LRN-04.</summary>
@@ -37,11 +43,17 @@ public static partial class LinkExtractor
             var evidence = relation.Name ?? relation.Rel;
             if (TryArtifactId(relation.Url, PullRequestArtifact, out var pullRequest))
             {
-                links.Add(new(EntityKind.WorkItem, from, EntityKind.PullRequest, pullRequest, "work_item_artifact", evidence));
+                links.Add(new(EntityKind.WorkItem, from, EntityKind.PullRequest, pullRequest, "work_item_artifact", evidence)
+                {
+                    ToRepositoryId = ArtifactRepositoryId(relation.Url, PullRequestArtifact),
+                });
             }
             else if (TryArtifactId(relation.Url, CommitArtifact, out var commit))
             {
-                links.Add(new(EntityKind.WorkItem, from, EntityKind.Commit, commit.ToLowerInvariant(), "work_item_artifact", evidence));
+                links.Add(new(EntityKind.WorkItem, from, EntityKind.Commit, commit.ToLowerInvariant(), "work_item_artifact", evidence)
+                {
+                    ToRepositoryId = ArtifactRepositoryId(relation.Url, CommitArtifact),
+                });
             }
             else if (TryArtifactId(relation.Url, BuildArtifact, out var build))
             {
@@ -138,6 +150,16 @@ public static partial class LinkExtractor
         var unescaped = Uri.UnescapeDataString(url[prefix.Length..]);
         id = unescaped[(unescaped.LastIndexOf('/') + 1)..];
         return id.Length > 0;
+    }
+
+    /// <summary>
+    /// The repository segment of a Git artifact link ("{projectId}/{repositoryId}/{id}" after unescaping),
+    /// or null when the link does not have exactly that shape. Never guessed from display text.
+    /// </summary>
+    private static string? ArtifactRepositoryId(string url, string prefix)
+    {
+        var segments = Uri.UnescapeDataString(url[prefix.Length..]).Split('/');
+        return segments.Length == 3 && segments.All(segment => segment.Length > 0) ? segments[1] : null;
     }
 
     private static bool TryWorkItemId(string url, out string id)

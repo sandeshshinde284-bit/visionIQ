@@ -43,7 +43,7 @@ public sealed class TicketFixProjectionSinkTests
     }
 
     [Fact]
-    public async Task Work_item_artifact_relations_are_persisted_without_guessing_repository_scope()
+    public async Task Work_item_artifact_relations_keep_the_repository_stated_in_the_link()
     {
         var evidence = new RecordingEvidenceSink();
         var links = new RecordingLinkStore();
@@ -68,7 +68,8 @@ public sealed class TicketFixProjectionSinkTests
         Assert.Equal(2, links.Claims.Count);
         Assert.All(links.Claims, link =>
         {
-            Assert.Null(link.RepositoryId);
+            // B-11: the repository segment of the artifact URL is source data, not a guess.
+            Assert.Equal("repo", link.RepositoryId);
             Assert.Equal("Project-A", link.ProjectId);
             Assert.Equal("123", link.TicketId);
             Assert.Equal(TicketFixSourceClassification.Explicit, link.Classification);
@@ -138,6 +139,22 @@ public sealed class TicketFixProjectionSinkTests
     }
 
     /// <summary>Records only the source stream of successful canonical archive calls.</summary>
+    [Fact]
+    public async Task A_malformed_artifact_link_never_gets_a_guessed_repository()
+    {
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var item = new WorkItemRecord(123, 7, "Bug", "Closed", "Title", [], DateTimeOffset.UtcNow)
+        {
+            Project = "Project-A",
+            Relations = [new WorkItemRelation("ArtifactLink", "vstfs:///Git/PullRequestId/42", "Fixed in PR")],
+        };
+
+        await sink.WriteAsync("work-items", "source/work-item", item);
+
+        Assert.Null(Assert.Single(links.Claims).RepositoryId);
+    }
+
     private sealed class RecordingEvidenceSink : ICanonicalEvidenceSink
     {
         public bool Fail { get; init; }

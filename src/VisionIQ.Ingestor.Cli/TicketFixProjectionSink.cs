@@ -48,9 +48,8 @@ public sealed class TicketFixProjectionSink(
     }
 
     /// <summary>
-    /// Projects native work-item artifact relations without guessing a target
-    /// repository. A PR or commit discovered only via a ticket relation retains
-    /// null repository scope until an authenticated PR source resolves it.
+    /// Projects native work-item artifact relations. The repository comes from the
+    /// artifact URL's repository segment; a link without one keeps null scope.
     /// </summary>
     private async Task ProjectWorkItemAsync(
         WorkItemRecord item, CancellationToken cancellationToken)
@@ -68,11 +67,11 @@ public sealed class TicketFixProjectionSink(
                 continue;
             }
 
-            // ADO work-item artifact URLs may identify only a PR/commit; never
-            // infer repository or project GUID from their display text.
+            // B-11: the artifact URL itself states the repository ID; links without
+            // that exact shape keep a null repository (never guessed from display text).
             var claim = new TicketFixClaim(
                 sourceInstance, item.Project,
-                item.Id.ToString(CultureInfo.InvariantCulture), null,
+                item.Id.ToString(CultureInfo.InvariantCulture), link.ToRepositoryId,
                 link.ToKind == EntityKind.PullRequest ? link.ToId : null,
                 link.ToKind == EntityKind.Commit ? link.ToId : null,
                 TicketFixSourceClassification.Explicit, [reference], []);
