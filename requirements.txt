@@ -38,7 +38,9 @@ networkx
 
 # --- Approved structural code parsing (LRN-06) ---
 # Tree-sitter parser runtime: used by the optional C# structural adapter.
-tree-sitter==0.26.0
+# 0.25.2, not 0.26.0: 0.26.0 segfaults (kills the process) while walking some
+# real C# files in this repository. Guarded by test_csharp_parser_native_stability.
+tree-sitter==0.25.2
 # Pinned C# grammar. No Roslyn or execution of untrusted source.
 tree-sitter-c-sharp==0.23.5
 
