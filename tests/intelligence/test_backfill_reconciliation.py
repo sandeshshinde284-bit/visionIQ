@@ -153,6 +153,22 @@ async def test_mismatched_approved_source_count_is_partial() -> None:
     output = await runner.run_one(FakeSource("ado:a", [change("1", "1", "a")], 2))
     assert output.state is SyncState.PARTIAL
     assert output.reason_code == "SOURCE_COUNT_MISMATCH"
+    assert output.checkpoint is None
+
+
+@pytest.mark.asyncio
+async def test_later_source_count_mismatch_keeps_existing_checkpoint_unchanged() -> None:
+    """Missing unknown-order items cannot be skipped by a newer cursor."""
+    writer, checkpoints, quarantine = MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine()
+    checkpoints.cursors["ado:project"] = "prior"
+    runner = BackfillReconciler(writer, checkpoints, quarantine)
+    output = await runner.run_one(
+        FakeSource("ado:project", [change("17", "1", "current")], expected=3)
+    )
+    assert output.state == SyncState.PARTIAL
+    assert output.checkpoint == "prior"
+    assert checkpoints.cursors["ado:project"] == "prior"
+
 
 
 @pytest.mark.asyncio
