@@ -124,6 +124,13 @@ jobs:
           DB_HOST: "127.0.0.1"
           DB_NAME: "visioniq"
         run: python -m pytest -q tests/intelligence/test_code_canonical_db_integration.py
+      - name: Verify LRN-07 Python graph idempotency on PostgreSQL
+        env:
+          VISIONIQ_SCAN_DB_INTEGRATION: "1"
+          PYTHONPATH: src/VisionIQ.Intelligence
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: python -m pytest -q tests/intelligence/test_code_relationship_graph.py
       - name: Verify LRN-07 graph history, disputes and ACL on PostgreSQL
         env:
           VISIONIQ_GRAPH_DB_INTEGRATION: "1"
