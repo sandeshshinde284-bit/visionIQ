@@ -6,9 +6,9 @@ readability. PARTIAL scans never replace the last complete canonical revision.
 """
 
 import hashlib
-from contextlib import suppress
 import json
 import struct
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Protocol
