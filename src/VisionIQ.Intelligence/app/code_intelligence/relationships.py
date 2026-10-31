@@ -8,6 +8,7 @@ blast radius or ticket-fix claim is produced.
 import json
 import posixpath
 import re
+import subprocess
 import tomllib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -87,17 +88,35 @@ def _extract_remote(candidate: str) -> str | None:
 
 
 def _python_targets(path: str, reference: str) -> tuple[str, ...]:
+    """Candidate repository paths for a Python import, built from path segments.
+
+    B-12: never derive directories by replacing dots, because folder names may
+    contain dots (``VisionIQ.Intelligence/``). Absolute imports are tried from
+    every ancestor folder of the importing file, which covers ``src/`` layouts;
+    the caller keeps only a unique match, so ambiguity stays unresolved.
+    """
+    package = path.split("/")[:-1]
     if reference.startswith("."):
         dots = len(reference) - len(reference.lstrip("."))
-        parts = path.split("/")[:-1]
-        if len(parts) < dots - 1:
+        if dots - 1 > len(package):
             return ()
-        parent = parts[: len(parts) - dots + 1] if dots > 1 else parts
-        module = ".".join([*parent, reference[dots:]]) if reference[dots:] else ".".join(parent)
+        roots = [package[: len(package) - (dots - 1)]]
+        module = reference[dots:]
     else:
+        roots = [package[:depth] for depth in range(len(package), -1, -1)]
         module = reference
-    base = module.replace(".", "/")
-    return (f"{base}.py", f"{base}/__init__.py") if base else ()
+    module_parts = [part for part in module.split(".") if part] if module else []
+    if not module_parts and not reference.startswith("."):
+        return ()
+    candidates: list[str] = []
+    for root in roots:
+        base = "/".join([*root, *module_parts])
+        if not base:
+            continue
+        if module_parts:
+            candidates.append(f"{base}.py")
+        candidates.append(f"{base}/__init__.py")
+    return tuple(dict.fromkeys(candidates))
 
 
 def resolve_dependencies(
@@ -147,7 +166,8 @@ def resolve_dependencies(
             continue
         try:
             content = read_blob(file.path)
-        except (OSError, UnicodeError, ValueError):
+        except (OSError, UnicodeError, ValueError, subprocess.SubprocessError):
+            # B-14: a failed `git show` (CalledProcessError) is an unreadable manifest, not a crash.
             continue
 
         if file.path.endswith(".csproj"):
