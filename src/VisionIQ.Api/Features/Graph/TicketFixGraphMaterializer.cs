@@ -152,7 +152,10 @@ public sealed class TicketFixGraphMaterializer : IAsyncDisposable
             """, connection);
         command.Parameters.AddWithValue("source", instance);
         command.Parameters.AddWithValue("project", project);
-        command.Parameters.AddWithValue("repo", (object?)repo ?? DBNull.Value);
+        command.Parameters.Add(new Npgsql.NpgsqlParameter("repo", NpgsqlTypes.NpgsqlDbType.Text)
+        {
+            Value = (object?)repo ?? DBNull.Value,
+        });
         command.Parameters.AddWithValue("kind", kind);
         command.Parameters.AddWithValue("id", id);
         return (string?)await command.ExecuteScalarAsync(cancellationToken);
@@ -170,7 +173,12 @@ public sealed class TicketFixGraphMaterializer : IAsyncDisposable
         command.Parameters.AddWithValue("key", itemKey);
         command.Parameters.AddWithValue("revision", revision);
         var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is DateTimeOffset time ? time : null;
+        return result switch
+        {
+            DateTimeOffset time => time,
+            DateTime timestamp => new DateTimeOffset(DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)),
+            _ => null,
+        };
     }
 
     /// <summary>Parse canonical source evidence references without splitting ISO timestamps.</summary>
