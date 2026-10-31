@@ -1,0 +1,104 @@
+# VisionIQ FND-04 — APPROVED RELEASE ONLY.
+# Run from a separately authorized Cloud Build deploy trigger on corporate main,
+# with a dedicated deploy service account. Does NOT run database migrations.
+# Defaults intentionally block deployment until approval and versions are supplied.
+substitutions:
+  _REGION: europe-west3
+  _AR_REPOSITORY: team-visioniq-docker-dev
+  _IMAGE_TAG: REQUIRED_40_CHARACTER_COMMIT_SHA
+  _APPROVAL: NOT_APPROVED
+  _API_SECRET_VERSION: REQUIRED
+  _INTELLIGENCE_SECRET_VERSION: REQUIRED
+  _INGRESS: internal
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: release-guard
+    name: bash:5.2
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        test "${_APPROVAL}" = "approved" || {
+          echo "Release not approved. Set _APPROVAL=approved in the protected deploy trigger."
+          exit 1
+        }
+        [[ "${_IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]] || {
+          echo "A reviewed 40-character source commit SHA is required."
+          exit 1
+        }
+        [[ "${_API_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]] || {
+          echo "A numeric API secret version is required."
+          exit 1
+        }
+        [[ "${_INTELLIGENCE_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]] || {
+          echo "A numeric Intelligence secret version is required."
+          exit 1
+        }
+        case "${_INGRESS}" in internal|internal-and-cloud-load-balancing|all) ;; *)
+          echo "Invalid Cloud Run ingress mode"; exit 1;;
+        esac
+
+  - id: deploy-intelligence
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        gcloud run deploy visioniq-intelligence \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/visioniq-intelligence:${_IMAGE_TAG}" \
+          --service-account="visioniq-runtime@$PROJECT_ID.iam.gserviceaccount.com" \
+          --port=8000 \
+          --execution-environment=gen2 \
+          --vpc-connector=vpc-con \
+          --vpc-egress=private-ranges-only \
+          --ingress="${_INGRESS}" \
+          --no-allow-unauthenticated \
+          --min-instances=0 \
+          --max-instances=2 \
+          --set-env-vars="APP_ENV=production,DB_HOST=10.102.16.8,DB_PORT=5432,DB_NAME=visioniq_dev,DB_INTELLIGENCE_USER=visioniq_intelligence,DB_SSL_MODE=require" \
+          --set-secrets="DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:${_INTELLIGENCE_SECRET_VERSION}" \
+          --quiet
+
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        gcloud run deploy visioniq-api \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/visioniq-api:${_IMAGE_TAG}" \
+          --service-account="visioniq-runtime@$PROJECT_ID.iam.gserviceaccount.com" \
+          --port=5100 \
+          --execution-environment=gen2 \
+          --vpc-connector=vpc-con \
+          --vpc-egress=private-ranges-only \
+          --ingress="${_INGRESS}" \
+          --no-allow-unauthenticated \
+          --min-instances=0 \
+          --max-instances=2 \
+          --set-env-vars="ASPNETCORE_ENVIRONMENT=Production,DB_HOST=10.102.16.8,DB_PORT=5432,DB_NAME=visioniq_dev,DB_API_USER=visioniq_api,DB_SSL_MODE=require" \
+          --set-secrets="DB_API_PASSWORD=visioniq-db-api-password:${_API_SECRET_VERSION}" \
+          --quiet
+
+  - id: confirm-ready-revisions
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        for service in visioniq-intelligence visioniq-api; do
+          revision="$(gcloud run services describe "$$service" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --format="value(status.latestReadyRevisionName)")"
+          test -n "$$revision" || {
+            echo "$$service has no ready revision"; exit 1
+          }
+          echo "$$service ready revision: $$revision"
+        done

@@ -1,0 +1,57 @@
+# VisionIQ FND-04 — build application images only.
+# Create a Cloud Build trigger on the approved corporate main branch. The trigger
+# must use a dedicated build service account (not visioniq-runtime or db-migrate).
+# _IMAGE_TAG must be the exact 40-character SHA of the approved source commit.
+substitutions:
+  _REGION: europe-west3
+  _AR_REPOSITORY: team-visioniq-docker-dev
+  _IMAGE_TAG: REQUIRED_40_CHARACTER_COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: verify-release-tag
+    name: bash:5.2
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        if ! [[ "${_IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "ERROR: _IMAGE_TAG must be the approved 40-character Git commit SHA."
+          exit 1
+        fi
+
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --pull
+      - --file
+      - src/VisionIQ.Api/Dockerfile
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/visioniq-api:${_IMAGE_TAG}
+      - .
+
+  - id: push-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/visioniq-api:${_IMAGE_TAG}
+
+  - id: build-intelligence
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --pull
+      - --file
+      - src/VisionIQ.Intelligence/Dockerfile
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/visioniq-intelligence:${_IMAGE_TAG}
+      - .
+
+  - id: push-intelligence
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/visioniq-intelligence:${_IMAGE_TAG}
