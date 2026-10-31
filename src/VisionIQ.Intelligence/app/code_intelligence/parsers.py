@@ -83,7 +83,8 @@ class PythonAstAdapter:
 
 class CSharpTreeSitterAdapter:
     name = "csharp-tree-sitter"
-    version = "0.23.5"
+    # Grammar 0.23.5; ".2" = M-9 output (namespaces, using forms, properties).
+    version = "0.23.5.2"
     extensions = frozenset({".cs"})
     capabilities = frozenset({"symbols", "namespace_imports", "lexical_calls"})
 
@@ -106,7 +107,9 @@ class CSharpTreeSitterAdapter:
             "enum_declaration": "enum",
             "method_declaration": "method",
             "constructor_declaration": "constructor",
+            "property_declaration": "property",
         }
+        name_types = {"identifier", "qualified_name", "generic_name", "alias_qualified_name"}
 
         def node_text(node: object) -> str:
             return raw[node.start_byte : node.end_byte].decode("utf-8")
@@ -132,12 +135,19 @@ class CSharpTreeSitterAdapter:
                         )
                     )
                     scope = (*scope, name)
+            elif node_type == "namespace_declaration":
+                # M-9: block namespaces become part of every nested symbol's qualified name.
+                name_node = node.child_by_field_name("name")
+                if name_node is not None:
+                    scope = (*scope, *node_text(name_node).split("."))
             elif node_type == "using_directive":
-                target = node_text(node).strip().rstrip(";")
-                if target.startswith("using "):
-                    target = target[6:].strip()
-                if target:
-                    imports.append(ImportReference(target=target, line=node.start_point.row + 1))
+                # M-9: the imported namespace/type is the last name node, for plain,
+                # "global using", "using static" and "using Alias = Target" forms alike.
+                names = [child for child in node.named_children if child.type in name_types]
+                if names:
+                    imports.append(
+                        ImportReference(target=node_text(names[-1]), line=node.start_point.row + 1)
+                    )
             elif node_type == "invocation_expression":
                 function = node.child_by_field_name("function")
                 if function is not None:
@@ -147,8 +157,15 @@ class CSharpTreeSitterAdapter:
                             line=node.start_point.row + 1,
                         )
                     )
+            child_scope = scope
             for child in node.named_children:
-                walk(child, scope)
+                if child.type == "file_scoped_namespace_declaration":
+                    # M-9: "namespace X;" applies to the declarations that FOLLOW it (siblings).
+                    name_node = child.child_by_field_name("name")
+                    if name_node is not None:
+                        child_scope = (*scope, *node_text(name_node).split("."))
+                    continue
+                walk(child, child_scope)
 
         walk(tree.root_node, ())
         return ParserResult(symbols=tuple(symbols), imports=tuple(imports), calls=tuple(calls))

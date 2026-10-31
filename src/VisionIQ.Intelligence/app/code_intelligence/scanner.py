@@ -166,7 +166,15 @@ def scan_repository(
             content = _git(root, "cat-file", "blob", item.blob_sha)
             if b"\x00" in content:
                 raise ValueError("Binary source cannot be structurally parsed")
-            parsed = adapter.parse(item.path, content.decode("utf-8"))
+            try:
+                text = content.decode("utf-8-sig")
+                encoding_note: tuple[str, ...] = ()
+            except UnicodeDecodeError:
+                # M-9: a legacy-encoded file (e.g. Windows-1252) is parsed with replacement
+                # characters instead of failing the whole repository scan.
+                text = content.decode("utf-8", errors="replace")
+                encoding_note = ("Source is not valid UTF-8; parsed with replacement characters.",)
+            parsed = adapter.parse(item.path, text)
             analyses.append(
                 FileAnalysis(
                     path=item.path,
@@ -177,7 +185,7 @@ def scan_repository(
                     symbols=parsed.symbols,
                     imports=parsed.imports,
                     calls=parsed.calls,
-                    diagnostics=parsed.diagnostics,
+                    diagnostics=(*parsed.diagnostics, *encoding_note),
                 )
             )
         except Exception as exc:
