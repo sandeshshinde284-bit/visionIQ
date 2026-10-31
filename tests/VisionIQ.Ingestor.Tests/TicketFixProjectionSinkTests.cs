@@ -43,6 +43,42 @@ public sealed class TicketFixProjectionSinkTests
     }
 
     [Fact]
+    public async Task Work_item_artifact_relations_are_persisted_without_guessing_repository_scope()
+    {
+        var evidence = new RecordingEvidenceSink();
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(evidence, links, Organization);
+        var sha = new string('c', 40);
+        var item = new WorkItemRecord(123, 7, "Bug", "Closed", "Title", [],
+            DateTimeOffset.UtcNow)
+        {
+            Project = "Project-A",
+            Relations =
+            [
+                new WorkItemRelation("ArtifactLink",
+                    "vstfs:///Git/PullRequestId/project%2Frepo%2F42", "Fixed in PR"),
+                new WorkItemRelation("ArtifactLink",
+                    "vstfs:///Git/Commit/project%2Frepo%2F" + sha, "Commit"),
+            ],
+        };
+
+        await sink.WriteAsync("work-items", "source/work-item", item);
+
+        Assert.Equal(new[] { "work-items" }, evidence.Streams);
+        Assert.Equal(2, links.Claims.Count);
+        Assert.All(links.Claims, link =>
+        {
+            Assert.Null(link.RepositoryId);
+            Assert.Equal("Project-A", link.ProjectId);
+            Assert.Equal("123", link.TicketId);
+            Assert.Equal(TicketFixSourceClassification.Explicit, link.Classification);
+            Assert.Single(link.SourceEvidenceRefs);
+        });
+        Assert.Contains(links.Claims, link => link.PullRequestId == "42");
+        Assert.Contains(links.Claims, link => link.CommitSha == sha);
+    }
+
+    [Fact]
     public async Task No_ticket_reference_produces_no_fix_even_if_the_pr_is_completed()
     {
         var links = new RecordingLinkStore();
