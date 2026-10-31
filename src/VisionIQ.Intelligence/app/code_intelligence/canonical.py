@@ -235,6 +235,7 @@ class PostgresScanEvidenceStore:
                     last_observed_at = GREATEST(
                         evidence.source_items.last_observed_at, EXCLUDED.last_observed_at
                     )
+                RETURNING (xmax = 0)
                 """,
                 {
                     "key": evidence.item_key,
@@ -244,6 +245,7 @@ class PostgresScanEvidenceStore:
                     "observed": evidence.observed_at,
                 },
             )
+            created = bool(cursor.fetchone()[0])
             cursor.execute(
                 """
                 SELECT content_sha256 FROM evidence.source_revisions
@@ -301,4 +303,4 @@ class PostgresScanEvidenceStore:
                     "key": evidence.item_key,
                 },
             )
-            return "NEW_REVISION"
+            return "CREATED" if created else "NEW_REVISION"
