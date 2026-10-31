@@ -11,7 +11,12 @@ from app.code_intelligence.canonical import (
     ScanEvidenceIdentity,
     build_scan_evidence,
 )
-from app.code_intelligence.graph import persist_code_graph, project_scan_edges
+from app.code_intelligence.graph import (
+    persist_code_graph,
+    project_declared_dependencies,
+    project_scan_edges,
+)
+from app.code_intelligence.relationships import DependencyLink
 from app.code_intelligence.scanner import FileAnalysis, GitFile, RepositoryScan
 
 
@@ -82,6 +87,55 @@ def test_source_scoping_separates_same_filename_across_repositories() -> None:
         datetime(2026, 10, 30, tzinfo=UTC),
     )
     assert project_scan_edges(scan, altered)[0].target.key() != normal
+
+
+def test_declared_cross_project_dependency_requires_approved_target() -> None:
+    """Explicit Git dependencies link only to an approved immutable target scan."""
+    source = _scan()
+    origin = _evidence(source)
+    target_identity = ScanEvidenceIdentity(
+        "https://github.com/approved/another-project",
+        "another-project",
+        "other-repository",
+    )
+    target = build_scan_evidence(
+        source,
+        target_identity,
+        "https://github.com/approved/another-project",
+        datetime(2026, 10, 30, tzinfo=UTC),
+    )
+    link = DependencyLink(
+        source_repo=origin.identity.repository_id,
+        source_commit=source.commit_sha,
+        source_path="app.py",
+        target_repo="other-repository",
+        target_commit=target.revision,
+        target_path=None,
+        declared_reference="https://github.com/approved/another-project",
+        kind="DECLARED_GIT_DEPENDENCY",
+        status="DECLARED_TARGET_REPOSITORY",
+    )
+    assert project_declared_dependencies(source, origin, (link,), {}) == ()
+    edges = project_declared_dependencies(
+        source, origin, (link,), {"other-repository": target}
+    )
+    assert len(edges) == 1
+    assert edges[0].kind == "repository_dependency"
+    assert edges[0].target.anchor == target.item_key
+
+    untrusted = link.__class__(
+        source_repo="unapproved-project",
+        source_commit=link.source_commit,
+        source_path=link.source_path,
+        target_repo=link.target_repo,
+        target_commit=link.target_commit,
+        target_path=None,
+        declared_reference=link.declared_reference,
+        kind=link.kind,
+        status=link.status,
+    )
+    with pytest.raises(ValueError, match="unapproved source identity"):
+        project_declared_dependencies(source, origin, (untrusted,), {"other-repository": target})
 
 
 @pytest.mark.skipif(
