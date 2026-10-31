@@ -122,17 +122,13 @@ $API_VERSION = 1            # REPLACE with the approved enabled numeric version
 $INTELLIGENCE_VERSION = 1   # REPLACE with the approved enabled numeric version
 
 # Inspect the two deployment plans first:
-.\scripts\manual-deploy\02-deploy-services.ps1 -Commit $COMMIT \
-  -ApiSecretVersion $API_VERSION -IntelligenceSecretVersion $INTELLIGENCE_VERSION
+.\scripts\manual-deploy\02-deploy-services.ps1 -Commit $COMMIT -ApiSecretVersion $API_VERSION -IntelligenceSecretVersion $INTELLIGENCE_VERSION
 
 # After reviewing the plan, execute (single line is also supported):
-.\scripts\manual-deploy\02-deploy-services.ps1 -Commit $COMMIT \
-  -ApiSecretVersion $API_VERSION -IntelligenceSecretVersion $INTELLIGENCE_VERSION -Deploy
+.\scripts\manual-deploy\02-deploy-services.ps1 -Commit $COMMIT -ApiSecretVersion $API_VERSION -IntelligenceSecretVersion $INTELLIGENCE_VERSION -Deploy
 ```
 
-**PowerShell note:** the line continuations above are for illustration only;
-PowerShell does not use a trailing backslash. Run each invocation as a single
-line, or use PowerShell backticks for continuation.
+**PowerShell note:** run the full commands as single lines; PowerShell does not use a trailing backslash for continuation.
 
 The script verifies the documented Cloud SQL identity/IP and READY VPC
 connector; it deploys:
