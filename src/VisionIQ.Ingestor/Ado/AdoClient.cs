@@ -119,6 +119,17 @@ public sealed class AdoClient
             {
                 response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < Options.MaxRetries)
+            {
+                // HttpClient.Timeout surfaces as TaskCanceledException, not HttpRequestException (B-2/B-3).
+                // Only the caller's own token means "stop"; a timeout is a transient source failure.
+                await delay(Backoff(attempt, null), cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+            catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new AdoSourceException(null, "Azure DevOps did not respond in time (request timed out after retries).", error);
+            }
             catch (HttpRequestException) when (attempt < Options.MaxRetries)
             {
                 await delay(Backoff(attempt, null), cancellationToken).ConfigureAwait(false);
