@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
-from app.api import health
+from app.api import health, readiness
 from app.config import Settings, get_settings
 from app.logging_config import configure_logging
 
@@ -34,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.dependency_overrides[get_settings] = lambda: resolved
     app.include_router(health.router)
+    app.include_router(readiness.router)
     return app
 
 

@@ -41,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Build API runtime image
+        run: docker build -f src/VisionIQ.Api/Dockerfile -t visioniq-api:ci .
       - name: Build Intelligence runtime image
         run: docker build -f src/VisionIQ.Intelligence/Dockerfile -t visioniq-intelligence:ci .
       - name: Build migration image
@@ -80,3 +82,24 @@ jobs:
       - name: Destroy CI-only disposable volume
         if: always()
         run: docker compose down --volumes --remove-orphans
+
+  fnd04-manual:
+    name: FND-04 PowerShell validation (no cloud writes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse deployment scripts
+        shell: pwsh
+        run: |
+          foreach ($file in (Get-ChildItem scripts/manual-deploy/*.ps1)) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+          }
+      - name: Run plan-only build and deployment
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          ./scripts/manual-deploy/01-build-push.ps1
+          ./scripts/manual-deploy/02-deploy-services.ps1 -Commit $sha -ApiSecretVersion 1 -IntelligenceSecretVersion 1
