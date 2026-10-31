@@ -44,7 +44,18 @@ public sealed class ConfluenceSyncRunner
 
         foreach (var space in source.SpaceKeys)
         {
-            await SyncSpaceAsync(space, request, report.Add(SyncKind.Confluence, space + "/pages"), cancellationToken).ConfigureAwait(false);
+            var result = report.Add(SyncKind.Confluence, space + "/pages");
+            try
+            {
+                await SyncSpaceAsync(space, request, result, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // B-4: one space's unexpected failure must not stop the other spaces.
+                result.Status = result.Records > 0 ? StreamStatus.Partial : StreamStatus.NotSynced;
+                var reason = $"Unexpected {error.GetType().Name}: {error.Message} Checkpoint not advanced.";
+                result.Reason = result.Reason is null ? reason : result.Reason + " " + reason;
+            }
         }
 
         report.FinishedAt = time.GetUtcNow();

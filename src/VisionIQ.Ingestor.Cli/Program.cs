@@ -194,13 +194,23 @@ var report = SyncReport.Merge(reports);
 // LRN-07 graph projection is a deterministic, replayable post-ingestion step.
 // Links are materialized only when both canonical endpoints already exist;
 // importing missing source history and rerunning safely fills the gaps.
+var graphFailed = false;
 if (canonicalMode && dbOptions is not null)
 {
-    await using var graphStore = new PostgresRelationshipGraphStore(dbOptions);
-    await using var graphMaterializer = new TicketFixGraphMaterializer(dbOptions, graphStore);
-    var edges = await graphMaterializer.ReconcileAsync(
-        settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
-    Console.WriteLine($"Relationship graph assertions processed: {edges}");
+    // B-4: a graph projection failure must not lose the sync report or audit rows written below.
+    try
+    {
+        await using var graphStore = new PostgresRelationshipGraphStore(dbOptions);
+        await using var graphMaterializer = new TicketFixGraphMaterializer(dbOptions, graphStore);
+        var edges = await graphMaterializer.ReconcileAsync(
+            settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
+        Console.WriteLine($"Relationship graph assertions processed: {edges}");
+    }
+    catch (Exception error) when (error is not OperationCanceledException)
+    {
+        graphFailed = true;
+        Console.Error.WriteLine($"Relationship graph projection failed ({error.GetType().Name}): {error.Message}");
+    }
 }
 
 // Persist one sanitized audit row per attempted source stream. This is a
@@ -228,4 +238,4 @@ foreach (var stream in report.Streams)
 }
 
 Console.WriteLine($"Output: {runDirectory}");
-return report.AllSynced ? 0 : 2;
+return report.AllSynced && !graphFailed ? 0 : 2;

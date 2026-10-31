@@ -52,30 +52,37 @@ public sealed class SyncRunner
         {
             if (request.Kinds.Contains(SyncKind.WorkItems))
             {
-                await SyncWorkItemsAsync(project, request, report, cancellationToken).ConfigureAwait(false);
+                await IsolateAsync(report, SyncKind.WorkItems, project, () => SyncWorkItemsAsync(project, request, report, cancellationToken), cancellationToken).ConfigureAwait(false);
             }
 
             var wantsPullRequests = request.Kinds.Contains(SyncKind.PullRequests);
             var wantsCommits = request.Kinds.Contains(SyncKind.Commits);
             if (wantsPullRequests || wantsCommits)
             {
-                foreach (var repository in await ResolveRepositoriesAsync(project, wantsPullRequests, wantsCommits, report, cancellationToken).ConfigureAwait(false))
+                IReadOnlyList<RepositoryRecord> repositories = [];
+                await IsolateAsync(
+                    report,
+                    wantsPullRequests ? SyncKind.PullRequests : SyncKind.Commits,
+                    project + "/*",
+                    async () => repositories = await ResolveRepositoriesAsync(project, wantsPullRequests, wantsCommits, report, cancellationToken).ConfigureAwait(false),
+                    cancellationToken).ConfigureAwait(false);
+                foreach (var repository in repositories)
                 {
                     if (wantsPullRequests)
                     {
-                        await SyncPullRequestsAsync(project, repository, request, report, cancellationToken).ConfigureAwait(false);
+                        await IsolateAsync(report, SyncKind.PullRequests, project + "/" + repository.Name, () => SyncPullRequestsAsync(project, repository, request, report, cancellationToken), cancellationToken).ConfigureAwait(false);
                     }
 
                     if (wantsCommits)
                     {
-                        await SyncCommitsAsync(project, repository, request, report, cancellationToken).ConfigureAwait(false);
+                        await IsolateAsync(report, SyncKind.Commits, project + "/" + repository.Name, () => SyncCommitsAsync(project, repository, request, report, cancellationToken), cancellationToken).ConfigureAwait(false);
                     }
                 }
             }
 
             if (request.Kinds.Contains(SyncKind.Builds))
             {
-                await SyncBuildsAsync(project, request, report, cancellationToken).ConfigureAwait(false);
+                await IsolateAsync(report, SyncKind.Builds, project, () => SyncBuildsAsync(project, request, report, cancellationToken), cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -375,6 +382,25 @@ public sealed class SyncRunner
     private static string Text(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static string Stamp(DateTimeOffset value) => value.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// B-4: one stream's unexpected failure (sink, database, archive, parsing) must not stop the other
+    /// streams. The failed stream is reported and its checkpoint is not advanced; caller cancellation
+    /// still stops the run.
+    /// </summary>
+    private static async Task IsolateAsync(SyncReport report, SyncKind kind, string fallbackScope, Func<Task> work, CancellationToken cancellationToken)
+    {
+        var before = report.Streams.Count;
+        try
+        {
+            await work().ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            var result = report.Streams.Count > before ? report.Streams[^1] : report.Add(kind, fallbackScope);
+            Failed(result, $"Unexpected {error.GetType().Name}: {error.Message} Checkpoint not advanced.");
+        }
+    }
 
     private static void Partial(StreamResult result, string reason)
     {
