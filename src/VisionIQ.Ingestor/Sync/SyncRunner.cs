@@ -143,6 +143,7 @@ public sealed class SyncRunner
         var result = report.Add(SyncKind.WorkItems, scope);
         TimeCursor? cursor = null;
         var written = new List<(DateTimeOffset At, string Id)>();
+        var capped = false;
         try
         {
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
@@ -183,7 +184,13 @@ public sealed class SyncRunner
 
             if (ids.Count >= AdoWorkItemSource.WiqlLimit)
             {
-                Partial(result, "The query returned the 20,000-item maximum; run sync again to continue.");
+                // B-10: the query is ordered by ChangedDate, Id ascending. When every returned item was
+                // written, checkpointing at the last written item is safe (same-timestamp IDs are kept in
+                // the cursor boundary) and lets the next run continue instead of re-reading this batch.
+                capped = result.Status == StreamStatus.Synced && written.Count > 0;
+                Partial(result, capped
+                    ? "The query returned the 20,000-item maximum; progress was saved, run sync again to continue."
+                    : "The query returned the 20,000-item maximum and could not advance (missing items or one shared timestamp); narrow INGESTION_SINCE or investigate.");
             }
 
             registry.Register(SourceKind.AzureDevOpsWorkItems, "work-items", CapabilityStatus.Supported);
@@ -201,7 +208,8 @@ public sealed class SyncRunner
         // Omitted/failed records may be older than the newest successful record.
         // Never checkpoint beyond an incomplete work-item batch; replay uses the
         // source revision key and the downstream sink must deduplicate.
-        if (result.Status == StreamStatus.Synced)
+        // A batch that is complete but capped (B-10) still saves its progress.
+        if (result.Status == StreamStatus.Synced || (capped && result.Status == StreamStatus.Partial))
         {
             await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
         }
