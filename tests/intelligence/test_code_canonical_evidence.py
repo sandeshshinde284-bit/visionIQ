@@ -1,7 +1,7 @@
 """LRN-06 canonical evidence contract and last-good preservation tests."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -83,7 +83,7 @@ def identity() -> ScanEvidenceIdentity:
 
 def when() -> datetime:
     """Return a stable Git commit timestamp distinct from observation time."""
-    return datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
+    return datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
 
 
 def test_source_scope_and_repeatable_metadata() -> None:
