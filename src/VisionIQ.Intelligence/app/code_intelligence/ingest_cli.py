@@ -67,7 +67,9 @@ def main(args: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True, help="Approved local Git checkout")
     parser.add_argument("--cache", required=True, help="Private local last-good metadata cache")
     parser.add_argument("--project-id", required=True, help="Provider-native approved project ID")
-    parser.add_argument("--repository-id", required=True, help="Provider-native approved repository ID")
+    parser.add_argument(
+        "--repository-id", required=True, help="Provider-native approved repository ID"
+    )
     parser.add_argument("--source-url", required=True, help="Trusted HTTPS repository source URL")
     arguments = parser.parse_args(args)
 
