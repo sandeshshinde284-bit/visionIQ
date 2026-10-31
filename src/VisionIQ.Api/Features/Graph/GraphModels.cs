@@ -88,7 +88,8 @@ public sealed record GraphAssertion(
 /// <summary>A minimal graph row for traversal, with no source data or ACL payload.</summary>
 public sealed record GraphNeighbor(
     string DestinationNodeKey, string DestinationAnchorKey,
-    string ProvenanceItemKey, GraphRelationKind Relation, GraphClassification Classification);
+    string ProvenanceItemKey, string ProvenanceRevision,
+    GraphRelationKind Relation, GraphClassification Classification);
 
 /// <summary>An authorized graph node; the source's redacted data stays in the evidence service.</summary>
 public sealed record AuthorizedGraphNode(
