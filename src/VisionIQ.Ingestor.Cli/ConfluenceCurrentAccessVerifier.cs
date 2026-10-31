@@ -8,10 +8,32 @@ namespace VisionIQ.Ingestor.Cli;
 /// read-only connector, including every ancestor restriction. The requester
 /// identity and membership MUST originate from trusted server-side identity.
 /// </summary>
+/// <summary>
+/// B-7: whether a trusted requester can view a Confluence space. Page restrictions only narrow
+/// space permissions, so an unrestricted page is visible only to people with space access.
+/// </summary>
+public interface IConfluenceSpaceAccess
+{
+    Task<bool> CanViewSpaceAsync(string spaceKey, EvidenceRequester requester, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Default until space permissions are read from Confluence (for example Cloud's content
+/// permission-check API): nobody is assumed to have space access, so every page stays hidden.
+/// </summary>
+public sealed class DenyUnverifiedSpaceAccess : IConfluenceSpaceAccess
+{
+    public Task<bool> CanViewSpaceAsync(string spaceKey, EvidenceRequester requester, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+}
+
 public sealed class ConfluenceCurrentAccessVerifier(
     IConfluenceSource source,
-    string sourceInstance) : IProviderAccessVerifier
+    string sourceInstance,
+    IConfluenceSpaceAccess? spaceAccess = null) : IProviderAccessVerifier
 {
+    private readonly IConfluenceSpaceAccess spaces = spaceAccess ?? new DenyUnverifiedSpaceAccess();
+
     /// <summary>
     /// Re-reads the page ACL rather than trusting an old stored snapshot.
     /// Any missing page, unknown ancestor, failed API call or unapproved
@@ -39,6 +61,12 @@ public sealed class ConfluenceCurrentAccessVerifier(
                 .ConfigureAwait(false);
             var acls = ConfluenceAccess.ComputeAcls(pages);
             if (!acls.TryGetValue(identity.ExternalId, out var acl))
+            {
+                return false;
+            }
+
+            // B-7: space membership must be verified, never assumed from the page being asked about.
+            if (!await spaces.CanViewSpaceAsync(identity.ProjectId, requester, cancellationToken).ConfigureAwait(false))
             {
                 return false;
             }
