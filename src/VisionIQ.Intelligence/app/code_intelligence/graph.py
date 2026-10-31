@@ -9,7 +9,7 @@ and exactly the same full commit SHA.
 import hashlib
 import struct
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC
 from typing import TYPE_CHECKING
 
 import psycopg
