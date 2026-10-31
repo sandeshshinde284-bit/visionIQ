@@ -22,13 +22,19 @@ class FakeSource:
     expected: int | None = None
     unavailable: bool = False
     received_cursor: str | None = None
+    # By default behave like a compliant adapter: the count is bounded by the
+    # last returned record's cursor (B-17). Tests override this to violate it.
+    count_through: str | None = "AUTO"
 
     async def read(self, cursor: str | None) -> SourceBatch:
         """Return a deterministic batch or simulate an unavailable provider."""
         self.received_cursor = cursor
         if self.unavailable:
             raise ConnectionError("simulated source failure")
-        return SourceBatch(self.records, self.expected)
+        through = self.count_through
+        if through == "AUTO":
+            through = self.records[-1].cursor if self.records else None
+        return SourceBatch(self.records, self.expected, through)
 
 
 class MemoryWriter:
@@ -187,3 +193,50 @@ async def test_duplicate_source_configuration_is_rejected() -> None:
     runner = BackfillReconciler(MemoryWriter(), MemoryCheckpoints(), MemoryQuarantine())
     with pytest.raises(ValueError, match="only once"):
         await runner.run_all([FakeSource("ado:a"), FakeSource("ado:a")])
+
+
+@pytest.mark.asyncio
+async def test_count_without_a_declared_window_is_rejected_not_silently_stalled() -> None:
+    """B-17: an open-ended count would mismatch forever on an active source."""
+    checkpoints = MemoryCheckpoints()
+    await checkpoints.put("ado:p", "c0")
+    runner = BackfillReconciler(MemoryWriter(), checkpoints, MemoryQuarantine())
+
+    output = await runner.run_one(
+        FakeSource("ado:p", [change("1", "1", "c1")], expected=1, count_through=None)
+    )
+
+    assert output.state is SyncState.NOT_SYNCED
+    assert output.reason_code == "COUNT_WINDOW_UNDECLARED"
+    assert await checkpoints.get("ado:p") == "c0"
+
+
+@pytest.mark.asyncio
+async def test_count_window_must_end_at_the_last_returned_record() -> None:
+    checkpoints = MemoryCheckpoints()
+    runner = BackfillReconciler(MemoryWriter(), checkpoints, MemoryQuarantine())
+
+    output = await runner.run_one(
+        FakeSource(
+            "ado:p",
+            [change("1", "1", "c1"), change("2", "1", "c2")],
+            expected=2,
+            count_through="c1",
+        )
+    )
+
+    assert output.reason_code == "COUNT_WINDOW_UNDECLARED"
+    assert await checkpoints.get("ado:p") is None
+
+
+@pytest.mark.asyncio
+async def test_a_bounded_count_that_matches_advances_the_checkpoint() -> None:
+    checkpoints = MemoryCheckpoints()
+    runner = BackfillReconciler(MemoryWriter(), checkpoints, MemoryQuarantine())
+
+    output = await runner.run_one(
+        FakeSource("ado:p", [change("1", "1", "c1"), change("2", "1", "c2")], expected=2)
+    )
+
+    assert output.state is SyncState.SYNCED
+    assert await checkpoints.get("ado:p") == "c2"

@@ -38,10 +38,18 @@ class ChangeRecord:
 
 @dataclass(frozen=True, slots=True)
 class SourceBatch:
-    """A source response with an optional independently obtained expected count."""
+    """A source response with an optional independently obtained expected count.
+
+    B-17: an expected count is only meaningful over a closed window. When
+    ``expected_count`` is given, ``count_through_cursor`` must name the cursor the
+    count was bounded by, and it must equal the last returned record's cursor.
+    An open-ended count ("everything since the checkpoint") would mismatch on
+    every run of an active source and the checkpoint would never advance.
+    """
 
     records: Sequence[ChangeRecord]
     expected_count: int | None = None
+    count_through_cursor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +145,20 @@ class BackfillReconciler:
 
         if batch.expected_count is not None and batch.expected_count < 0:
             return SourceReport(source_id, SyncState.NOT_SYNCED, reason_code="INVALID_SOURCE_COUNT")
+
+        if (
+            batch.expected_count is not None
+            and batch.records
+            and batch.count_through_cursor != batch.records[-1].cursor
+        ):
+            # B-17: refuse an unbounded or misaligned count instead of stalling forever.
+            return SourceReport(
+                source_id,
+                SyncState.NOT_SYNCED,
+                received=len(batch.records),
+                checkpoint=saved,
+                reason_code="COUNT_WINDOW_UNDECLARED",
+            )
 
         accepted = unchanged = failed = 0
         contiguous_cursor = saved
