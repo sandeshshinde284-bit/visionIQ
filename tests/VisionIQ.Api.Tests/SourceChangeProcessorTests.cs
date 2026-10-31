@@ -59,6 +59,18 @@ public sealed class SourceChangeProcessorTests
     }
 
     [Fact]
+    public async Task A_dead_lettered_event_is_not_retried()
+    {
+        // M-11: after too many attempts the event stays quarantined and is not handled again.
+        var inbox = new StubInbox { NextStatus = ChangeClaimStatus.DeadLettered };
+        var handler = new StubHandler();
+        var result = await new SourceChangeProcessor(inbox, handler).ProcessAsync(Event());
+
+        Assert.Equal(ChangeProcessingStatus.DeadLettered, result);
+        Assert.Equal(0, handler.Applied);
+    }
+
+    [Fact]
     public async Task A_busy_claim_is_not_processed_concurrently()
     {
         var inbox = new StubInbox { NextStatus = ChangeClaimStatus.InProgress };

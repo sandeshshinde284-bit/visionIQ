@@ -35,6 +35,9 @@ public enum ChangeClaimStatus
     AlreadyCompleted,
     InProgress,
     IdentityConflict,
+
+    /// <summary>M-11: the event failed too many times; it stays quarantined for a human or reconciliation.</summary>
+    DeadLettered,
 }
 
 /// <summary>Processor result; a quarantined event requires source reconciliation.</summary>
@@ -45,6 +48,7 @@ public enum ChangeProcessingStatus
     InProgress,
     IdentityConflict,
     Quarantined,
+    DeadLettered,
 }
 
 /// <summary>An acquired lease token; only its owner can complete this attempt.</summary>
@@ -100,6 +104,7 @@ public sealed class SourceChangeProcessor(
                 ChangeClaimStatus.AlreadyCompleted => ChangeProcessingStatus.AlreadyCompleted,
                 ChangeClaimStatus.InProgress => ChangeProcessingStatus.InProgress,
                 ChangeClaimStatus.IdentityConflict => ChangeProcessingStatus.IdentityConflict,
+                ChangeClaimStatus.DeadLettered => ChangeProcessingStatus.DeadLettered,
                 _ => throw new InvalidOperationException("Unknown source event claim state."),
             };
         }
@@ -136,9 +141,16 @@ public sealed class PostgresSourceChangeInbox : ISourceChangeInbox, IAsyncDispos
     private readonly TimeSpan lease;
 
     /// <summary>Creates a pooled runtime data source with a bounded worker lease.</summary>
-    public PostgresSourceChangeInbox(DatabaseOptions options, TimeSpan? leaseDuration = null)
+    /// <summary>M-11: claims allowed per event before it is dead-lettered (stays quarantined).</summary>
+    public const int DefaultMaxAttempts = 5;
+
+    private readonly int maxAttempts;
+
+    public PostgresSourceChangeInbox(DatabaseOptions options, TimeSpan? leaseDuration = null, int maxAttempts = DefaultMaxAttempts)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxAttempts, 1);
+        this.maxAttempts = maxAttempts;
         lease = leaseDuration ?? TimeSpan.FromMinutes(5);
         if (lease < TimeSpan.FromSeconds(10) || lease > TimeSpan.FromHours(1))
         {
@@ -192,7 +204,8 @@ public sealed class PostgresSourceChangeInbox : ISourceChangeInbox, IAsyncDispos
         }
 
         await using var lookup = new NpgsqlCommand("""
-            SELECT provider_kind, native_id, source_revision, status, claim_expires_at
+            SELECT provider_kind, native_id, source_revision, status,
+                   claim_expires_at <= now() AS expired, attempt_count
             FROM evidence.source_change_inbox
             WHERE source_id = @source AND event_id = @event FOR UPDATE
             """, connection, transaction);
@@ -208,7 +221,9 @@ public sealed class PostgresSourceChangeInbox : ISourceChangeInbox, IAsyncDispos
                    string.Equals(reader.GetString(1), change.NativeId, StringComparison.Ordinal) &&
                    string.Equals(reader.GetString(2), change.SourceRevision, StringComparison.Ordinal);
         var status = reader.GetString(3);
-        var expired = reader.GetFieldValue<DateTimeOffset>(4) <= DateTimeOffset.UtcNow;
+        // M-11: lease expiry uses the database clock that set it, not this server's clock.
+        var expired = reader.GetBoolean(4);
+        var attempts = reader.GetInt32(5);
         await reader.DisposeAsync();
 
         if (!same)
@@ -224,6 +239,12 @@ public sealed class PostgresSourceChangeInbox : ISourceChangeInbox, IAsyncDispos
         if (status == "processing" && !expired)
         {
             return new ChangeClaim(ChangeClaimStatus.InProgress);
+        }
+
+        if (attempts >= maxAttempts)
+        {
+            // M-11: stop retrying a poison event; leave it for reconciliation instead of looping forever.
+            return new ChangeClaim(ChangeClaimStatus.DeadLettered);
         }
 
         await using var update = new NpgsqlCommand("""
