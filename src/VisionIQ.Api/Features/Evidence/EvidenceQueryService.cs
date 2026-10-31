@@ -14,6 +14,7 @@ public sealed record EvidenceRequester(
     /// <summary>All allowed requester identities with empty values removed.</summary>
     public IReadOnlySet<string> PrincipalIds()
     {
+        ArgumentNullException.ThrowIfNull(GroupPrincipalIds);
         var ids = new HashSet<string>(GroupPrincipalIds, StringComparer.Ordinal);
         if (!string.IsNullOrWhiteSpace(PrincipalId))
         {
@@ -32,6 +33,14 @@ public sealed record EvidenceReadCandidate(
     string RedactedJson,
     bool AclVerified,
     IReadOnlyList<string> PrincipalIds);
+
+/// <summary>
+/// Authorized, redacted evidence without internal ACL principal metadata or
+/// Cloud Storage archive locations. Suitable for a future authenticated caller.
+/// </summary>
+public sealed record AuthorizedEvidence(
+    EvidenceIdentity Identity, string ProviderRevisionId,
+    string SourceUrl, string RedactedJson);
 
 /// <summary>Provides read-only access to the latest canonical source revision.</summary>
 public interface ICanonicalEvidenceReader
@@ -78,7 +87,7 @@ public sealed class EvidenceQueryService(
     /// the authenticated caller belongs to an allowed principal, and the
     /// source provider independently verifies current access.
     /// </summary>
-    public async Task<EvidenceReadCandidate?> FindLatestAuthorizedAsync(
+    public async Task<AuthorizedEvidence?> FindLatestAuthorizedAsync(
         string itemKey, EvidenceRequester requester,
         CancellationToken cancellationToken = default)
     {
@@ -111,7 +120,8 @@ public sealed class EvidenceQueryService(
 
         // Re-check candidate metadata even after provider callback: never return
         // an unverified revision or raw payload to the caller.
-        return candidate;
+        return new AuthorizedEvidence(candidate.Identity, candidate.ProviderRevisionId,
+            candidate.SourceUrl, candidate.RedactedJson);
     }
 }
 
