@@ -45,7 +45,7 @@ if ($Action -eq 'BuildPush') {
   try {
     $actualSha = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $actualSha -ne $ImageTag) { throw 'Checkout must match ImageTag.' }
-    if ((& git status --porcelain).Length -gt 0) { throw 'Working tree must be clean.' }
+    if (@(& git status --porcelain).Count -gt 0) { throw 'Working tree must be clean.' }
     $commands = @(
       @{ exe='gcloud'; args=@('auth','configure-docker',"$Region-docker.pkg.dev",'--quiet') },
       @{ exe='docker'; args=@('build','--platform','linux/amd64','-f','src/VisionIQ.Api/Dockerfile','-t',$images.api,'.') },
