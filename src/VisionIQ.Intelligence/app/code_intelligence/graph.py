@@ -110,26 +110,28 @@ def persist_code_graph(
                   AND latest_revision_id IS NOT NULL
                 ORDER BY item_key
                 """,
-                (approved_ado_instance, evidence.identity.project_id,
-                 evidence.identity.repository_id, proof_revision),
+                (
+                    approved_ado_instance,
+                    evidence.identity.project_id,
+                    evidence.identity.repository_id,
+                    proof_revision,
+                ),
             )
             ado_commits = [row[0] for row in cursor.fetchall()]
         if len(ado_commits) > 1:
             # Multiple approved ADO organizations may reuse project/repo IDs.
             # Avoid assigning a cross-tenant relationship without a resolved source.
-            raise ValueError(
-                "Ambiguous ADO commit scope; graph bridge requires source identity"
-            )
+            raise ValueError("Ambiguous ADO commit scope; graph bridge requires source identity")
         if ado_commits:
             observed_commit = GraphCodeNode(ado_commits[0], "commit", proof_revision)
             edges = (
-            *edges,
-            *(
-                GraphCodeEdge(observed_commit, edge.target, edge.kind)
-                for edge in edges
-                if edge.kind == "commit_file"
-            ),
-        )
+                *edges,
+                *(
+                    GraphCodeEdge(observed_commit, edge.target, edge.kind)
+                    for edge in edges
+                    if edge.kind == "commit_file"
+                ),
+            )
 
         nodes: dict[str, GraphCodeNode] = {}
         for edge in edges:
@@ -157,7 +159,9 @@ def persist_code_graph(
 
         for edge in edges:
             relation_key = _hash(
-                edge.source.key(), edge.target.key(), edge.kind.title().replace("_", ""),
+                edge.source.key(),
+                edge.target.key(),
+                edge.kind.title().replace("_", ""),
                 evidence.item_key,
             )
             assertion = _hash(relation_key, proof_revision)
@@ -175,8 +179,17 @@ def persist_code_graph(
                     %s, %s, %s, %s, %s, 'explicit', 'active', %s, %s, %s, %s
                 ) ON CONFLICT (assertion_key) DO NOTHING
                 """,
-                (assertion, relation_key, edge.source.key(), edge.target.key(),
-                 edge.kind, evidence.item_key, proof_revision, asserted_at, content),
+                (
+                    assertion,
+                    relation_key,
+                    edge.source.key(),
+                    edge.target.key(),
+                    edge.kind,
+                    evidence.item_key,
+                    proof_revision,
+                    asserted_at,
+                    content,
+                ),
             )
             cursor.execute(
                 "SELECT content_sha256 FROM evidence.graph_assertions WHERE assertion_key = %s",
