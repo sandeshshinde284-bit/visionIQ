@@ -6,10 +6,11 @@ readability. PARTIAL scans never replace the last complete canonical revision.
 """
 
 import hashlib
+from contextlib import suppress
 import json
 import struct
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -108,7 +109,7 @@ def build_scan_evidence(
     if source_committed_at.tzinfo is None:
         raise ValueError("Git commit date must be timezone-aware")
     _verified_source_url(source_url)
-    observed = observed_at or datetime.now(timezone.utc)
+    observed = observed_at or datetime.now(UTC)
     if observed.tzinfo is None:
         raise ValueError("Observation time must be timezone-aware")
 
@@ -141,8 +142,8 @@ def build_scan_evidence(
         identity=identity,
         revision=scan.commit_sha.lower(),
         source_url=source_url,
-        source_updated_at=source_committed_at.astimezone(timezone.utc),
-        observed_at=observed.astimezone(timezone.utc),
+        source_updated_at=source_committed_at.astimezone(UTC),
+        observed_at=observed.astimezone(UTC),
         content_hash=hashlib.sha256(payload).hexdigest(),
         raw_json=payload,
     )
@@ -193,15 +194,13 @@ class GcsScanArchive:
             f"{evidence.content_hash}.json"
         )
         blob = storage.Client().bucket(self._bucket_name).blob(name)
-        try:
+        # An identical content-addressed object may already be archived.
+        with suppress(PreconditionFailed):
             blob.upload_from_string(
                 evidence.raw_json,
                 content_type="application/json",
                 if_generation_match=0,
             )
-        except PreconditionFailed:
-            # The immutable object for exactly these bytes already exists.
-            pass
         return f"gs://{self._bucket_name}/{name}"
 
 
@@ -219,85 +218,87 @@ class PostgresScanEvidenceStore:
         import psycopg
         from psycopg.types.json import Jsonb
 
-        with psycopg.connect(self._connection_string, connect_timeout=10) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO evidence.source_items (
-                        item_key, provider, source_instance, project_id, repository_id,
-                        kind, external_id, first_observed_at, last_observed_at
-                    ) VALUES (
-                        %(key)s, 'git', %(source)s, %(project)s, %(repository)s,
-                        'code_scan', %(repository)s, %(observed)s, %(observed)s
+        with (
+            psycopg.connect(self._connection_string, connect_timeout=10) as connection,
+            connection.cursor() as cursor,
+        ):
+            cursor.execute(
+                """
+                INSERT INTO evidence.source_items (
+                    item_key, provider, source_instance, project_id, repository_id,
+                    kind, external_id, first_observed_at, last_observed_at
+                ) VALUES (
+                    %(key)s, 'git', %(source)s, %(project)s, %(repository)s,
+                    'code_scan', %(repository)s, %(observed)s, %(observed)s
+                )
+                ON CONFLICT (item_key) DO UPDATE SET
+                    last_observed_at = GREATEST(
+                        evidence.source_items.last_observed_at, EXCLUDED.last_observed_at
                     )
-                    ON CONFLICT (item_key) DO UPDATE SET
-                        last_observed_at = GREATEST(
-                            evidence.source_items.last_observed_at, EXCLUDED.last_observed_at
-                        )
-                    """,
-                    {
-                        "key": evidence.item_key,
-                        "source": evidence.identity.source_instance,
-                        "project": evidence.identity.project_id,
-                        "repository": evidence.identity.repository_id,
-                        "observed": evidence.observed_at,
-                    },
-                )
-                cursor.execute(
-                    """
-                    SELECT content_sha256 FROM evidence.source_revisions
-                    WHERE item_key = %(key)s AND provider_revision_id = %(revision)s
-                    """,
-                    {"key": evidence.item_key, "revision": evidence.revision},
-                )
-                old = cursor.fetchone()
-                if old is not None:
-                    return "UNCHANGED" if old[0].strip() == evidence.content_hash else "CONFLICT"
+                """,
+                {
+                    "key": evidence.item_key,
+                    "source": evidence.identity.source_instance,
+                    "project": evidence.identity.project_id,
+                    "repository": evidence.identity.repository_id,
+                    "observed": evidence.observed_at,
+                },
+            )
+            cursor.execute(
+                """
+                SELECT content_sha256 FROM evidence.source_revisions
+                WHERE item_key = %(key)s AND provider_revision_id = %(revision)s
+                """,
+                {"key": evidence.item_key, "revision": evidence.revision},
+            )
+            old = cursor.fetchone()
+            if old is not None:
+                return "UNCHANGED" if old[0].strip() == evidence.content_hash else "CONFLICT"
 
-                cursor.execute(
-                    """
-                    INSERT INTO evidence.source_revisions (
-                        item_key, provider_revision_id, source_updated_at,
-                        observed_at, content_sha256, source_url,
-                        retrieved_under_principal, acl_verified, acl_principals,
-                        redacted_payload, redaction_version, normalizer_version,
-                        raw_snapshot_uri
-                    ) VALUES (
-                        %(key)s, %(revision)s, %(updated)s,
-                        %(observed)s, %(hash)s, %(url)s,
-                        'visioniq-code-scanner', FALSE, %(acl)s,
-                        %(metadata)s, %(normalizer)s, %(normalizer)s, %(archive)s
-                    )
-                    """,
-                    {
-                        "key": evidence.item_key,
-                        "revision": evidence.revision,
-                        "updated": evidence.source_updated_at,
-                        "observed": evidence.observed_at,
-                        "hash": evidence.content_hash,
-                        "url": evidence.source_url,
-                        "acl": Jsonb([]),
-                        "metadata": Jsonb({"kind": "code_scan"}),
-                        "normalizer": _NORMALIZER_VERSION,
-                        "archive": archive_uri,
-                    },
+            cursor.execute(
+                """
+                INSERT INTO evidence.source_revisions (
+                    item_key, provider_revision_id, source_updated_at,
+                    observed_at, content_sha256, source_url,
+                    retrieved_under_principal, acl_verified, acl_principals,
+                    redacted_payload, redaction_version, normalizer_version,
+                    raw_snapshot_uri
+                ) VALUES (
+                    %(key)s, %(revision)s, %(updated)s,
+                    %(observed)s, %(hash)s, %(url)s,
+                    'visioniq-code-scanner', FALSE, %(acl)s,
+                    %(metadata)s, %(normalizer)s, %(normalizer)s, %(archive)s
                 )
-                cursor.execute(
-                    """
-                    UPDATE evidence.source_items
-                    SET latest_revision_id = %(revision)s,
-                        latest_source_updated_at = %(updated)s
-                    WHERE item_key = %(key)s AND (
-                        latest_revision_id IS NULL OR
-                        latest_source_updated_at < %(updated)s OR
-                        (latest_source_updated_at = %(updated)s
-                         AND latest_revision_id < %(revision)s)
-                    )
-                    """,
-                    {
-                        "revision": evidence.revision,
-                        "updated": evidence.source_updated_at,
-                        "key": evidence.item_key,
-                    },
+                """,
+                {
+                    "key": evidence.item_key,
+                    "revision": evidence.revision,
+                    "updated": evidence.source_updated_at,
+                    "observed": evidence.observed_at,
+                    "hash": evidence.content_hash,
+                    "url": evidence.source_url,
+                    "acl": Jsonb([]),
+                    "metadata": Jsonb({"kind": "code_scan"}),
+                    "normalizer": _NORMALIZER_VERSION,
+                    "archive": archive_uri,
+                },
+            )
+            cursor.execute(
+                """
+                UPDATE evidence.source_items
+                SET latest_revision_id = %(revision)s,
+                    latest_source_updated_at = %(updated)s
+                WHERE item_key = %(key)s AND (
+                    latest_revision_id IS NULL OR
+                    latest_source_updated_at < %(updated)s OR
+                    (latest_source_updated_at = %(updated)s
+                     AND latest_revision_id < %(revision)s)
                 )
-                return "NEW_REVISION"
+                """,
+                {
+                    "revision": evidence.revision,
+                    "updated": evidence.source_updated_at,
+                    "key": evidence.item_key,
+                },
+            )
+            return "NEW_REVISION"
