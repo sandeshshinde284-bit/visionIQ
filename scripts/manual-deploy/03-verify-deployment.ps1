@@ -57,7 +57,13 @@ foreach ($service in $expected) {
     $policyJson = & gcloud run services get-iam-policy $service.Name --project=$Project --region=$Region --format=json
     if ($LASTEXITCODE -ne 0) { throw "Cannot confirm IAM policy for $($service.Name)." }
     $policy = $policyJson | ConvertFrom-Json
-    $publicInvokers = @($policy.bindings | Where-Object {
+    # Empty IAM policies may omit 'bindings' entirely. Treat that as no broad grant,
+    # not as a script failure under StrictMode.
+    $bindings = @()
+    if ($null -ne $policy -and $policy.PSObject.Properties.Name -contains 'bindings') {
+        $bindings = @($policy.bindings)
+    }
+    $publicInvokers = @($bindings | Where-Object {
         $_.role -eq 'roles/run.invoker' -and
         (@($_.members) -contains 'allUsers' -or @($_.members) -contains 'allAuthenticatedUsers')
     })
