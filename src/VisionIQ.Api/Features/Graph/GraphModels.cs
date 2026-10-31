@@ -51,7 +51,7 @@ public sealed record GraphAssertion(
     GraphNode From, GraphNode To, GraphRelationKind Relation,
     string ProvenanceItemKey, string ProvenanceRevision,
     GraphClassification Classification, GraphAssertionState State,
-    DateTimeOffset SourceAssertedAt)
+    DateTimeOffset SourceAssertedAt, string? TicketFixAssociationKey = null)
 {
     /// <summary>Stable identity of the edge, independent of evidence revision.</summary>
     public string RelationshipKey()
@@ -67,7 +67,8 @@ public sealed record GraphAssertion(
     /// <summary>Hash of all immutable columns to detect conflicting replays.</summary>
     public string ContentHash() =>
         GraphHashes.Hash(AssertionKey(), Classification.ToString(),
-            State.ToString(), SourceAssertedAt.ToUniversalTime().ToString("O"));
+            State.ToString(), SourceAssertedAt.ToUniversalTime().ToString("O"),
+            TicketFixAssociationKey ?? "");
 
     /// <summary>Reject missing source proof, invalid scope or self-referential assertions.</summary>
     public void Validate()
@@ -78,7 +79,9 @@ public sealed record GraphAssertion(
         if (From.NodeKey() == To.NodeKey() ||
             string.IsNullOrWhiteSpace(ProvenanceRevision) || ProvenanceRevision.Length > 512 ||
             !Enum.IsDefined(Relation) || !Enum.IsDefined(Classification) ||
-            !Enum.IsDefined(State) || SourceAssertedAt == default)
+            !Enum.IsDefined(State) || SourceAssertedAt == default ||
+            TicketFixAssociationKey is { } association &&
+                (association.Length != 64 || !association.All(Uri.IsHexDigit)))
         {
             throw new ArgumentException("Graph assertion lacks valid immutable source provenance.");
         }
