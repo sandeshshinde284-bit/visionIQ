@@ -50,6 +50,7 @@ var app = builder.Build();
 _ = app.Services.GetRequiredService<DatabaseOptions>();
 
 app.MapHealthEndpoints();
+app.MapDatabaseReadiness();
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
