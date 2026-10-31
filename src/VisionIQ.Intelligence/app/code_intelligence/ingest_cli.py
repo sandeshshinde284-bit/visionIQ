@@ -20,8 +20,8 @@ from app.code_intelligence.canonical import (
     ingest_complete_scan,
 )
 from app.code_intelligence.graph import persist_code_graph
-from app.code_intelligence.relationships import ApprovedRepository, resolve_dependencies
 from app.code_intelligence.parsers import default_parser_registry
+from app.code_intelligence.relationships import ApprovedRepository, resolve_dependencies
 from app.code_intelligence.snapshots import scan_with_recovery
 
 
