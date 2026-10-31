@@ -131,13 +131,19 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IAsyncDispo
                 latest_revision_id IS NULL OR
                 latest_source_updated_at < @source_updated OR
                 -- B-8: revisions sharing a source timestamp. Digit-only IDs (ADO revisions)
-                -- compare numerically via (length, text) so "10" > "9" without a cast;
-                -- other IDs compare by ordinal text, deterministically.
+                -- compare numerically via (length, text) so "10" > "9" without a cast.
+                -- B-9: other IDs (content revisions "native#hash") are ordered by when they
+                -- were first observed, then by ordinal text as a final deterministic tie-break.
                 (latest_source_updated_at = @source_updated AND (
                     CASE WHEN latest_revision_id ~ '^[0-9]+$' AND @revision ~ '^[0-9]+$'
                         THEN (length(latest_revision_id), latest_revision_id COLLATE "C")
                            < (length(@revision), @revision COLLATE "C")
-                        ELSE latest_revision_id COLLATE "C" < @revision COLLATE "C"
+                        ELSE (
+                            SELECT (current.observed_at, current.provider_revision_id COLLATE "C")
+                                 < (@observed, @revision COLLATE "C")
+                            FROM evidence.source_revisions AS current
+                            WHERE current.item_key = @key
+                              AND current.provider_revision_id = source_items.latest_revision_id)
                     END))
             )
             """;
@@ -145,6 +151,7 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IAsyncDispo
         latest.Parameters.AddWithValue("key", evidence.ItemKey);
         latest.Parameters.AddWithValue("revision", input.ProviderRevisionId);
         latest.Parameters.AddWithValue("source_updated", input.SourceUpdatedAt);
+        latest.Parameters.AddWithValue("observed", input.ObservedAt);
         await latest.ExecuteNonQueryAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);

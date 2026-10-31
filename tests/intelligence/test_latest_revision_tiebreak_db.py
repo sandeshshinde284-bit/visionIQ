@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skipif(
 def _dotnet_sql() -> str:
     source = (REPO / "src/VisionIQ.Api/Features/Evidence/PostgresEvidenceStore.cs").read_text()
     sql = re.search(r'const string latestSql = """(.*?)""";', source, re.S).group(1)
-    return re.sub(r"@(key|revision|source_updated)\b", r"%(\1)s", sql)
+    return re.sub(r"@(key|revision|source_updated|observed)\b", r"%(\1)s", sql)
 
 
 def _python_sql() -> str:
@@ -42,7 +42,7 @@ def _connect():
     )
 
 
-def _apply(sql: str, steps: list[tuple[str, str]]) -> str:
+def _apply(sql: str, steps: list[tuple]) -> str:
     key = uuid.uuid4().hex + uuid.uuid4().hex
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -51,16 +51,21 @@ def _apply(sql: str, steps: list[tuple[str, str]]) -> str:
                VALUES (%s, 'test', 'test', 'p', 'tiebreak', %s, now(), now())""",
             (key, key),
         )
-        for revision, updated in steps:
+        for step in steps:
+            revision, updated = step[0], step[1]
+            observed = step[2] if len(step) > 2 else "2026-10-31T00:00:00Z"
             cursor.execute(
                 """INSERT INTO evidence.source_revisions (item_key, provider_revision_id,
                    source_updated_at, observed_at, content_sha256, source_url,
                    retrieved_under_principal, redaction_version, normalizer_version,
-                   raw_snapshot_uri) VALUES (%s, %s, %s, now(), repeat('0', 64), 'https://x',
+                   raw_snapshot_uri) VALUES (%s, %s, %s, %s, repeat('0', 64), 'https://x',
                    't', 'v', 'v', 'gs://test/x')""",
-                (key, revision, updated),
+                (key, revision, updated, observed),
             )
-            cursor.execute(sql, {"key": key, "revision": revision, "source_updated": updated})
+            params = {"key": key, "revision": revision, "source_updated": updated}
+            if "%(observed)s" in sql:
+                params["observed"] = observed
+            cursor.execute(sql, params)
         cursor.execute(
             "SELECT latest_revision_id FROM evidence.source_items WHERE item_key = %s", (key,)
         )
@@ -88,3 +93,18 @@ CASES = [
 def test_latest_revision_follows_source_order(statement, steps, expected) -> None:
     sql = _dotnet_sql() if statement == "dotnet" else _python_sql()
     assert _apply(sql, steps) == expected
+
+
+O1, O2 = "2026-10-31T08:00:00Z", "2026-10-31T09:00:00Z"
+
+
+def test_dotnet_content_revisions_with_tied_source_time_follow_observation_order() -> None:
+    # B-9: "native#hash" content revisions share a source timestamp; the one observed
+    # later must win even when its hash sorts lower.
+    steps = [("active@2026-10-01T00:00:00Z#ff", T1, O1), ("active@2026-10-01T00:00:00Z#00", T1, O2)]
+    assert _apply(_dotnet_sql(), steps) == "active@2026-10-01T00:00:00Z#00"
+    reverse = [
+        ("active@2026-10-01T00:00:00Z#00", T1, O2),
+        ("active@2026-10-01T00:00:00Z#ff", T1, O1),
+    ]
+    assert _apply(_dotnet_sql(), reverse) == "active@2026-10-01T00:00:00Z#00"

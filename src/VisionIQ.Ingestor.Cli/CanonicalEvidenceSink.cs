@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Globalization;
 using System.Text.Json;
 using VisionIQ.Api.Features.Evidence;
@@ -21,6 +22,20 @@ public sealed class CanonicalEvidenceSink(
     TimeProvider? timeProvider = null) : ICanonicalEvidenceSink
 {
     private static readonly JsonSerializerOptions Serialization = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// B-9: for kinds whose native revision does not cover every stored field (an active PR's commits,
+    /// a page's labels and permissions, build artifacts, a renamed repository), the revision is
+    /// "native#content-hash". Identical content stays idempotent; changed content becomes a new
+    /// revision instead of an immutable-content conflict that failed every re-sync.
+    /// </summary>
+    public static string ContentRevision(string nativeRevision, object record)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nativeRevision);
+        ArgumentNullException.ThrowIfNull(record);
+        var hash = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(record, record.GetType(), Serialization));
+        return nativeRevision + "#" + Convert.ToHexStringLower(hash)[..16];
+    }
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
 
     public async Task WriteAsync(
@@ -62,7 +77,7 @@ public sealed class CanonicalEvidenceSink(
         if (result.Status == EvidenceImportStatus.Conflict)
         {
             throw new InvalidOperationException(
-                "Canonical evidence conflict: one source revision had different content.");
+                "Canonical evidence conflict: one native source revision (for example an ADO work-item revision) had different content.");
         }
     }
 
@@ -112,14 +127,14 @@ public sealed class CanonicalEvidenceSink(
 
             case PullRequestRecord pr when stream == "pull-requests":
                 return new Datum("azure_devops", adoInstance, pr.Project, pr.RepositoryId,
-                    "pull_request", Id(pr.Id), pr.Status + "@" + Stamp(pr.LastActivity),
+                    "pull_request", Id(pr.Id), ContentRevision(pr.Status + "@" + Stamp(pr.LastActivity), pr),
                     pr.LastActivity,
                     AdoUrl(pr.Project, "_git/" + Uri.EscapeDataString(pr.RepositoryName)
                         + "/pullrequest/" + Id(pr.Id)));
 
             case CommitRecord commit when stream == "commits":
                 return new Datum("azure_devops", adoInstance, commit.Project,
-                    commit.RepositoryId, "commit", commit.CommitId, commit.CommitId,
+                    commit.RepositoryId, "commit", commit.CommitId, ContentRevision(commit.CommitId, commit),
                     commit.CommitterDate,
                     AdoUrl(commit.Project, "_git/"
                         + Uri.EscapeDataString(commit.RepositoryName)
@@ -128,7 +143,7 @@ public sealed class CanonicalEvidenceSink(
             case BuildRecord build when stream == "builds":
                 return new Datum("azure_devops", adoInstance, build.Project,
                     build.RepositoryId, "ci_run", Id(build.Id),
-                    build.Status + "@" + Stamp(build.FinishTime ?? observed),
+                    ContentRevision(build.Status + "@" + Stamp(build.FinishTime ?? observed), build),
                     build.FinishTime ?? observed,
                     AdoUrl(build.Project, "_build/results?buildId=" + Id(build.Id)));
 
@@ -136,19 +151,19 @@ public sealed class CanonicalEvidenceSink(
             {
                 var project = AdoProjectFromKey(key, "/link/");
                 return new Datum("azure_devops", adoInstance, project, null,
-                    "declared_link", link.Key, "1", observed,
+                    "declared_link", link.Key, ContentRevision("1", link), observed,
                     AdoUrl(project, "_workitems"));
             }
 
             case ConfluencePageSnapshot page when stream == "confluence-pages":
                 return new Datum("confluence", confluenceInstance ?? page.Tenant,
                     page.SpaceKey, null, "design_page", page.Id,
-                    Id(page.Version), page.LastModified, WikiUrl(page.Tenant, page.Url));
+                    ContentRevision(Id(page.Version), page), page.LastModified, WikiUrl(page.Tenant, page.Url));
 
             case DesignDecisionRecord decision when stream == "design-decisions":
                 return new Datum("confluence", confluenceInstance ?? SiteFromKey(key),
                     decision.SpaceKey, null, "design_decision", decision.PageId,
-                    Id(decision.Version), decision.LastModified,
+                    ContentRevision(Id(decision.Version), decision), decision.LastModified,
                     WikiUrl(SiteFromKey(key), decision.Url));
 
             case ConfluencePageAcl acl when stream == "confluence-acl":

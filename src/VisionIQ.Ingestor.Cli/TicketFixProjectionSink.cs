@@ -87,8 +87,9 @@ public sealed class TicketFixProjectionSink(
     private async Task ProjectPullRequestAsync(
         PullRequestRecord pr, CancellationToken cancellationToken)
     {
-        var revision = pr.Status + "@" +
-            pr.LastActivity.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
+        // Must match the revision the canonical sink stored (B-9 content revision).
+        var revision = CanonicalEvidenceSink.ContentRevision(
+            pr.Status + "@" + pr.LastActivity.UtcDateTime.ToString("O", CultureInfo.InvariantCulture), pr);
         var sourceKey = new EvidenceIdentity(
             "azure_devops", sourceInstance, pr.Project, pr.RepositoryId,
             "pull_request", pr.Id.ToString(CultureInfo.InvariantCulture)).ItemKey();
@@ -124,7 +125,7 @@ public sealed class TicketFixProjectionSink(
         var sourceKey = new EvidenceIdentity(
             "azure_devops", sourceInstance, commit.Project, commit.RepositoryId,
             "commit", commit.CommitId).ItemKey();
-        var reference = "evidence:" + sourceKey + ":" + commit.CommitId;
+        var reference = "evidence:" + sourceKey + ":" + CanonicalEvidenceSink.ContentRevision(commit.CommitId, commit);
 
         foreach (var link in LinkExtractor.FromCommit(commit))
         {
