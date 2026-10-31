@@ -85,7 +85,37 @@ public sealed record GraphAssertion(
         {
             throw new ArgumentException("Graph assertion lacks valid immutable source provenance.");
         }
+
+        if (!AllowedEndpoints.TryGetValue(Relation, out var allowed) ||
+            !allowed.Contains((From.Kind, To.Kind)))
+        {
+            throw new ArgumentException(
+                $"A {Relation} relationship cannot connect {From.Kind} to {To.Kind}.");
+        }
     }
+
+    /// <summary>
+    /// M-3: the node kinds each relationship may connect, enforced here rather than relying on
+    /// every caller's discipline. Matches the .NET materializer and the Python code graph.
+    /// </summary>
+    private static readonly Dictionary<GraphRelationKind, HashSet<(GraphNodeKind From, GraphNodeKind To)>> AllowedEndpoints = new()
+    {
+        [GraphRelationKind.TicketPr] = [(GraphNodeKind.WorkItem, GraphNodeKind.PullRequest)],
+        [GraphRelationKind.PrCommit] = [(GraphNodeKind.PullRequest, GraphNodeKind.Commit)],
+        [GraphRelationKind.TicketCommit] = [(GraphNodeKind.WorkItem, GraphNodeKind.Commit)],
+        [GraphRelationKind.CommitFile] = [(GraphNodeKind.Commit, GraphNodeKind.File)],
+        [GraphRelationKind.FileSymbol] = [(GraphNodeKind.File, GraphNodeKind.Symbol)],
+        [GraphRelationKind.FileDependency] = [(GraphNodeKind.File, GraphNodeKind.File)],
+        [GraphRelationKind.RepositoryDependency] = [(GraphNodeKind.File, GraphNodeKind.Repository)],
+        [GraphRelationKind.CiCommit] = [(GraphNodeKind.CiRun, GraphNodeKind.Commit)],
+        [GraphRelationKind.DesignRelated] =
+        [
+            (GraphNodeKind.DesignPage, GraphNodeKind.WorkItem),
+            (GraphNodeKind.DesignPage, GraphNodeKind.PullRequest),
+            (GraphNodeKind.DesignPage, GraphNodeKind.Commit),
+            (GraphNodeKind.DesignPage, GraphNodeKind.Repository),
+        ],
+    };
 }
 
 /// <summary>A minimal graph row for traversal, with no source data or ACL payload.</summary>
