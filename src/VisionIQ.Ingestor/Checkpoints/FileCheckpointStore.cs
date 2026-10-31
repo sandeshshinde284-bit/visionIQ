@@ -19,7 +19,13 @@ public sealed class FileCheckpointStore : ICheckpointStore
     {
         lock (gate)
         {
-            return Task.FromResult<SyncCheckpoint?>(Load().TryGetValue(Key(sourceId, scope), out var checkpoint) ? checkpoint : null);
+            var all = Load();
+            // m-3: unambiguous key; fall back to the pre-fix key so existing checkpoint files still load.
+            return Task.FromResult<SyncCheckpoint?>(
+                all.TryGetValue(Key(sourceId, scope), out var checkpoint) ||
+                all.TryGetValue(LegacyKey(sourceId, scope), out checkpoint)
+                    ? checkpoint
+                    : null);
         }
     }
 
@@ -45,7 +51,11 @@ public sealed class FileCheckpointStore : ICheckpointStore
         return Task.CompletedTask;
     }
 
-    private static string Key(string sourceId, string scope) => sourceId + "::" + scope;
+    /// <summary>m-3: escaping makes ("a:", ":b") and ("a", "::b") different keys.</summary>
+    public static string Key(string sourceId, string scope) =>
+        Uri.EscapeDataString(sourceId) + "::" + Uri.EscapeDataString(scope);
+
+    private static string LegacyKey(string sourceId, string scope) => sourceId + "::" + scope;
 
     private Dictionary<string, SyncCheckpoint> Load() =>
         File.Exists(path)

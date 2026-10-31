@@ -10,7 +10,9 @@ namespace VisionIQ.Ingestor.Cli;
 /// <summary>
 /// Writes immutable LRN-03 evidence first, then projects explicit LRN-04
 /// source associations into PostgreSQL. No clock-proximity inference is used.
-/// The caller's stream checkpoint cannot advance if either write fails.
+/// If either write throws, the exception propagates to the caller; the sync runners then
+/// report the stream as failed and do not advance its checkpoint (m-12: that guarantee is
+/// enforced by the runners, not by this class).
 /// </summary>
 public sealed class TicketFixProjectionSink(
     ICanonicalEvidenceSink evidence,

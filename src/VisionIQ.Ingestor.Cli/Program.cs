@@ -144,6 +144,11 @@ if (kinds.Contains(SyncKind.Confluence) && confluenceSource is null)
 }
 
 var request = new SyncRequest(kinds, options.Since ?? settings.Since, options.Full);
+if (options.Since is not null && !options.Full)
+{
+    // m-11: say so instead of silently ignoring --since for streams that already have a checkpoint.
+    Console.WriteLine("Note: --since applies only to streams without a checkpoint. Add --full to re-read from that date.");
+}
 var registry = new SourceCapabilityRegistry();
 var reports = new List<SyncReport>();
 

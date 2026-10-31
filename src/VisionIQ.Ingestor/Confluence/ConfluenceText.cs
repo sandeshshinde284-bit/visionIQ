@@ -13,6 +13,20 @@ public static partial class ConfluenceText
 {
     public static NormalizedPage Normalize(string? storage)
     {
+        try
+        {
+            return NormalizeCore(storage);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // m-9: pathological page markup must not stall the sync. Keep the page (identity,
+            // version, ACL) but no text, sections or properties from this version.
+            return new NormalizedPage(string.Empty, [], new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+        }
+    }
+
+    private static NormalizedPage NormalizeCore(string? storage)
+    {
         var empty = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(storage))
         {
@@ -67,31 +81,31 @@ public static partial class ConfluenceText
         return string.Join('\n', lines);
     }
 
-    [GeneratedRegex(@"<!\[CDATA\[(.*?)\]\]>", RegexOptions.Singleline)]
+    [GeneratedRegex(@"<!\[CDATA\[(.*?)\]\]>", RegexOptions.Singleline, matchTimeoutMilliseconds: 2000)]
     private static partial Regex CData();
 
-    [GeneratedRegex(@"<ac:parameter\b[^>]*>.*?</ac:parameter>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"<ac:parameter\b[^>]*>.*?</ac:parameter>", RegexOptions.Singleline | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex MacroParameter();
 
-    [GeneratedRegex(@"<tr\b[^>]*>\s*<th\b[^>]*>(.*?)</th>\s*<td\b[^>]*>(.*?)</td>\s*</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"<tr\b[^>]*>\s*<th\b[^>]*>(.*?)</th>\s*<td\b[^>]*>(.*?)</td>\s*</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex PropertyRow();
 
-    [GeneratedRegex(@"<h([1-6])\b[^>]*>(.*?)</h\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"<h([1-6])\b[^>]*>(.*?)</h\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex Heading();
 
-    [GeneratedRegex(@"</(?:p|h[1-6]|li|tr|div|pre|blockquote|table)>|<br\s*/?>", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"</(?:p|h[1-6]|li|tr|div|pre|blockquote|table)>|<br\s*/?>", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex BlockEnd();
 
-    [GeneratedRegex(@"<li\b[^>]*>", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"<li\b[^>]*>", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex ListItem();
 
-    [GeneratedRegex(@"</t[dh]>", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"</t[dh]>", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex CellEnd();
 
-    [GeneratedRegex(@"<[^>]+>")]
+    [GeneratedRegex(@"<[^>]+>", RegexOptions.None, matchTimeoutMilliseconds: 2000)]
     private static partial Regex AnyTag();
 
-    [GeneratedRegex(@"[ \t\u00A0]+")]
+    [GeneratedRegex(@"[ \t\u00A0]+", RegexOptions.None, matchTimeoutMilliseconds: 2000)]
     private static partial Regex Spaces();
 }
 
@@ -142,9 +156,9 @@ public static partial class DesignDecisionDetector
         };
     }
 
-    [GeneratedRegex(@"^\s*(ADR[-\s]?\d+|Decision\b|Design decision\b|Architecture decision\b)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^\s*(ADR[-\s]?\d+|Decision\b|Design decision\b|Architecture decision\b)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 2000)]
     private static partial Regex DecisionTitle();
 
-    [GeneratedRegex(@"^(decision|outcome|decision outcome)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(decision|outcome|decision outcome)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 2000)]
     private static partial Regex OutcomeHeading();
 }
