@@ -98,7 +98,24 @@ public sealed record TicketFixClaim(
 /// Stores source-observed associations without overwriting review decisions.
 /// No public HTTP route exposes this store or unverified source data.
 /// </summary>
-public sealed class PostgresTicketFixLinkStore : IAsyncDisposable
+/// <summary>Persistence boundary for source-declared fixes and observed reverts.</summary>
+public interface ITicketFixLinkStore
+{
+    /// <summary>Idempotently persists a scoped source association without changing its review verdict.</summary>
+    Task<string> UpsertSourceAsync(
+        TicketFixClaim claim, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records a full-SHA, source-observed revert for existing links in the same
+    /// provider, project and repository; never infers an ambiguous short SHA.
+    /// </summary>
+    Task<int> RecordRevertAsync(
+        string sourceInstance, string projectId, string repositoryId,
+        string originalCommitSha, string revertCommitSha,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisposable
 {
     private readonly NpgsqlDataSource source;
 
@@ -265,6 +282,51 @@ public sealed class PostgresTicketFixLinkStore : IAsyncDisposable
         await transaction.CommitAsync(cancellationToken);
         return outcome;
     }
+
+    /// <summary>
+    /// Adds a verified-by-source full-SHA revert marker to matching scoped links.
+    /// An existing review remains in the audit; readers must treat a reverted
+    /// association as non-current even if an earlier review said verified.
+    /// </summary>
+    public async Task<int> RecordRevertAsync(
+        string sourceInstance, string projectId, string repositoryId,
+        string originalCommitSha, string revertCommitSha,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceInstance);
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryId);
+        if (!IsFullSha(originalCommitSha) || !IsFullSha(revertCommitSha) ||
+            string.Equals(originalCommitSha, revertCommitSha, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Revert markers require two different complete 40-character Git SHAs.");
+        }
+
+        const string sql = """
+            UPDATE evidence.ticket_fix_links
+            SET revert_commit_shas = (
+                SELECT COALESCE(jsonb_agg(DISTINCT value ORDER BY value), '[]'::jsonb)
+                FROM jsonb_array_elements_text(
+                    revert_commit_shas || jsonb_build_array(@revert)
+                ) AS entries(value)
+            ), last_seen_at = now()
+            WHERE source_instance = @source AND project_id = @project
+              AND repository_id = @repository
+              AND lower(commit_sha) = lower(@original)
+            """;
+        await using var connection = await source.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("source", sourceInstance);
+        command.Parameters.AddWithValue("project", projectId);
+        command.Parameters.AddWithValue("repository", repositoryId);
+        command.Parameters.AddWithValue("original", originalCommitSha);
+        command.Parameters.AddWithValue("revert", revertCommitSha.ToLowerInvariant());
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>Accepts only canonical full-length hexadecimal Git object IDs.</summary>
+    private static bool IsFullSha(string? sha) =>
+        sha is { Length: 40 } && sha.All(Uri.IsHexDigit);
 
     /// <summary>Closes the underlying Npgsql connection pool.</summary>
     public ValueTask DisposeAsync() => source.DisposeAsync();
