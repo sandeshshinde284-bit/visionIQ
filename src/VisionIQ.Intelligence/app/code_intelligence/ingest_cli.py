@@ -97,8 +97,10 @@ def main(args: list[str] | None = None) -> int:
         host=_required_env("DB_HOST"),
         port=int(os.environ.get("DB_PORT", "5432")),
         dbname=_required_env("DB_NAME"),
-        user=_required_env("DB_API_USER"),
-        password=_required_env("DB_API_PASSWORD"),
+        # B-15: the scanner writes with its own login. Row-level security (db/manage.py)
+        # limits it to git code_scan evidence and the graph rows that evidence proves.
+        user=_required_env("DB_INTELLIGENCE_USER"),
+        password=_required_env("DB_INTELLIGENCE_PASSWORD"),
         sslmode=os.environ.get("DB_SSL_MODE", "require"),
     )
     state = ingest_complete_scan(
