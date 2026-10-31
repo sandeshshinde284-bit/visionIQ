@@ -155,6 +155,7 @@ async def test_mismatched_approved_source_count_is_partial() -> None:
     assert output.reason_code == "SOURCE_COUNT_MISMATCH"
     assert output.checkpoint is None
 
+
 @pytest.mark.asyncio
 async def test_later_source_count_mismatch_keeps_existing_checkpoint_unchanged() -> None:
     """Missing unknown-order items cannot be skipped by a newer cursor."""
@@ -167,7 +168,6 @@ async def test_later_source_count_mismatch_keeps_existing_checkpoint_unchanged()
     assert output.state == SyncState.PARTIAL
     assert output.checkpoint == "prior"
     assert checkpoints.cursors["ado:project"] == "prior"
-
 
 
 @pytest.mark.asyncio
