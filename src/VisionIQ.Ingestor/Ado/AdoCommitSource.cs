@@ -14,12 +14,23 @@ public sealed record CommitRecord(string CommitId, string RepositoryId, string P
     public bool CommentTruncated { get; init; }
 
     public IReadOnlyList<ChangedFile> ChangedFiles { get; init; } = [];
+
+    /// <summary>
+    /// M-6: true only when the commit has more changed files than <see cref="AdoCommitSource.MaxChangedFiles"/>;
+    /// <see cref="ChangedFiles"/> is then incomplete. Omitted from JSON when false.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ChangedFilesTruncated { get; init; }
 }
 
 /// <summary>Reads commit metadata and changed files through the Azure DevOps REST API, without cloning (S04-10).</summary>
 public sealed class AdoCommitSource
 {
     private const int PageSize = 100;
+    private const int ChangesPageSize = 1000;
+
+    /// <summary>M-6: upper bound of changed files read per commit (very large imports or generated code).</summary>
+    public const int MaxChangedFiles = 50_000;
     private readonly AdoClient client;
 
     public AdoCommitSource(AdoClient client)
@@ -69,20 +80,39 @@ public sealed class AdoCommitSource
             comment = JsonRead.String(detail.Root, "comment") ?? comment;
         }
 
-        List<ChangedFile> files;
-        using (var changes = await client.GetAsync(client.BuildUri(project, basePath + "/changes", [new("top", "1000")]), cancellationToken).ConfigureAwait(false))
+        // M-6: page through every change instead of silently stopping at the first 1,000.
+        var files = new List<ChangedFile>();
+        var truncated = false;
+        for (var skip = 0; ; skip += ChangesPageSize)
         {
-            files = JsonRead.Items(changes.Root, "changes")
+            if (skip >= MaxChangedFiles)
+            {
+                truncated = true;
+                break;
+            }
+
+            using var changes = await client.GetAsync(
+                client.BuildUri(project, basePath + "/changes",
+                [
+                    new("top", ChangesPageSize.ToString(CultureInfo.InvariantCulture)),
+                    new("skip", skip.ToString(CultureInfo.InvariantCulture)),
+                ]),
+                cancellationToken).ConfigureAwait(false);
+            var page = JsonRead.Items(changes.Root, "changes").ToList();
+            files.AddRange(page
                 .Select(change => (Item: JsonRead.Child(change, "item"), Type: JsonRead.String(change, "changeType")))
                 .Where(change => change.Item is { } item
                     && !JsonRead.Bool(item, "isFolder")
                     && JsonRead.String(item, "gitObjectType") != "tree"
                     && JsonRead.String(item, "path") is not null)
-                .Select(change => new ChangedFile(JsonRead.String(change.Item!.Value, "path")!, change.Type ?? "unknown"))
-                .ToList();
+                .Select(change => new ChangedFile(JsonRead.String(change.Item!.Value, "path")!, change.Type ?? "unknown")));
+            if (page.Count < ChangesPageSize)
+            {
+                break;
+            }
         }
 
-        return commit with { Comment = comment, CommentTruncated = false, ChangedFiles = files };
+        return commit with { Comment = comment, CommentTruncated = false, ChangedFiles = files, ChangedFilesTruncated = truncated };
     }
 
     public static CommitRecord? ParseCommit(JsonElement element, string project, RepositoryRecord repository)
