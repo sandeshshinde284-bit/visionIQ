@@ -54,7 +54,10 @@ public sealed class GraphDatabaseIntegrationTests
         item.Parameters.AddWithValue("provider", identity.Provider);
         item.Parameters.AddWithValue("source", identity.SourceInstance);
         item.Parameters.AddWithValue("project", identity.ProjectId);
-        item.Parameters.AddWithValue("repo", (object?)identity.RepositoryId ?? DBNull.Value);
+        item.Parameters.Add(new Npgsql.NpgsqlParameter("repo", NpgsqlTypes.NpgsqlDbType.Text)
+        {
+            Value = (object?)identity.RepositoryId ?? DBNull.Value,
+        });
         item.Parameters.AddWithValue("kind", identity.Kind);
         item.Parameters.AddWithValue("id", identity.ExternalId);
         item.Parameters.AddWithValue("time", sourceTime);
