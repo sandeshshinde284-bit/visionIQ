@@ -52,7 +52,9 @@ class GraphCodeEdge:
     kind: str
 
 
-def project_scan_edges(scan: "RepositoryScan", evidence: "ScanEvidence") -> tuple[GraphCodeEdge, ...]:
+def project_scan_edges(
+    scan: "RepositoryScan", evidence: "ScanEvidence"
+) -> tuple[GraphCodeEdge, ...]:
     """Build only committed file and structurally parsed symbol relationships."""
     if scan.status != "COMPLETE" or scan.commit_sha.lower() != evidence.revision:
         raise ValueError("Only matching, complete Git revisions can produce graph evidence")
@@ -76,8 +78,9 @@ def project_scan_edges(scan: "RepositoryScan", evidence: "ScanEvidence") -> tupl
             name = symbol.qualified_name or symbol.name
             native = f"{analysis.path}::{name}:{symbol.start_line}"
             edges.append(
-                GraphCodeEdge(file_node, GraphCodeNode(evidence.item_key, "symbol", native),
-                              "file_symbol")
+                GraphCodeEdge(
+                    file_node, GraphCodeNode(evidence.item_key, "symbol", native), "file_symbol"
+                )
             )
     return tuple(edges)
 
@@ -92,85 +95,93 @@ def persist_code_graph(
     edges = project_scan_edges(scan, evidence)
     asserted_at = evidence.source_updated_at.astimezone(UTC)
     proof_revision = evidence.revision
-    with psycopg.connect(connection_string, connect_timeout=10) as connection:
-        with connection.cursor() as cursor:
-            ado_commits: list[str] = []
-            if approved_ado_instance:
-                cursor.execute(
-                    """
-                    SELECT item_key FROM evidence.source_items
-                    WHERE provider = 'azure_devops' AND source_instance = %s
-                      AND project_id = %s AND repository_id = %s
-                      AND kind = 'commit' AND lower(external_id) = %s
-                      AND latest_revision_id IS NOT NULL
-                    ORDER BY item_key
-                    """,
-                    (approved_ado_instance, evidence.identity.project_id,
-                     evidence.identity.repository_id, proof_revision),
-                )
-                ado_commits = [row[0] for row in cursor.fetchall()]
-            if len(ado_commits) > 1:
-                # Multiple approved ADO organizations may reuse project/repo IDs.
-                # Avoid assigning a cross-tenant relationship without a resolved source.
-                raise ValueError("Ambiguous ADO commit scope; graph bridge requires source identity")
-            if ado_commits:
-                observed_commit = GraphCodeNode(ado_commits[0], "commit", proof_revision)
-                edges = (*edges, *[
-                    GraphCodeEdge(observed_commit, edge.target, edge.kind)
-                    for edge in edges if edge.kind == "commit_file"
-                ])
+    with (
+        psycopg.connect(connection_string, connect_timeout=10) as connection,
+        connection.cursor() as cursor,
+    ):
+        ado_commits: list[str] = []
+        if approved_ado_instance:
+            cursor.execute(
+                """
+                SELECT item_key FROM evidence.source_items
+                WHERE provider = 'azure_devops' AND source_instance = %s
+                  AND project_id = %s AND repository_id = %s
+                  AND kind = 'commit' AND lower(external_id) = %s
+                  AND latest_revision_id IS NOT NULL
+                ORDER BY item_key
+                """,
+                (approved_ado_instance, evidence.identity.project_id,
+                 evidence.identity.repository_id, proof_revision),
+            )
+            ado_commits = [row[0] for row in cursor.fetchall()]
+        if len(ado_commits) > 1:
+            # Multiple approved ADO organizations may reuse project/repo IDs.
+            # Avoid assigning a cross-tenant relationship without a resolved source.
+            raise ValueError(
+                "Ambiguous ADO commit scope; graph bridge requires source identity"
+            )
+        if ado_commits:
+            observed_commit = GraphCodeNode(ado_commits[0], "commit", proof_revision)
+            edges = (
+            *edges,
+            *(
+                GraphCodeEdge(observed_commit, edge.target, edge.kind)
+                for edge in edges
+                if edge.kind == "commit_file"
+            ),
+        )
 
-            nodes: dict[str, GraphCodeNode] = {}
-            for edge in edges:
-                nodes[edge.source.key()] = edge.source
-                nodes[edge.target.key()] = edge.target
-            for key, node in nodes.items():
-                cursor.execute(
-                    """
-                    INSERT INTO evidence.graph_nodes
-                    (node_key, anchor_item_key, node_kind, native_id)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (node_key) DO NOTHING
-                    """,
-                    (key, node.anchor, node.kind, node.native_id),
-                )
-                cursor.execute(
-                    """
-                    SELECT anchor_item_key, node_kind, native_id
-                    FROM evidence.graph_nodes WHERE node_key = %s
-                    """,
-                    (key,),
-                )
-                if cursor.fetchone() != (node.anchor, node.kind, node.native_id):
-                    raise ValueError("Graph node collision with immutable source identity")
+        nodes: dict[str, GraphCodeNode] = {}
+        for edge in edges:
+            nodes[edge.source.key()] = edge.source
+            nodes[edge.target.key()] = edge.target
+        for key, node in nodes.items():
+            cursor.execute(
+                """
+                INSERT INTO evidence.graph_nodes
+                (node_key, anchor_item_key, node_kind, native_id)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (node_key) DO NOTHING
+                """,
+                (key, node.anchor, node.kind, node.native_id),
+            )
+            cursor.execute(
+                """
+                SELECT anchor_item_key, node_kind, native_id
+                FROM evidence.graph_nodes WHERE node_key = %s
+                """,
+                (key,),
+            )
+            if cursor.fetchone() != (node.anchor, node.kind, node.native_id):
+                raise ValueError("Graph node collision with immutable source identity")
 
-            for edge in edges:
-                relation_key = _hash(
-                    edge.source.key(), edge.target.key(), edge.kind.title().replace("_", ""),
-                    evidence.item_key,
-                )
-                assertion = _hash(relation_key, proof_revision)
-                # Same source revision must never change an existing assertion.
-                canonical_time = asserted_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "0+00:00"
-                content = _hash(assertion, "Explicit", "Active", canonical_time, "")
-                cursor.execute(
-                    """
-                    INSERT INTO evidence.graph_assertions (
-                        assertion_key, relationship_key, from_node_key, to_node_key,
-                        relation_type, classification, assertion_state,
-                        provenance_item_key, provenance_revision_id,
-                        source_asserted_at, content_sha256
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, 'explicit', 'active', %s, %s, %s, %s
-                    ) ON CONFLICT (assertion_key) DO NOTHING
-                    """,
-                    (assertion, relation_key, edge.source.key(), edge.target.key(),
-                     edge.kind, evidence.item_key, proof_revision, asserted_at, content),
-                )
-                cursor.execute(
-                    "SELECT content_sha256 FROM evidence.graph_assertions WHERE assertion_key = %s",
-                    (assertion,),
-                )
-                if cursor.fetchone()[0] != content:
-                    raise ValueError("Immutable structural graph assertion conflict")
+        for edge in edges:
+            relation_key = _hash(
+                edge.source.key(), edge.target.key(), edge.kind.title().replace("_", ""),
+                evidence.item_key,
+            )
+            assertion = _hash(relation_key, proof_revision)
+            # Same source revision must never change an existing assertion.
+            canonical_time = asserted_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "0+00:00"
+            content = _hash(assertion, "Explicit", "Active", canonical_time, "")
+            cursor.execute(
+                """
+                INSERT INTO evidence.graph_assertions (
+                    assertion_key, relationship_key, from_node_key, to_node_key,
+                    relation_type, classification, assertion_state,
+                    provenance_item_key, provenance_revision_id,
+                    source_asserted_at, content_sha256
+                ) VALUES (
+                    %s, %s, %s, %s, %s, 'explicit', 'active', %s, %s, %s, %s
+                ) ON CONFLICT (assertion_key) DO NOTHING
+                """,
+                (assertion, relation_key, edge.source.key(), edge.target.key(),
+                 edge.kind, evidence.item_key, proof_revision, asserted_at, content),
+            )
+            cursor.execute(
+                "SELECT content_sha256 FROM evidence.graph_assertions WHERE assertion_key = %s",
+                (assertion,),
+            )
+            if cursor.fetchone()[0] != content:
+                raise ValueError("Immutable structural graph assertion conflict")
     return len(edges)
