@@ -13,9 +13,7 @@ from app.code_intelligence.canonical import (
 from app.code_intelligence.scanner import FileAnalysis, GitFile, RepositoryScan
 
 
-def example_scan(
-    status: str = "COMPLETE", commit: str = "a" * 40
-) -> RepositoryScan:
+def example_scan(status: str = "COMPLETE", commit: str = "a" * 40) -> RepositoryScan:
     """Build a commit-pinned source inventory without checking out external data."""
     return RepositoryScan(
         repo_root="/approved/checkout",
@@ -76,9 +74,7 @@ class FakeStore:
 
 def identity() -> ScanEvidenceIdentity:
     """Return a source-scoped, trusted synthetic Git identity."""
-    return ScanEvidenceIdentity(
-        "https://github.com/acme/example", "project-1", "repo-1"
-    )
+    return ScanEvidenceIdentity("https://github.com/acme/example", "project-1", "repo-1")
 
 
 def when() -> datetime:
@@ -88,22 +84,21 @@ def when() -> datetime:
 
 def test_source_scope_and_repeatable_metadata() -> None:
     """Identical scans produce one identity/hash without embedding local paths."""
-    a = build_scan_evidence(
-        example_scan(), identity(), "https://github.com/acme/example", when()
-    )
-    b = build_scan_evidence(
-        example_scan(), identity(), "https://github.com/acme/example", when()
-    )
+    a = build_scan_evidence(example_scan(), identity(), "https://github.com/acme/example", when())
+    b = build_scan_evidence(example_scan(), identity(), "https://github.com/acme/example", when())
     assert a.item_key == b.item_key
     assert a.content_hash == b.content_hash
     assert a.acl_verified is False
     assert len(a.item_key) == 64
-    assert a.item_key != build_scan_evidence(
-        example_scan(),
-        ScanEvidenceIdentity("https://github.com/acme/example", "other", "repo-1"),
-        "https://github.com/acme/example",
-        when(),
-    ).item_key
+    assert (
+        a.item_key
+        != build_scan_evidence(
+            example_scan(),
+            ScanEvidenceIdentity("https://github.com/acme/example", "other", "repo-1"),
+            "https://github.com/acme/example",
+            when(),
+        ).item_key
+    )
     raw = json.loads(a.raw_json)
     assert raw["commit_sha"] == "a" * 40
     assert raw["files"][0]["path"] == "src/main.py"
@@ -143,8 +138,7 @@ def test_archive_failure_prevents_database_write() -> None:
     store = FakeStore(archive)
     with pytest.raises(OSError):
         ingest_complete_scan(
-            example_scan(), identity(),
-            "https://github.com/acme/example", when(), archive, store
+            example_scan(), identity(), "https://github.com/acme/example", when(), archive, store
         )
     assert not store.revisions
 
@@ -167,14 +161,17 @@ def test_untrusted_source_urls_are_rejected(source: str) -> None:
 def test_mismatched_git_blob_or_failed_parse_is_rejected() -> None:
     """Structural code evidence must be attributable to the exact Git blob."""
     bad = example_scan()
-    changed_analysis = bad.analyses[0].__class__(
-        "src/main.py", "c" * 40, "AVAILABLE"
-    )
+    changed_analysis = bad.analyses[0].__class__("src/main.py", "c" * 40, "AVAILABLE")
     with pytest.raises(ValueError, match="committed Git blob"):
         build_scan_evidence(
             bad.__class__(
-                bad.repo_root, bad.commit_sha, bad.status, bad.files,
+                bad.repo_root,
+                bad.commit_sha,
+                bad.status,
+                bad.files,
                 (changed_analysis,),
             ),
-            identity(), "https://github.com/acme/example", when(),
+            identity(),
+            "https://github.com/acme/example",
+            when(),
         )
