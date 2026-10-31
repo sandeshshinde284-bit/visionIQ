@@ -1,5 +1,7 @@
 """FND-04 readiness tests: real DB role selection and fail-closed errors."""
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -66,3 +68,25 @@ def test_database_failure_is_503_without_leaking_provider_errors(
     assert response.status_code == 503
     assert response.json() == {"detail": "database_unavailable"}
     assert "should-never-be-exposed" not in response.text
+
+
+@pytest.mark.skipif(
+    os.environ.get("VISIONIQ_READY_INTELLIGENCE_DB_INTEGRATION") != "1",
+    reason="Only run against disposable CI PostgreSQL with isolated database roles",
+)
+def test_actual_intelligence_role_can_select_from_disposable_database() -> None:
+    """Exercise the same /ready route with a real restricted PostgreSQL login."""
+    password = os.environ["DB_INTELLIGENCE_PASSWORD"]
+    settings = Settings(
+        _env_file=None,
+        db_host=os.environ.get("DB_HOST", "127.0.0.1"),
+        db_port=5432,
+        db_name=os.environ.get("DB_LOCAL_NAME", "visioniq"),
+        db_intelligence_user=os.environ.get("DB_INTELLIGENCE_USER", "visioniq_intelligence"),
+        db_intelligence_password=password,
+        db_ssl_mode="disable",
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
