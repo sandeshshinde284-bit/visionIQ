@@ -90,8 +90,17 @@ public static class ConfluenceAccess
 
         if (page.AncestorIds.Count > 0)
         {
+            // M-2: the same loop/depth protection as the parent walk below. A malformed or
+            // repeated ancestor list makes the ACL incomplete (hidden), never silently trusted.
+            var seen = new HashSet<string>(StringComparer.Ordinal) { page.Id };
             foreach (var ancestorId in page.AncestorIds.Reverse())
             {
+                if (!seen.Add(ancestorId) || chain.Count > MaxDepth)
+                {
+                    brokenReason = "The page ancestor list contains a loop or is too deep.";
+                    break;
+                }
+
                 if (!byId.TryGetValue(ancestorId, out var ancestor))
                 {
                     brokenReason = $"Ancestor page {ancestorId} is not visible to the ingestion account.";
