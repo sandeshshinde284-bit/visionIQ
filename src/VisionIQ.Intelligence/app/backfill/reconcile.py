@@ -197,6 +197,14 @@ class BackfillReconciler:
                         reason_code="QUARANTINE_UNAVAILABLE",
                     )
 
+        # A count mismatch could hide an omitted item BEFORE the newest returned
+        # record. Retain the previous durable checkpoint so a retry cannot skip it.
+        incomplete_count = batch.expected_count is not None and batch.expected_count != len(
+            batch.records
+        )
+        if incomplete_count:
+            contiguous_cursor = saved
+
         try:
             if contiguous_cursor is not None and contiguous_cursor != saved:
                 await self._checkpoints.put(source_id, contiguous_cursor)
@@ -212,9 +220,6 @@ class BackfillReconciler:
                 reason_code="CHECKPOINT_WRITE_FAILED",
             )
 
-        incomplete_count = batch.expected_count is not None and batch.expected_count != len(
-            batch.records
-        )
         state = SyncState.PARTIAL if had_gap or incomplete_count else SyncState.SYNCED
         return SourceReport(
             source_id,
