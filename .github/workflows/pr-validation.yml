@@ -70,7 +70,7 @@ jobs:
       - name: Assert expected revision and schemas
         run: |
           revision=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT version_num FROM public.alembic_version")
-          test "$revision" = "20261030_0005"
+          test "$revision" = "20261031_0006"
           schemas=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('workflow','evidence','knowledge')")
           test "$schemas" = "3"
           extension=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT extname FROM pg_extension WHERE extname='vector'")
@@ -83,6 +83,8 @@ jobs:
           test "$links" = "2"
           backfill=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('source_change_inbox','source_sync_runs')")
           test "$backfill" = "2"
+          graph=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('graph_nodes','graph_assertions')")
+          test "$graph" = "2"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
@@ -122,6 +124,19 @@ jobs:
           DB_HOST: "127.0.0.1"
           DB_NAME: "visioniq"
         run: python -m pytest -q tests/intelligence/test_code_canonical_db_integration.py
+      - name: Verify LRN-07 Python graph idempotency on PostgreSQL
+        env:
+          VISIONIQ_SCAN_DB_INTEGRATION: "1"
+          PYTHONPATH: src/VisionIQ.Intelligence
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: python -m pytest -q tests/intelligence/test_code_relationship_graph.py
+      - name: Verify LRN-07 graph history, disputes and ACL on PostgreSQL
+        env:
+          VISIONIQ_GRAPH_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~GraphDatabaseIntegrationTests"
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
