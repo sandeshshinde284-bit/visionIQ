@@ -151,18 +151,23 @@ gcloud run services describe visioniq-intelligence --project=$PROJECT --region=$
 ```
 
 The verification script checks revision readiness, the reviewed image tag,
-runtime identity, internal ingress and no public Invoker grants. It does
-**not** claim DB connectivity. Because internal ingress blocks ordinary
-external requests, run authenticated `/health` checks **from an allowed
-in-network source or approved test workload**. Do not open the services to
-the public solely to make smoke tests convenient.
+runtime identity, internal ingress and no public Invoker grants. The two
+application services now expose `/ready` in addition to `/health`:
+`/health` confirms process liveness while `/ready` performs an actual
+`SELECT 1` as the service's restricted database role and returns a
+sanitized HTTP 200 (`{"status":"ready"}`) or 503. Because internal
+ingress blocks ordinary external requests, run authenticated `/health`
+and `/ready` requests **from an allowed in-network source or approved
+test workload**. Do not open the services publicly for convenience.
 
 **Mandatory acceptance beyond the scripts:**
 1. Approved authenticated `/health` calls on both services return HTTP 200.
-2. Both services actually connect to private Cloud SQL using their own
-   least-privileged PostgreSQL role; perform a real `SELECT`, not a liveness
-   request. Run deny tests for unauthorized cross-schema writes and test-runner
-   secret access. Currently the public `/health` handlers do **not** query DB.
+2. Both authenticated `/ready` calls return HTTP 200 from the permitted
+   network, confirming an actual Cloud SQL `SELECT 1` through each service's
+   least-privileged PostgreSQL identity. An absent/incorrect secret, failed
+   network path or inaccessible DB must return sanitized 503. Also verify
+   cross-schema write denial and test-runner secret-access denial; a simple
+   `SELECT 1` alone does not establish least-privilege policy.
 3. Check runtime Cloud Logging, error rate, revision startup, VPC and Secret
    Manager grants. Confirm Cloud SQL schema is at `20261031_0006`.
 4. Roll back a controlled test deployment to the prior ready revision if
@@ -174,8 +179,8 @@ the public solely to make smoke tests convenient.
 
 The LRN-01–07 ingestor and code scanner are **not** run by these two
 HTTP services. Real-source Checkpoint A requires separate authorized batch
-worker execution and evidence/graph validation; service `/health` alone is
-not LRN acceptance.
+worker execution and evidence/graph validation; service `/health` and
+`/ready` alone are not LRN acceptance.
 
 ## 6. Rollback and limitations
 
