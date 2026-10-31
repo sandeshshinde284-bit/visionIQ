@@ -1,6 +1,7 @@
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Health;
 using VisionIQ.Api.Features.Evidence;
+using VisionIQ.Api.Features.Graph;
 using VisionIQ.Api.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,6 +43,8 @@ builder.Services.AddSingleton<IRawEvidenceArchive>(services =>
 builder.Services.AddSingleton<IVersionedEvidenceStore>(services =>
     new PostgresEvidenceStore(services.GetRequiredService<DatabaseOptions>()));
 builder.Services.AddSingleton<EvidenceIngestionService>();
+// LRN-07 (B-16): authorized relationship-graph traversal; fail-closed provider access.
+builder.Services.AddRelationshipGraph();
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
