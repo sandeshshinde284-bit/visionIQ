@@ -1,5 +1,7 @@
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Evidence;
+using VisionIQ.Api.Features.Backfill;
+using VisionIQ.Api.Features.TicketFixes;
 using VisionIQ.Ingestor.Cli;
 using System.Globalization;
 using System.Text.Json;
@@ -146,23 +148,32 @@ var reports = new List<SyncReport>();
 
 // LRN-03 is an opt-in trusted destination. JSONL remains a local export mode
 // with restricted/unverified Confluence bodies excluded by the runner.
-await using var evidenceStore = canonicalMode
-    ? new PostgresEvidenceStore(new DatabaseOptions(
+var dbOptions = canonicalMode
+    ? new DatabaseOptions(
         settings.Database!.Host,
         settings.Database.Port,
         settings.Database.Name,
         settings.Database.User,
         settings.Database.Password!,
-        settings.Database.SslMode))
+        settings.Database.SslMode)
+    : null;
+await using var evidenceStore = canonicalMode
+    ? new PostgresEvidenceStore(dbOptions!)
+    : null;
+await using var linkStore = canonicalMode
+    ? new PostgresTicketFixLinkStore(dbOptions!)
     : null;
 using (var localSink = new JsonLinesSink(runDirectory))
 {
-    IRecordSink sink = canonicalMode
-        ? new CanonicalEvidenceSink(
+    IRecordSink sink = localSink;
+    if (canonicalMode)
+    {
+        var canonicalSink = new CanonicalEvidenceSink(
             new EvidenceIngestionService(
                 new CloudStorageEvidenceArchive(archiveBucket), evidenceStore!),
-            settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl)
-        : localSink;
+            settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl);
+        sink = new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl);
+    }
     Console.WriteLine(canonicalMode
         ? "Evidence destination: canonical PostgreSQL + immutable Cloud Storage (unverified ACL, no retrieval access)"
         : "Evidence destination: local JSONL (restricted/unverified Confluence bodies withheld)");
@@ -178,6 +189,18 @@ using (var localSink = new JsonLinesSink(runDirectory))
 }
 
 var report = SyncReport.Merge(reports);
+
+// Persist one sanitized audit row per attempted source stream. This is a
+// diagnostic record, not proof of complete source history or ACL verification.
+if (settings.Database is { } auditDatabase)
+{
+    await using var audit = new PostgresSourceSyncRunStore(new DatabaseOptions(
+        auditDatabase.Host, auditDatabase.Port, auditDatabase.Name,
+        auditDatabase.User, auditDatabase.Password!, auditDatabase.SslMode));
+    await SourceSyncAuditProjector.SaveAsync(
+        report, request.IgnoreCheckpoints ? SourceSyncMode.Full : SourceSyncMode.Delta,
+        audit);
+}
 
 await File.WriteAllTextAsync(Path.Combine(runDirectory, "report.json"), JsonSerializer.Serialize(report, json));
 foreach (var stream in report.Streams)
