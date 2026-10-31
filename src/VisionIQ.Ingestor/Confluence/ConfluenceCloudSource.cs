@@ -50,25 +50,41 @@ public sealed class ConfluenceCloudSource : IConfluenceSource
     public async Task<ConfluencePage> EnrichAsync(ConfluencePage page, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);
-        List<string> labels;
-        using (var document = await http.GetAsync(http.Api("api/v2/pages/" + page.Id + "/labels", [new("limit", PageLimit)]), cancellationToken).ConfigureAwait(false))
-        {
-            labels = JsonRead.Items(document.RootElement, "results").Select(item => JsonRead.String(item, "name")).OfType<string>().ToList();
-        }
 
-        List<ConfluenceVersion> versions;
-        using (var document = await http.GetAsync(http.Api("api/v2/pages/" + page.Id + "/versions", [new("limit", "50")]), cancellationToken).ConfigureAwait(false))
-        {
-            versions = JsonRead.Items(document.RootElement, "results")
-                .Select(item => JsonRead.Int(item, "number") is { } number
-                    ? new ConfluenceVersion(number, JsonRead.Date(item, "createdAt"), JsonRead.String(item, "message"), JsonRead.Bool(item, "minorEdit"))
-                    : null)
-                .OfType<ConfluenceVersion>()
-                .OrderBy(version => version.Number)
-                .ToList();
-        }
+        // M-15: follow the cursor instead of reading only the first 250 labels / 50 versions.
+        var labels = (await ReadAllAsync(http.Api("api/v2/pages/" + page.Id + "/labels", [new("limit", PageLimit)]), cancellationToken).ConfigureAwait(false))
+            .Select(item => JsonRead.String(item, "name"))
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var versions = (await ReadAllAsync(http.Api("api/v2/pages/" + page.Id + "/versions", [new("limit", PageLimit)]), cancellationToken).ConfigureAwait(false))
+            .Select(item => JsonRead.Int(item, "number") is { } number
+                ? new ConfluenceVersion(number, JsonRead.Date(item, "createdAt"), JsonRead.String(item, "message"), JsonRead.Bool(item, "minorEdit"))
+                : null)
+            .OfType<ConfluenceVersion>()
+            .DistinctBy(version => version.Number)
+            .OrderBy(version => version.Number)
+            .ToList();
 
         return page with { Labels = labels, Versions = versions };
+    }
+
+    /// <summary>Reads every page of a v2 collection via _links.next (max 20 pages, repeat-URL guard).</summary>
+    private async Task<List<JsonElement>> ReadAllAsync(Uri first, CancellationToken cancellationToken)
+    {
+        const int MaxPages = 20;
+        var items = new List<JsonElement>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        Uri? next = first;
+        for (var pageNumber = 0; next is not null && pageNumber < MaxPages && seen.Add(next.AbsoluteUri); pageNumber++)
+        {
+            using var document = await http.GetAsync(next, cancellationToken).ConfigureAwait(false);
+            items.AddRange(JsonRead.Items(document.RootElement, "results").Select(item => item.Clone()));
+            next = JsonRead.Child(document.RootElement, "_links") is { } links && JsonRead.String(links, "next") is { } link ? http.Link(link) : null;
+        }
+
+        return items;
     }
 
     public async Task<int> CountPagesAsync(string spaceKey, CancellationToken cancellationToken = default)
