@@ -129,7 +129,16 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IAsyncDispo
                 latest_source_updated_at = @source_updated
             WHERE item_key = @key AND (
                 latest_revision_id IS NULL OR
-                latest_source_updated_at < @source_updated
+                latest_source_updated_at < @source_updated OR
+                -- B-8: revisions sharing a source timestamp. Digit-only IDs (ADO revisions)
+                -- compare numerically via (length, text) so "10" > "9" without a cast;
+                -- other IDs compare by ordinal text, deterministically.
+                (latest_source_updated_at = @source_updated AND (
+                    CASE WHEN latest_revision_id ~ '^[0-9]+$' AND @revision ~ '^[0-9]+$'
+                        THEN (length(latest_revision_id), latest_revision_id COLLATE "C")
+                           < (length(@revision), @revision COLLATE "C")
+                        ELSE latest_revision_id COLLATE "C" < @revision COLLATE "C"
+                    END))
             )
             """;
         await using var latest = new NpgsqlCommand(latestSql, connection, transaction);

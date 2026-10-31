@@ -286,8 +286,13 @@ class PostgresScanEvidenceStore:
                 WHERE item_key = %(key)s AND (
                     latest_revision_id IS NULL OR
                     latest_source_updated_at < %(updated)s OR
-                    (latest_source_updated_at = %(updated)s
-                     AND latest_revision_id < %(revision)s)
+                    -- B-8: same tie-break as the .NET evidence store (numeric-aware).
+                    (latest_source_updated_at = %(updated)s AND (
+                        CASE WHEN latest_revision_id ~ '^[0-9]+$' AND %(revision)s ~ '^[0-9]+$'
+                            THEN (length(latest_revision_id), latest_revision_id COLLATE "C")
+                               < (length(%(revision)s), %(revision)s COLLATE "C")
+                            ELSE latest_revision_id COLLATE "C" < %(revision)s COLLATE "C"
+                        END))
                 )
                 """,
                 {
