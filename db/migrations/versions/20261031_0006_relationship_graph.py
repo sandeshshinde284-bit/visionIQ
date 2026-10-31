@@ -1,10 +1,7 @@
-"""LRN-07: provenance-bound, versioned relationship graph.
+"""LRN-07 versioned, source-permission-bound engineering relationship graph.
 
 Revision ID: 20261031_0006
 Revises: 20261030_0005
-
-All identifiers are source-scoped. No permission grants are derived from graph
-relationships; every traversal revalidates canonical source access.
 """
 
 from alembic import op
@@ -16,7 +13,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    """Create immutable graph assertions constrained to archived source evidence."""
+    """Create typed nodes and immutable revision-provenance edge assertions."""
     op.execute(
         """
         CREATE TABLE evidence.graph_nodes (
@@ -29,8 +26,7 @@ def upgrade() -> None:
                 'file','symbol','design_page','ci_run'
             )),
             native_id text NOT NULL CHECK (length(native_id) BETWEEN 1 AND 2048),
-            created_at timestamptz NOT NULL DEFAULT now(),
-            UNIQUE (node_key, anchor_item_key)
+            created_at timestamptz NOT NULL DEFAULT now()
         )
         """
     )
@@ -60,7 +56,10 @@ def upgrade() -> None:
             source_asserted_at timestamptz NOT NULL,
             observed_at timestamptz NOT NULL DEFAULT now(),
             content_sha256 char(64) NOT NULL
-                CHECK (content_sha256 ~ '^[0-9a-f]{64} (provenance_item_key, provenance_revision_id)
+                CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
+            ticket_fix_association_key text NULL
+                REFERENCES evidence.ticket_fix_links(association_key) ON DELETE RESTRICT,
+            FOREIGN KEY (provenance_item_key, provenance_revision_id)
                 REFERENCES evidence.source_revisions(item_key, provider_revision_id)
                 ON DELETE RESTRICT,
             CHECK (from_node_key <> to_node_key)
@@ -95,44 +94,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Refuse to destroy an immutable engineering-evidence relationship history."""
+    """Block destructive rollback of immutable relationship history."""
     raise RuntimeError(
-        "LRN-07 relationship history cannot be rolled back destructively; "
-        "write a reviewed forward migration."
-    )
-),
-            ticket_fix_association_key text NULL
-                REFERENCES evidence.ticket_fix_links(association_key) ON DELETE RESTRICT,
-            FOREIGN KEY (provenance_item_key, provenance_revision_id)
-                REFERENCES evidence.source_revisions(item_key, provider_revision_id)
-                ON DELETE RESTRICT,
-            CHECK (from_node_key <> to_node_key)
-        )
-        """
-    )
-    op.execute(
-        """
-        CREATE INDEX graph_assertions_from_latest_idx
-        ON evidence.graph_assertions(from_node_key, relationship_key, source_asserted_at DESC)
-        """
-    )
-    op.execute(
-        """
-        CREATE INDEX graph_assertions_to_latest_idx
-        ON evidence.graph_assertions(to_node_key, relationship_key, source_asserted_at DESC)
-        """
-    )
-    op.execute(
-        """
-        CREATE INDEX graph_nodes_anchor_idx
-        ON evidence.graph_nodes(anchor_item_key)
-        """
-    )
-
-
-def downgrade() -> None:
-    """Refuse to destroy an immutable engineering-evidence relationship history."""
-    raise RuntimeError(
-        "LRN-07 relationship history cannot be rolled back destructively; "
-        "write a reviewed forward migration."
+        "LRN-07 graph audit history cannot be removed by downgrade; use a forward migration."
     )
