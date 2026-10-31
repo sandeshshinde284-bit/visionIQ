@@ -123,7 +123,9 @@ def main(args: list[str] | None = None) -> int:
             """Read a bounded committed manifest without executing source code."""
             result = subprocess.run(
                 ["git", "-C", scan.repo_root, "show", f"{scan.commit_sha}:{path}"],
-                capture_output=True, check=True, timeout=60,
+                capture_output=True,
+                check=True,
+                timeout=60,
             )
             if len(result.stdout) > 1_048_576:
                 raise ValueError("Committed dependency manifest exceeds 1 MiB")
