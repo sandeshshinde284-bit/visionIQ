@@ -33,13 +33,50 @@ public sealed class TicketFixProjectionSink(
 
         await evidence.WriteAsync(stream, key, record, cancellationToken).ConfigureAwait(false);
 
-        if (stream == "pull-requests" && record is PullRequestRecord pr)
+        if (stream == "work-items" && record is WorkItemRecord item)
+        {
+            await ProjectWorkItemAsync(item, cancellationToken).ConfigureAwait(false);
+        }
+        else if (stream == "pull-requests" && record is PullRequestRecord pr)
         {
             await ProjectPullRequestAsync(pr, cancellationToken).ConfigureAwait(false);
         }
         else if (stream == "commits" && record is CommitRecord commit)
         {
             await ProjectCommitAsync(commit, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Projects native work-item artifact relations without guessing a target
+    /// repository. A PR or commit discovered only via a ticket relation retains
+    /// null repository scope until an authenticated PR source resolves it.
+    /// </summary>
+    private async Task ProjectWorkItemAsync(
+        WorkItemRecord item, CancellationToken cancellationToken)
+    {
+        var sourceKey = new EvidenceIdentity(
+            "azure_devops", sourceInstance, item.Project, null,
+            "work_item_current", item.Id.ToString(CultureInfo.InvariantCulture)).ItemKey();
+        var reference = "evidence:" + sourceKey + ":" +
+            item.Revision.ToString(CultureInfo.InvariantCulture);
+
+        foreach (var link in LinkExtractor.FromWorkItem(item))
+        {
+            if (link.ToKind is not (EntityKind.PullRequest or EntityKind.Commit))
+            {
+                continue;
+            }
+
+            // ADO work-item artifact URLs may identify only a PR/commit; never
+            // infer repository or project GUID from their display text.
+            var claim = new TicketFixClaim(
+                sourceInstance, item.Project,
+                item.Id.ToString(CultureInfo.InvariantCulture), null,
+                link.ToKind == EntityKind.PullRequest ? link.ToId : null,
+                link.ToKind == EntityKind.Commit ? link.ToId : null,
+                TicketFixSourceClassification.Explicit, [reference], []);
+            await links.UpsertSourceAsync(claim, cancellationToken).ConfigureAwait(false);
         }
     }
 
