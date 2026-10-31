@@ -20,6 +20,7 @@ from app.code_intelligence.canonical import (
     ingest_complete_scan,
 )
 from app.code_intelligence.graph import persist_code_graph
+from app.code_intelligence.relationships import ApprovedRepository, resolve_dependencies
 from app.code_intelligence.parsers import default_parser_registry
 from app.code_intelligence.snapshots import scan_with_recovery
 
@@ -116,6 +117,22 @@ def main(args: list[str] | None = None) -> int:
         scan, identity, url, _committed_at(scan.repo_root, scan.commit_sha)
     )
     if state in {"CREATED", "NEW_REVISION", "UNCHANGED"}:
+        # Only source-declared, committed references can become graph edges.
+        # Read manifests from pinned Git blobs, never from the working tree.
+        def read_committed_manifest(path: str) -> str:
+            """Read a bounded committed manifest without executing source code."""
+            result = subprocess.run(
+                ["git", "-C", scan.repo_root, "show", f"{scan.commit_sha}:{path}"],
+                capture_output=True, check=True, timeout=60,
+            )
+            if len(result.stdout) > 1_048_576:
+                raise ValueError("Committed dependency manifest exceeds 1 MiB")
+            return result.stdout.decode("utf-8")
+
+        links = resolve_dependencies(
+            ApprovedRepository(identity.repository_id, url, scan),
+            read_blob=read_committed_manifest,
+        )
         edges = persist_code_graph(
             scan,
             archived,
@@ -125,6 +142,7 @@ def main(args: list[str] | None = None) -> int:
                 if arguments.ado_source_instance
                 else None
             ),
+            declared_dependencies=links,
         )
         print(f"LRN-07 structural graph edges processed: {edges}")
     print(f"LRN-06 canonical scan result: {state}")
