@@ -22,6 +22,8 @@ tests that fail without it (except where noted in the commit message).
 
 ## Still open (not blocking)
 
-Medium/minor findings M-1..M-16, m-1..m-12 and process items P-1..P-8 from the review.
-In particular: there is still **no CI** (P-1), and the **.NET DB integration tests report "passed"
-when no database is configured** (M-10).
+Medium/minor findings M-1..M-16 and m-1..m-12 from the review, and process items P-2..P-8.
+CI (`.github/workflows/pr-validation.yml`) runs every test; its fresh-PostgreSQL job runs the new
+B-8/B-9/B-15 database tests and the FND-03 role-isolation test with `VISIONIQ_DB_INTEGRATION=1`.
+Outside CI, the **.NET DB integration tests still report "passed" when no database is configured**
+(M-10).
