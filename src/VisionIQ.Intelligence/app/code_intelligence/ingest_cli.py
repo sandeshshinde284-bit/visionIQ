@@ -117,10 +117,13 @@ def main(args: list[str] | None = None) -> int:
     )
     if state in {"CREATED", "NEW_REVISION", "UNCHANGED"}:
         edges = persist_code_graph(
-            scan, archived, db,
+            scan,
+            archived,
+            db,
             approved_ado_instance=(
                 _source_url(arguments.ado_source_instance).rstrip("/")
-                if arguments.ado_source_instance else None
+                if arguments.ado_source_instance
+                else None
             ),
         )
         print(f"LRN-07 structural graph edges processed: {edges}")
