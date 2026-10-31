@@ -48,21 +48,46 @@ public sealed class TicketFixGraphMaterializer : IAsyncDisposable
             """, connection);
         command.Parameters.AddWithValue("source", sourceInstance);
         await using var rows = await command.ExecuteReaderAsync(cancellationToken);
+        failedAssociations.Clear();
         while (await rows.ReadAsync(cancellationToken))
         {
             var associationKey = rows.GetString(0);
-            var project = rows.GetString(1);
-            var ticketId = rows.GetString(2);
-            var repo = rows.IsDBNull(3) ? null : rows.GetString(3);
-            var prId = rows.IsDBNull(4) ? null : rows.GetString(4);
-            var sha = rows.IsDBNull(5) ? null : rows.GetString(5);
-            var refs = JsonSerializer.Deserialize<string[]>(rows.GetString(6)) ?? [];
+            try
+            {
+                completed += await ReconcileRowAsync(
+                    sourceInstance, associationKey, rows.GetString(1), rows.GetString(2),
+                    rows.IsDBNull(3) ? null : rows.GetString(3),
+                    rows.IsDBNull(4) ? null : rows.GetString(4),
+                    rows.IsDBNull(5) ? null : rows.GetString(5),
+                    JsonSerializer.Deserialize<string[]>(rows.GetString(6)) ?? [],
+                    cancellationToken);
+            }
+            catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // M-1: one bad association (e.g. an immutable-content conflict) must not stop the rest.
+                failedAssociations.Add($"{associationKey}: {error.GetType().Name}");
+            }
+        }
 
+        return completed;
+    }
+
+    private readonly List<string> failedAssociations = [];
+
+    /// <summary>Associations that failed in the last <see cref="ReconcileAsync"/> run, with the error type only.</summary>
+    public IReadOnlyList<string> FailedAssociations => failedAssociations;
+
+    private async Task<int> ReconcileRowAsync(
+        string sourceInstance, string associationKey, string project, string ticketId,
+        string? repo, string? prId, string? sha, string[] refs, CancellationToken cancellationToken)
+    {
+        var completed = 0;
+        {
             // Resolve by exact source identity. A ticket-only artifact reference
             // may lack repository scope: never guess its PR/commit repository.
             if (repo is null)
             {
-                continue;
+                return 0;
             }
 
             var ticket = await FindCanonicalAsync(sourceInstance, project, null,
@@ -77,7 +102,7 @@ public sealed class TicketFixGraphMaterializer : IAsyncDisposable
                     "commit", sha, cancellationToken);
             if (ticket is null)
             {
-                continue;
+                return 0;
             }
 
             foreach (var evidenceRef in refs.Distinct(StringComparer.Ordinal))

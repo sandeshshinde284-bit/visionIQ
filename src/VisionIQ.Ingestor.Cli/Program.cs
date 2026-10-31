@@ -210,6 +210,16 @@ if (canonicalMode && dbOptions is not null)
         var edges = await graphMaterializer.ReconcileAsync(
             settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
         Console.WriteLine($"Relationship graph assertions processed: {edges}");
+        if (graphMaterializer.FailedAssociations.Count > 0)
+        {
+            // M-1: failed associations are reported and the run exits non-zero; the rest were processed.
+            graphFailed = true;
+            Console.Error.WriteLine($"Relationship graph: {graphMaterializer.FailedAssociations.Count} association(s) failed:");
+            foreach (var failure in graphMaterializer.FailedAssociations.Take(20))
+            {
+                Console.Error.WriteLine("  - " + failure);
+            }
+        }
     }
     catch (Exception error) when (error is not OperationCanceledException)
     {
