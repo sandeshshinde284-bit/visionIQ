@@ -83,7 +83,10 @@ def project_scan_edges(scan: "RepositoryScan", evidence: "ScanEvidence") -> tupl
 
 
 def persist_code_graph(
-    scan: "RepositoryScan", evidence: "ScanEvidence", connection_string: str
+    scan: "RepositoryScan",
+    evidence: "ScanEvidence",
+    connection_string: str,
+    approved_ado_instance: str | None = None,
 ) -> int:
     """Upsert typed code graph assertions with immutable provenance in one transaction."""
     edges = project_scan_edges(scan, evidence)
@@ -91,17 +94,21 @@ def persist_code_graph(
     proof_revision = evidence.revision
     with psycopg.connect(connection_string, connect_timeout=10) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT item_key FROM evidence.source_items
-                WHERE provider = 'azure_devops' AND project_id = %s
-                  AND repository_id = %s AND kind = 'commit' AND lower(external_id) = %s
-                  AND latest_revision_id IS NOT NULL
-                ORDER BY item_key
-                """,
-                (evidence.identity.project_id, evidence.identity.repository_id, proof_revision),
-            )
-            ado_commits = [row[0] for row in cursor.fetchall()]
+            ado_commits: list[str] = []
+            if approved_ado_instance:
+                cursor.execute(
+                    """
+                    SELECT item_key FROM evidence.source_items
+                    WHERE provider = 'azure_devops' AND source_instance = %s
+                      AND project_id = %s AND repository_id = %s
+                      AND kind = 'commit' AND lower(external_id) = %s
+                      AND latest_revision_id IS NOT NULL
+                    ORDER BY item_key
+                    """,
+                    (approved_ado_instance, evidence.identity.project_id,
+                     evidence.identity.repository_id, proof_revision),
+                )
+                ado_commits = [row[0] for row in cursor.fetchall()]
             if len(ado_commits) > 1:
                 # Multiple approved ADO organizations may reuse project/repo IDs.
                 # Avoid assigning a cross-tenant relationship without a resolved source.
@@ -144,7 +151,7 @@ def persist_code_graph(
                 )
                 assertion = _hash(relation_key, proof_revision)
                 # Same source revision must never change an existing assertion.
-                canonical_time = asserted_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                canonical_time = asserted_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "0+00:00"
                 content = _hash(assertion, "Explicit", "Active", canonical_time, "")
                 cursor.execute(
                     """
