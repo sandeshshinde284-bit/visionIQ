@@ -174,10 +174,18 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                          g.observed_at DESC, g.assertion_key DESC
             ) AS latest
             JOIN evidence.graph_nodes n ON n.node_key = latest.to_node_key
+            JOIN evidence.source_items provenance
+              ON provenance.item_key = latest.provenance_item_key
             LEFT JOIN evidence.ticket_fix_links fix
               ON fix.association_key = latest.ticket_fix_association_key
             WHERE latest.assertion_state = 'active'
               AND latest.classification IN ('explicit','verified')
+              AND (
+                  latest.relation_type NOT IN (
+                      'commit_file','file_symbol','file_dependency','repository_dependency'
+                  )
+                  OR provenance.latest_revision_id = latest.provenance_revision_id
+              )
               AND (latest.ticket_fix_association_key IS NULL
                    OR (fix.association_key IS NOT NULL
                        AND fix.review_status IS DISTINCT FROM 'disputed'
