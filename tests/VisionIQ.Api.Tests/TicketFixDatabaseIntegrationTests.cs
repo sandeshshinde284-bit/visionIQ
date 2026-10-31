@@ -10,14 +10,9 @@ namespace VisionIQ.Api.Tests;
 /// </summary>
 public sealed class TicketFixDatabaseIntegrationTests
 {
-    [Fact]
+    [DatabaseFact("VISIONIQ_TICKET_FIX_DB_INTEGRATION")]
     public async Task Review_history_is_immutable_and_source_replay_does_not_reset_verdict()
     {
-        if (Environment.GetEnvironmentVariable("VISIONIQ_TICKET_FIX_DB_INTEGRATION") != "1")
-        {
-            return;
-        }
-
         var password = Environment.GetEnvironmentVariable("DB_API_PASSWORD");
         Assert.False(string.IsNullOrWhiteSpace(password));
         var options = new DatabaseOptions(

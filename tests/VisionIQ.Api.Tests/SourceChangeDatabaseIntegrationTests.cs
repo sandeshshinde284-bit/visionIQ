@@ -6,14 +6,9 @@ namespace VisionIQ.Api.Tests;
 /// <summary>Opt-in durable event lease and replay checks on disposable PostgreSQL.</summary>
 public sealed class SourceChangeDatabaseIntegrationTests
 {
-    [Fact]
+    [DatabaseFact("VISIONIQ_CHANGE_DB_INTEGRATION")]
     public async Task Inbox_rejects_conflicting_replay_and_retries_quarantine_without_duplicates()
     {
-        if (Environment.GetEnvironmentVariable("VISIONIQ_CHANGE_DB_INTEGRATION") != "1")
-        {
-            return;
-        }
-
         var password = Environment.GetEnvironmentVariable("DB_API_PASSWORD");
         Assert.False(string.IsNullOrWhiteSpace(password));
         var options = new DatabaseOptions(

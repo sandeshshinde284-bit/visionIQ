@@ -95,14 +95,9 @@ public sealed class GraphDatabaseIntegrationTests
         await latest.ExecuteNonQueryAsync();
     }
 
-    [Fact]
+    [DatabaseFact("VISIONIQ_GRAPH_DB_INTEGRATION")]
     public async Task Immutable_edge_replay_and_newer_retraction_are_correct()
     {
-        if (Environment.GetEnvironmentVariable("VISIONIQ_GRAPH_DB_INTEGRATION") != "1")
-        {
-            return;
-        }
-
         var settings = Settings();
         var project = "test-" + Guid.NewGuid().ToString("N");
         var instance = "https://dev.azure.com/visioniq-ci";
@@ -150,14 +145,9 @@ public sealed class GraphDatabaseIntegrationTests
             store.SaveAsync(first with { Classification = GraphClassification.Verified }));
     }
 
-    [Fact]
+    [DatabaseFact("VISIONIQ_GRAPH_DB_INTEGRATION")]
     public async Task Disputed_ticket_fix_and_denied_historical_acl_are_not_traversed()
     {
-        if (Environment.GetEnvironmentVariable("VISIONIQ_GRAPH_DB_INTEGRATION") != "1")
-        {
-            return;
-        }
-
         var settings = Settings();
         var project = "test-" + Guid.NewGuid().ToString("N");
         var instance = "https://dev.azure.com/visioniq-ci";

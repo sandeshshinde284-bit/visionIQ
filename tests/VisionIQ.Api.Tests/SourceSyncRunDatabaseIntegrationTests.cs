@@ -7,14 +7,9 @@ namespace VisionIQ.Api.Tests;
 /// <summary>Real PostgreSQL coverage for LRN-05 per-source synchronization audit rows.</summary>
 public sealed class SourceSyncRunDatabaseIntegrationTests
 {
-    [Fact]
+    [DatabaseFact("VISIONIQ_SOURCE_AUDIT_DB_INTEGRATION")]
     public async Task A_partial_run_is_recorded_once_without_exposing_source_payloads()
     {
-        if (Environment.GetEnvironmentVariable("VISIONIQ_SOURCE_AUDIT_DB_INTEGRATION") != "1")
-        {
-            return;
-        }
-
         var password = Environment.GetEnvironmentVariable("DB_API_PASSWORD");
         Assert.False(string.IsNullOrWhiteSpace(password));
         var options = new DatabaseOptions(

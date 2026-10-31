@@ -11,14 +11,9 @@ namespace VisionIQ.Api.Tests;
 /// </summary>
 public sealed class EvidenceDatabaseIntegrationTests
 {
-    [Fact]
+    [DatabaseFact("VISIONIQ_EVIDENCE_DB_INTEGRATION")]
     public async Task Replayed_revision_is_idempotent_and_two_revisions_remain_immutable()
     {
-        if (Environment.GetEnvironmentVariable("VISIONIQ_EVIDENCE_DB_INTEGRATION") != "1")
-        {
-            return;
-        }
-
         var password = Environment.GetEnvironmentVariable("DB_API_PASSWORD");
         Assert.False(string.IsNullOrWhiteSpace(password));
         var options = new DatabaseOptions(
