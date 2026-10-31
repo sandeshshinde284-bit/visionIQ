@@ -53,9 +53,7 @@ def test_git_scan_replay_and_immutable_revisions_use_existing_evidence_schema() 
             files=(GitFile("app.py", blob, "python", False),),
             analyses=(FileAnalysis("app.py", blob, "UNAVAILABLE"),),
         )
-        return build_scan_evidence(
-            scan, identity, "https://github.com/approved/test", now
-        )
+        return build_scan_evidence(scan, identity, "https://github.com/approved/test", now)
 
     first = evidence("a" * 40, "b" * 40)
     second = evidence("c" * 40, "d" * 40)
