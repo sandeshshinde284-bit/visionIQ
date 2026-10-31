@@ -103,21 +103,22 @@ def main(args: list[str] | None = None) -> int:
         password=_required_env("DB_INTELLIGENCE_PASSWORD"),
         sslmode=os.environ.get("DB_SSL_MODE", "prefer"),
     )
+    from app.code_intelligence.canonical import build_scan_evidence
+
+    # m-4: read the commit time and build the evidence once, then reuse both.
+    committed_at = _committed_at(scan.repo_root, scan.commit_sha)
+    archived = build_scan_evidence(scan, identity, url, committed_at)
     state = ingest_complete_scan(
         scan,
         identity,
         url,
-        _committed_at(scan.repo_root, scan.commit_sha),
+        committed_at,
         GcsScanArchive(_required_env("GCS_EVIDENCE_BUCKET")),
         PostgresScanEvidenceStore(db),
+        evidence=archived,
     )
     # Source evidence has committed before graph projection begins. A failed
     # projection exits nonzero and a repeat is safe (both stores are idempotent).
-    from app.code_intelligence.canonical import build_scan_evidence
-
-    archived = build_scan_evidence(
-        scan, identity, url, _committed_at(scan.repo_root, scan.commit_sha)
-    )
     if state in {"CREATED", "NEW_REVISION", "UNCHANGED"}:
         # Only source-declared, committed references can become graph edges.
         # Read manifests from pinned Git blobs, never from the working tree.

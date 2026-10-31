@@ -91,7 +91,8 @@ class CloudConfig(LocalConfig):
 
     def url(self) -> URL:
         self.check()
-        assert self.db_cloud_password is not None
+        if self.db_cloud_password is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return URL.create(
             "postgresql+psycopg",
             username=self.db_cloud_user,
@@ -112,7 +113,8 @@ class CloudConfig(LocalConfig):
         if target not in accounts:
             raise ValueError("Unknown database role.")
         user, secret = accounts[target]
-        assert secret is not None
+        if secret is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return psycopg.connect(
             host=self.db_host,
             port=self.db_port,

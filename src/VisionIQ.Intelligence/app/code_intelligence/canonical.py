@@ -154,11 +154,16 @@ def ingest_complete_scan(
     source_committed_at: datetime,
     archive: ScanArchive,
     store: ScanEvidenceStore,
+    evidence: ScanEvidence | None = None,
 ) -> str:
-    """Archive before DB upsert; report partial scans without replacing last-good."""
+    """Archive before DB upsert; report partial scans without replacing last-good.
+
+    ``evidence`` may be passed when the caller already built it (m-4); it must be the
+    evidence for exactly these arguments.
+    """
     if scan.status != "COMPLETE":
         return "PARTIAL"
-    record = build_scan_evidence(scan, identity, source_url, source_committed_at)
+    record = evidence or build_scan_evidence(scan, identity, source_url, source_committed_at)
     uri = archive.store(record)
     if not uri.startswith("gs://"):
         raise ValueError("Archive did not return a Google Cloud Storage object URI")

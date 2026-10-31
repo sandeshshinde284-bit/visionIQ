@@ -62,7 +62,8 @@ class LocalConfig(BaseSettings):
 
     def url(self) -> URL:
         self.check()
-        assert self.db_local_password is not None
+        if self.db_local_password is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return URL.create(
             "postgresql+psycopg",
             username=self.db_local_user,
@@ -82,7 +83,8 @@ class LocalConfig(BaseSettings):
         if target not in identities:
             raise ValueError("Unknown database identity")
         username, secret = identities[target]
-        assert secret is not None
+        if secret is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return psycopg.connect(
             host=self.db_host,
             port=self.db_port,
@@ -111,7 +113,8 @@ def bootstrap(settings: LocalConfig) -> None:
             (settings.db_intelligence_user, settings.db_intelligence_password),
         )
         for name, password in runtime:
-            assert password is not None
+            if password is None:  # m-7: real check, not an assert
+                raise ValueError("A required database password is missing.")
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (name,))
             action = (
                 "CREATE ROLE {} LOGIN PASSWORD {}"

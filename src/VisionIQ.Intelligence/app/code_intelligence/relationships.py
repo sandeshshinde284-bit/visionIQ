@@ -81,9 +81,10 @@ def _extract_remote(candidate: str) -> str | None:
     match = re.search(r"(?:git\+)?https://[^\s;\"'<>]+", candidate)
     if not match:
         return None
-    token = match.group(0).split("@", maxsplit=1)[0] if "@v" in match.group(0) else match.group(0)
-    # Strip a pip version suffix only when it follows a .git URL.
-    token = re.split(r"\.git@", token, maxsplit=1)[0]
+    # m-2: one rule for pip/npm VCS refs ("repo.git@v1", "repo@main#egg=x"): strip "@ref"
+    # from the last path segment only, so "https://user@host/..." credentials are untouched.
+    head, separator, last = match.group(0).rpartition("/")
+    token = head + separator + last.split("@", maxsplit=1)[0] if separator else match.group(0)
     return _normalized_remote(token)
 
 
