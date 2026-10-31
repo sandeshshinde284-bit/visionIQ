@@ -57,10 +57,10 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                 assertion_key, relationship_key, from_node_key, to_node_key,
                 relation_type, classification, assertion_state,
                 provenance_item_key, provenance_revision_id, source_asserted_at,
-                content_sha256
+                content_sha256, ticket_fix_association_key
             ) VALUES (
                 @assertion, @relationship, @from, @to,
-                @relation, @class, @state, @provenance, @revision, @asserted, @hash
+                @relation, @class, @state, @provenance, @revision, @asserted, @hash, @fix
             )
             ON CONFLICT (assertion_key) DO NOTHING
             """, connection, transaction);
@@ -75,6 +75,7 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
         insert.Parameters.AddWithValue("revision", assertion.ProvenanceRevision);
         insert.Parameters.AddWithValue("asserted", assertion.SourceAssertedAt.ToUniversalTime());
         insert.Parameters.AddWithValue("hash", assertion.ContentHash());
+        insert.Parameters.AddWithValue("fix", (object?)assertion.TicketFixAssociationKey ?? DBNull.Value);
 
         if (await insert.ExecuteNonQueryAsync(cancellationToken) == 0)
         {
@@ -163,17 +164,24 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                    latest.provenance_item_key, latest.provenance_revision_id,
                    latest.relation_type, latest.classification, latest.assertion_state
             FROM (
-                SELECT DISTINCT ON (relationship_key)
-                    to_node_key, provenance_item_key, provenance_revision_id,
-                    relation_type, classification, assertion_state, relationship_key
-                FROM evidence.graph_assertions
-                WHERE from_node_key = @node
-                ORDER BY relationship_key, source_asserted_at DESC,
-                         observed_at DESC, assertion_key DESC
+                SELECT DISTINCT ON (g.relationship_key)
+                    g.to_node_key, g.provenance_item_key, g.provenance_revision_id,
+                    g.relation_type, g.classification, g.assertion_state,
+                    g.relationship_key, g.ticket_fix_association_key
+                FROM evidence.graph_assertions g
+                WHERE g.from_node_key = @node
+                ORDER BY g.relationship_key, g.source_asserted_at DESC,
+                         g.observed_at DESC, g.assertion_key DESC
             ) AS latest
             JOIN evidence.graph_nodes n ON n.node_key = latest.to_node_key
+            LEFT JOIN evidence.ticket_fix_links fix
+              ON fix.association_key = latest.ticket_fix_association_key
             WHERE latest.assertion_state = 'active'
               AND latest.classification IN ('explicit','verified')
+              AND (latest.ticket_fix_association_key IS NULL
+                   OR (fix.association_key IS NOT NULL
+                       AND fix.review_status IS DISTINCT FROM 'disputed'
+                       AND jsonb_array_length(fix.revert_commit_shas) = 0))
             ORDER BY latest.relationship_key
             LIMIT @limit
             """;
