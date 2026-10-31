@@ -11,4 +11,8 @@
     <PackageReference Include="Google.Cloud.Storage.V1" Version="4.13.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- B-6: live ADO project-membership check for evidence access. Ingestor references no project. -->
+    <ProjectReference Include="..\VisionIQ.Ingestor\VisionIQ.Ingestor.csproj" />
+  </ItemGroup>
 </Project>

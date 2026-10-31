@@ -57,9 +57,13 @@ public sealed class CanonicalEvidenceSink(
         }
 
         var raw = JsonSerializer.SerializeToUtf8Bytes(record, record.GetType(), Serialization);
-        // ADO source access semantics and Confluence ancestor-level AND ACL
-        // cannot be represented by a flat principal list yet. Never invent
-        // public access, even when the ingesting identity can read the source.
+        // B-5: ADO evidence is readable at project level; the stored principal names the project and
+        // AdoProjectAccessVerifier re-checks live membership on every read. Confluence's
+        // ancestor-level AND restrictions cannot be flattened into principals, so Confluence
+        // evidence stays unverified (hidden) until a Confluence-specific read path exists.
+        var access = datum.Provider == "azure_devops"
+            ? new EvidenceAccess(true, [AdoAccessPrincipals.Project(datum.Instance, datum.Project)])
+            : new EvidenceAccess(false, Array.Empty<string>());
         var envelope = new EvidenceEnvelope(
             new EvidenceIdentity(
                 datum.Provider, datum.Instance, datum.Project, datum.Repository,
@@ -70,7 +74,7 @@ public sealed class CanonicalEvidenceSink(
             datum.Url,
             "visioniq-source-connector",
             raw,
-            new EvidenceAccess(false, Array.Empty<string>()));
+            access);
 
         var result = await service.ImportAsync(envelope, cancellationToken)
             .ConfigureAwait(false);

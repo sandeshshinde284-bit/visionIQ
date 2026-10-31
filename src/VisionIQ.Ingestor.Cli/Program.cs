@@ -176,7 +176,7 @@ using (var localSink = new JsonLinesSink(runDirectory))
         sink = new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl);
     }
     Console.WriteLine(canonicalMode
-        ? "Evidence destination: canonical PostgreSQL + immutable Cloud Storage (unverified ACL, no retrieval access)"
+        ? "Evidence destination: canonical PostgreSQL + immutable Cloud Storage (ADO: project-level access, re-checked live; Confluence: hidden)"
         : "Evidence destination: local JSONL (restricted/unverified Confluence bodies withheld)");
     if (kinds.Overlaps([SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds]))
     {

@@ -44,6 +44,7 @@ builder.Services.AddSingleton<IVersionedEvidenceStore>(services =>
     new PostgresEvidenceStore(services.GetRequiredService<DatabaseOptions>()));
 builder.Services.AddSingleton<EvidenceIngestionService>();
 // LRN-07 (B-16): authorized relationship-graph traversal; fail-closed provider access.
+builder.Services.AddAdoEvidenceAccess(builder.Configuration);
 builder.Services.AddRelationshipGraph();
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 

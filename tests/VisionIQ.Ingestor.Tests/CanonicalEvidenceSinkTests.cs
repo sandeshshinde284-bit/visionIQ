@@ -26,7 +26,8 @@ public sealed class CanonicalEvidenceSinkTests
         Assert.Equal(new[] { "1", "2" }, store.Rows.Select(row => row.Envelope.ProviderRevisionId));
         Assert.All(store.Rows, row =>
         {
-            Assert.False(row.Envelope.Access.Verified);
+            Assert.True(row.Envelope.Access.Verified);
+            Assert.Equal(new[] { "ado-project:https://dev.azure.com/contoso/VisionIQ Demo" }, row.Envelope.Access.PrincipalIds);
             Assert.Equal("work_item", row.Envelope.Identity.Kind);
             Assert.StartsWith("gs://", row.RawSnapshotUri);
             Assert.DoesNotContain("secret-details", row.RedactedJson, StringComparison.Ordinal);
@@ -75,7 +76,7 @@ public sealed class CanonicalEvidenceSinkTests
     }
 
     [Fact]
-    public async Task Project_scoped_links_keep_provenance_and_are_never_verified()
+    public async Task Project_scoped_links_keep_provenance_and_are_readable_only_by_their_project()
     {
         var store = new RecordingStore();
         var sink = Sink(store);
@@ -85,7 +86,9 @@ public sealed class CanonicalEvidenceSinkTests
         var evidence = Assert.Single(store.Rows);
         Assert.Equal("Alpha", evidence.Envelope.Identity.ProjectId);
         Assert.Equal("declared_link", evidence.Envelope.Identity.Kind);
-        Assert.False(evidence.Envelope.Access.Verified);
+        // B-5: ADO evidence is verified at project level, scoped to exactly its own project.
+        Assert.True(evidence.Envelope.Access.Verified);
+        Assert.Equal(new[] { "ado-project:https://dev.azure.com/contoso/Alpha" }, evidence.Envelope.Access.PrincipalIds);
     }
 
     [Fact]
