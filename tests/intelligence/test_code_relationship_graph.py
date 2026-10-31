@@ -32,9 +32,7 @@ def _scan(status: str = "COMPLETE") -> RepositoryScan:
                 "app.py",
                 "b" * 40,
                 "AVAILABLE" if status == "COMPLETE" else "FAILED",
-                symbols=(
-                    SymbolReference("run", "function", 3, 5, "Service.run"),
-                ),
+                symbols=(SymbolReference("run", "function", 3, 5, "Service.run"),),
             ),
         ),
     )
@@ -50,7 +48,9 @@ def _identity() -> ScanEvidenceIdentity:
 def _evidence(scan: RepositoryScan) -> object:
     """Construct canonical metadata for a specific committed Git snapshot."""
     return build_scan_evidence(
-        scan, _identity(), "https://github.com/approved/graph-test",
+        scan,
+        _identity(),
+        "https://github.com/approved/graph-test",
         datetime(2026, 10, 30, tzinfo=UTC),
     )
 
@@ -83,7 +83,9 @@ def test_source_scoping_separates_same_filename_across_repositories() -> None:
         "https://github.com/approved/graph-test", "project-two", "repo-two"
     )
     altered = build_scan_evidence(
-        scan, other, "https://github.com/approved/graph-test",
+        scan,
+        other,
+        "https://github.com/approved/graph-test",
         datetime(2026, 10, 30, tzinfo=UTC),
     )
     assert project_scan_edges(scan, altered)[0].target.key() != normal
@@ -163,7 +165,9 @@ def test_code_graph_is_durable_idempotent_and_revision_bound() -> None:
         "repo-" + os.urandom(8).hex(),
     )
     evidence = build_scan_evidence(
-        scan, identity, "https://github.com/approved/graph-test",
+        scan,
+        identity,
+        "https://github.com/approved/graph-test",
         datetime(2026, 10, 30, tzinfo=UTC),
     )
     store = PostgresScanEvidenceStore(conninfo)
