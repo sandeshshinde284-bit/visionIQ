@@ -16,6 +16,7 @@ import psycopg
 
 if TYPE_CHECKING:
     from app.code_intelligence.canonical import ScanEvidence
+    from app.code_intelligence.relationships import DependencyLink
     from app.code_intelligence.scanner import RepositoryScan
 
 
@@ -85,14 +86,76 @@ def project_scan_edges(
     return tuple(edges)
 
 
+def project_declared_dependencies(
+    scan: "RepositoryScan",
+    evidence: "ScanEvidence",
+    dependencies: tuple["DependencyLink", ...],
+    approved_targets: dict[str, "ScanEvidence"],
+) -> tuple[GraphCodeEdge, ...]:
+    """Emit only resolved imports and approved source-declared cross-repo dependencies."""
+    if scan.status != "COMPLETE" or scan.commit_sha.lower() != evidence.revision:
+        raise ValueError("Dependencies require a matching complete Git scan")
+    paths = {file.path for file in scan.files}
+    output: list[GraphCodeEdge] = []
+    for link in dependencies:
+        if (
+            link.source_repo != evidence.identity.repository_id
+            or link.source_commit.lower() != evidence.revision
+            or link.source_path not in paths
+        ):
+            raise ValueError("Declared dependency has an unapproved source identity")
+
+        source = GraphCodeNode(evidence.item_key, "file", link.source_path)
+        if (
+            link.status == "RESOLVED_EXPLICIT"
+            and link.kind in {"PYTHON_IMPORT", "PROJECT_REFERENCE"}
+            and link.target_repo == evidence.identity.repository_id
+            and link.target_commit == evidence.revision
+            and link.target_path in paths
+        ):
+            target = GraphCodeNode(evidence.item_key, "file", link.target_path)
+            if source.key() != target.key():
+                output.append(GraphCodeEdge(source, target, "file_dependency"))
+        elif (
+            link.status == "DECLARED_TARGET_REPOSITORY"
+            and link.kind == "DECLARED_GIT_DEPENDENCY"
+            and link.target_repo is not None
+        ):
+            approved = approved_targets.get(link.target_repo)
+            if approved is None:
+                continue
+            if (
+                approved.identity.repository_id != link.target_repo
+                or approved.revision != link.target_commit
+                or approved.identity.project_id == ""
+                or approved.item_key == evidence.item_key
+            ):
+                raise ValueError("Cross-repository target does not match approved evidence")
+            output.append(
+                GraphCodeEdge(
+                    source,
+                    GraphCodeNode(approved.item_key, "repository", link.target_repo),
+                    "repository_dependency",
+                )
+            )
+    return tuple(output)
+
+
 def persist_code_graph(
     scan: "RepositoryScan",
     evidence: "ScanEvidence",
     connection_string: str,
     approved_ado_instance: str | None = None,
+    declared_dependencies: tuple["DependencyLink", ...] = (),
+    approved_targets: dict[str, "ScanEvidence"] | None = None,
 ) -> int:
     """Upsert typed code graph assertions with immutable provenance in one transaction."""
-    edges = project_scan_edges(scan, evidence)
+    edges = (
+        *project_scan_edges(scan, evidence),
+        *project_declared_dependencies(
+            scan, evidence, declared_dependencies, approved_targets or {}
+        ),
+    )
     asserted_at = evidence.source_updated_at.astimezone(UTC)
     proof_revision = evidence.revision
     with (
