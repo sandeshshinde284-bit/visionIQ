@@ -101,7 +101,7 @@ def main(args: list[str] | None = None) -> int:
         # limits it to git code_scan evidence and the graph rows that evidence proves.
         user=_required_env("DB_INTELLIGENCE_USER"),
         password=_required_env("DB_INTELLIGENCE_PASSWORD"),
-        sslmode=os.environ.get("DB_SSL_MODE", "require"),
+        sslmode=os.environ.get("DB_SSL_MODE", "prefer"),
     )
     state = ingest_complete_scan(
         scan,

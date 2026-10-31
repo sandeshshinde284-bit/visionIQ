@@ -49,6 +49,13 @@ public static class EnvFile
 
             var key = line[..separator].Trim();
             var value = line[(separator + 1)..].Trim();
+            if (value.Length > 0 && value[0] is not ('"' or '\''))
+            {
+                // m-8: "KEY=value # note" means "value"; quoted values are kept as written.
+                var comment = value.IndexOf(" #", StringComparison.Ordinal);
+                value = comment < 0 ? value : value[..comment].TrimEnd();
+            }
+
             if (value.Length >= 2 && ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
             {
                 value = value[1..^1];

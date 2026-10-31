@@ -69,6 +69,7 @@ public static class DotEnvLoader
 
     private static string Unquote(string value)
     {
+        value = StripInlineComment(value);
         if (value.Length >= 2
             && ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
         {
@@ -76,6 +77,18 @@ public static class DotEnvLoader
         }
 
         return value;
+    }
+
+    /// <summary>m-8: "KEY=value # note" means "value"; quoted values are kept as written.</summary>
+    public static string StripInlineComment(string value)
+    {
+        if (value.Length > 0 && value[0] is '"' or '\'')
+        {
+            return value;
+        }
+
+        var comment = value.IndexOf(" #", StringComparison.Ordinal);
+        return comment < 0 ? value : value[..comment].TrimEnd();
     }
 }
 

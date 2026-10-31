@@ -18,7 +18,7 @@ def test_defaults_match_the_documented_local_setup() -> None:
     s = settings()
 
     assert (s.python_api_host, s.python_api_port) == ("127.0.0.1", 8000)
-    assert (s.db_host, s.db_port, s.db_ssl_mode) == ("localhost", 5432, "disable")
+    assert (s.db_host, s.db_port, s.db_ssl_mode) == ("localhost", 5432, "prefer")
     assert s.db_user == "visioniq_intelligence"
     assert s.db_password is not None
     assert s.db_password.get_secret_value() == "test-runtime-secret"

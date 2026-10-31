@@ -51,7 +51,9 @@ class Settings(BaseSettings):
     db_name: str = "visioniq"
     db_user: str | None = None
     db_password: SecretStr | None = None
-    db_ssl_mode: SslMode = "disable"
+    # M-14: same default everywhere; encrypt when the server supports it (.env.example sets
+    # "disable" for the local Docker database, the Cloud Run deploy sets "require").
+    db_ssl_mode: SslMode = "prefer"
     db_intelligence_user: str | None = None
     db_intelligence_password: SecretStr | None = None
 

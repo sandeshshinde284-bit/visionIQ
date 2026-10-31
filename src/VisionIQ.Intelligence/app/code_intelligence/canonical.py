@@ -178,15 +178,22 @@ class GcsScanArchive:
         if not bucket_name or "/" in bucket_name:
             raise ValueError("A pre-approved Cloud Storage bucket name is required")
         self._bucket_name = bucket_name
+        self._client = None  # M-5: created once, on first use, then reused
+
+    def _storage_client(self):
+        from google.cloud import storage
+
+        if self._client is None:
+            self._client = storage.Client()
+        return self._client
 
     def store(self, evidence: ScanEvidence) -> str:
         """Store content-addressed bytes with a create-only generation precondition."""
         from google.api_core.exceptions import PreconditionFailed
-        from google.cloud import storage
 
         revision_digest = hashlib.sha256(evidence.revision.encode("utf-8")).hexdigest()
         name = f"raw/v1/{evidence.item_key}/{revision_digest}/{evidence.content_hash}.json"
-        blob = storage.Client().bucket(self._bucket_name).blob(name)
+        blob = self._storage_client().bucket(self._bucket_name).blob(name)
         # An identical content-addressed object may already be archived.
         with suppress(PreconditionFailed):
             blob.upload_from_string(

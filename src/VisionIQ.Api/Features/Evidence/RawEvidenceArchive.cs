@@ -20,6 +20,9 @@ public interface IRawEvidenceArchive
 /// </summary>
 public sealed class CloudStorageEvidenceArchive(string? bucketName) : IRawEvidenceArchive
 {
+    // M-5: one thread-safe client per archive instead of credential discovery on every upload.
+    private readonly Lazy<StorageClient> Client = new(StorageClient.Create, LazyThreadSafetyMode.ExecutionAndPublication);
+
     public async Task<string> StoreAsync(
         string itemKey,
         string revisionId,
@@ -37,7 +40,7 @@ public sealed class CloudStorageEvidenceArchive(string? bucketName) : IRawEviden
             SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(revisionId)));
         var name = $"raw/v1/{itemKey}/{revisionHash}/{contentSha256}.json";
         using var stream = new MemoryStream(rawJson, writable: false);
-        var client = StorageClient.Create();
+        var client = Client.Value;
 
         try
         {

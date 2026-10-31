@@ -24,7 +24,7 @@ public sealed class DatabaseSettings
 
     public string? Password { get; init; }
 
-    public string SslMode { get; init; } = "disable";
+    public string SslMode { get; init; } = "prefer";
 
     /// <summary>An Npgsql connection string, with every value quoted safely.</summary>
     public string ConnectionString
@@ -69,6 +69,9 @@ public sealed class IngestorSettings
     public required string OutputDirectory { get; init; }
 
     public CheckpointStoreKind CheckpointStore { get; init; }
+
+    /// <summary>HTTP timeout for source calls (INGESTION_REQUEST_TIMEOUT_SECONDS, default 100).</summary>
+    public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(100);
 
     public DatabaseSettings? Database { get; init; }
 
@@ -174,8 +177,22 @@ public sealed class IngestorSettings
                 Name = Get("DB_NAME") ?? "visioniq",
                 User = user ?? string.Empty,
                 Password = password,
-                SslMode = Get("DB_SSL_MODE") ?? "disable",
+                SslMode = Get("DB_SSL_MODE") ?? "prefer",
             };
+        }
+
+        // M-13: the ingestor's own HTTP timeout (REQUEST_TIMEOUT_SECONDS belongs to the Python service).
+        var requestTimeout = TimeSpan.FromSeconds(100);
+        if (Get("INGESTION_REQUEST_TIMEOUT_SECONDS") is { } timeoutText)
+        {
+            if (int.TryParse(timeoutText, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds) && seconds is >= 5 and <= 600)
+            {
+                requestTimeout = TimeSpan.FromSeconds(seconds);
+            }
+            else
+            {
+                problems.Add("INGESTION_REQUEST_TIMEOUT_SECONDS must be a whole number of seconds between 5 and 600.");
+            }
         }
 
         var confluence = ReadConfluence(Get, problems);
@@ -198,6 +215,7 @@ public sealed class IngestorSettings
             Since = since,
             OutputDirectory = Get("INGESTION_OUTPUT_DIR") ?? Path.Combine("artifacts", "ingestion"),
             CheckpointStore = store,
+            RequestTimeout = requestTimeout,
             Database = database,
             Confluence = confluence,
         };

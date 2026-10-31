@@ -76,7 +76,7 @@ public sealed class ConfigurationTests
         var builder = new DbConnectionStringBuilder { ConnectionString = IngestorSettings.FromValues(Valid()).Database!.ConnectionString };
 
         Assert.Equal("p;w\"d", builder["Password"]);
-        Assert.Equal("Disable", builder["SSL Mode"]);
+        Assert.Equal("Prefer", builder["SSL Mode"]); // M-14: default is "prefer"
     }
 
     [Fact]

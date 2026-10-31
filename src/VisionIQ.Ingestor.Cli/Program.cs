@@ -70,7 +70,7 @@ var json = new JsonSerializerOptions
     Converters = { new JsonStringEnumConverter() },
 };
 
-using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
+using var http = new HttpClient { Timeout = settings.RequestTimeout };
 var client = new AdoClient(http, settings.Ado);
 var runDirectory = Path.Combine(settings.OutputDirectory, DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
 Directory.CreateDirectory(runDirectory);
