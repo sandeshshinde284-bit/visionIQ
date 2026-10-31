@@ -118,9 +118,7 @@ def test_declared_cross_project_dependency_requires_approved_target() -> None:
         status="DECLARED_TARGET_REPOSITORY",
     )
     assert project_declared_dependencies(source, origin, (link,), {}) == ()
-    edges = project_declared_dependencies(
-        source, origin, (link,), {"other-repository": target}
-    )
+    edges = project_declared_dependencies(source, origin, (link,), {"other-repository": target})
     assert len(edges) == 1
     assert edges[0].kind == "repository_dependency"
     assert edges[0].target.anchor == target.item_key
