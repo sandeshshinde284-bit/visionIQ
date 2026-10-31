@@ -149,6 +149,13 @@ jobs:
           python-version: "3.12"
       - name: Install isolated LRN-06 PostgreSQL test requirements
         run: python -m pip install pytest "psycopg[binary]" fastapi pydantic-settings httpx structlog
+      - name: Verify actual FND-04 Intelligence SQL readiness on PostgreSQL
+        env:
+          VISIONIQ_READY_INTELLIGENCE_DB_INTEGRATION: "1"
+          PYTHONPATH: src/VisionIQ.Intelligence
+          DB_HOST: "127.0.0.1"
+          DB_LOCAL_NAME: "visioniq"
+        run: python -m pytest -q tests/intelligence/test_database_readiness.py
       - name: Verify canonical LRN-06 Git scan revisions in PostgreSQL
         env:
           VISIONIQ_SCAN_DB_INTEGRATION: "1"
