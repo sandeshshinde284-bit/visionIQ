@@ -124,6 +124,12 @@ jobs:
           DB_HOST: "127.0.0.1"
           DB_NAME: "visioniq"
         run: python -m pytest -q tests/intelligence/test_code_canonical_db_integration.py
+      - name: Verify LRN-07 graph history, disputes and ACL on PostgreSQL
+        env:
+          VISIONIQ_GRAPH_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~GraphDatabaseIntegrationTests"
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
