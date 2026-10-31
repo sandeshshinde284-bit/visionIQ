@@ -126,9 +126,7 @@ def build_scan_evidence(
         "commit_sha": scan.commit_sha.lower(),
         "file_count": len(scan.files),
         "files": [asdict(file) for file in sorted(scan.files, key=lambda x: x.path)],
-        "analyses": [
-            asdict(analysis) for analysis in sorted(scan.analyses, key=lambda x: x.path)
-        ],
+        "analyses": [asdict(analysis) for analysis in sorted(scan.analyses, key=lambda x: x.path)],
         "parser_status": scan.status,
         "schema_version": 1,
     }
@@ -160,9 +158,7 @@ def ingest_complete_scan(
     """Archive before DB upsert; report partial scans without replacing last-good."""
     if scan.status != "COMPLETE":
         return "PARTIAL"
-    record = build_scan_evidence(
-        scan, identity, source_url, source_committed_at
-    )
+    record = build_scan_evidence(scan, identity, source_url, source_committed_at)
     uri = archive.store(record)
     if not uri.startswith("gs://"):
         raise ValueError("Archive did not return a Google Cloud Storage object URI")
@@ -189,10 +185,7 @@ class GcsScanArchive:
         from google.cloud import storage
 
         revision_digest = hashlib.sha256(evidence.revision.encode("utf-8")).hexdigest()
-        name = (
-            f"raw/v1/{evidence.item_key}/{revision_digest}/"
-            f"{evidence.content_hash}.json"
-        )
+        name = f"raw/v1/{evidence.item_key}/{revision_digest}/{evidence.content_hash}.json"
         blob = storage.Client().bucket(self._bucket_name).blob(name)
         # An identical content-addressed object may already be archived.
         with suppress(PreconditionFailed):
