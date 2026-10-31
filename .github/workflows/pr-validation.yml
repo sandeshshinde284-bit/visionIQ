@@ -42,10 +42,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Build .NET API image for manual Cloud Run deployment
+        run: docker build -f src/VisionIQ.Api/Dockerfile -t visioniq-api:ci .
       - name: Build Intelligence runtime image
         run: docker build -f src/VisionIQ.Intelligence/Dockerfile -t visioniq-intelligence:ci .
       - name: Build migration image
         run: docker build -f db/Dockerfile -t visioniq-db-migrate:ci .
+
+  manual-deploy-scripts:
+    name: Manual deployment PowerShell syntax and plan-only safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse deployment scripts without executing cloud changes
+        shell: pwsh
+        run: |
+          foreach ($file in (Get-ChildItem scripts/manual-deploy/*.ps1)) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+          }
+      - name: Validate build plan and guarded deployment plan
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          ./scripts/manual-deploy/01-build-push.ps1
+          ./scripts/manual-deploy/02-deploy-services.ps1 -Commit $sha -ApiSecretVersion 1 -IntelligenceSecretVersion 1
 
   fresh-postgres:
     name: Fresh-volume migration and rerun
