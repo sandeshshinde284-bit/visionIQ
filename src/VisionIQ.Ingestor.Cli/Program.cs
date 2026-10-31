@@ -1,5 +1,6 @@
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Evidence;
+using VisionIQ.Api.Features.Backfill;
 using VisionIQ.Api.Features.TicketFixes;
 using VisionIQ.Ingestor.Cli;
 using System.Globalization;
@@ -188,6 +189,18 @@ using (var localSink = new JsonLinesSink(runDirectory))
 }
 
 var report = SyncReport.Merge(reports);
+
+// Persist one sanitized audit row per attempted source stream. This is a
+// diagnostic record, not proof of complete source history or ACL verification.
+if (settings.Database is { } auditDatabase)
+{
+    await using var audit = new PostgresSourceSyncRunStore(new DatabaseOptions(
+        auditDatabase.Host, auditDatabase.Port, auditDatabase.Name,
+        auditDatabase.User, auditDatabase.Password!, auditDatabase.SslMode));
+    await SourceSyncAuditProjector.SaveAsync(
+        report, request.IgnoreCheckpoints ? SourceSyncMode.Full : SourceSyncMode.Delta,
+        audit);
+}
 
 await File.WriteAllTextAsync(Path.Combine(runDirectory, "report.json"), JsonSerializer.Serialize(report, json));
 foreach (var stream in report.Streams)
