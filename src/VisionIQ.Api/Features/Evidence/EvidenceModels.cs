@@ -108,11 +108,14 @@ public static class EvidenceNormalizer
 {
     private static readonly Dictionary<string, string[]> SafeFields = new(StringComparer.Ordinal)
     {
-        ["work_item"] = ["state", "type"],
+        // B-13: names must match the camelCase JSON the ingestor actually serializes.
+        ["work_item_current"] = ["state", "workItemType"],
+        ["work_item"] = ["state", "workItemType", "reason"],
         ["pull_request"] = ["status", "isDraft"],
-        ["commit"] = ["changeType"],
+        ["commit"] = ["commentTruncated"],
+        ["declared_link"] = ["linkType"],
         ["review"] = ["status", "vote"],
-        ["ci_run"] = ["status", "result"],
+        ["ci_run"] = ["status", "result", "reason"],
         ["deployment"] = ["status", "result"],
         ["incident"] = ["status", "severity"],
         ["design_page"] = ["status", "version"],

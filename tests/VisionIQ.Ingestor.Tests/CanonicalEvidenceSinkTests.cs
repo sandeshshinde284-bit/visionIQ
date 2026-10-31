@@ -88,6 +88,39 @@ public sealed class CanonicalEvidenceSinkTests
         Assert.False(evidence.Envelope.Access.Verified);
     }
 
+    [Fact]
+    public async Task Redacted_metadata_keeps_safe_fields_for_every_ado_kind_and_never_free_text()
+    {
+        // B-13: field names must match what the sink actually serializes (camelCase records).
+        var synced = new MemorySink();
+        await new VisionIQ.Ingestor.Sync.SyncRunner(
+            DemoAdo.Client(DemoAdo.Server()), new VisionIQ.Ingestor.Checkpoints.InMemoryCheckpointStore(),
+            synced, new VisionIQ.Ingestor.Sources.SourceCapabilityRegistry())
+            .RunAsync(new VisionIQ.Ingestor.Sync.SyncRequest(VisionIQ.Ingestor.Sync.SyncRequest.AllKinds, null));
+        var store = new RecordingStore();
+        var sink = Sink(store);
+        foreach (var (stream, key, record) in synced.Items)
+        {
+            await sink.WriteAsync(stream, key, record);
+        }
+
+        System.Text.Json.JsonElement Meta(string kind) =>
+            System.Text.Json.JsonDocument.Parse(store.Rows.First(row => row.Envelope.Identity.Kind == kind).RedactedJson).RootElement;
+
+        Assert.Equal("Bug", Meta("work_item_current").GetProperty("workItemType").GetString());
+        Assert.Equal("Resolved", Meta("work_item_current").GetProperty("state").GetString());
+        Assert.True(Meta("work_item").TryGetProperty("state", out _));
+        Assert.Equal("completed", Meta("pull_request").GetProperty("status").GetString());
+        Assert.Equal("failed", Meta("ci_run").GetProperty("result").GetString());
+        Assert.Equal("work_item_artifact", Meta("declared_link").GetProperty("linkType").GetString());
+        Assert.All(store.Rows, row =>
+        {
+            Assert.DoesNotContain("Retry loop", row.RedactedJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("retrying", row.RedactedJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("payments-service", row.RedactedJson, StringComparison.Ordinal);
+        });
+    }
+
     private static CanonicalEvidenceSink Sink(RecordingStore store) =>
         new(new EvidenceIngestionService(new FakeArchive(), store),
             new Uri("https://dev.azure.com/contoso"), "contoso",
