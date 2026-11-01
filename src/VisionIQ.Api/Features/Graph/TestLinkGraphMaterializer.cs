@@ -32,6 +32,7 @@ public sealed class TestLinkGraphMaterializer : IAsyncDisposable
 
     private readonly NpgsqlDataSource source;
     private readonly IRelationshipGraphStore graph;
+    private readonly GraphEvidenceLookup lookup;
     private readonly List<string> unresolved = [];
     private readonly List<string> failed = [];
 
@@ -46,6 +47,7 @@ public sealed class TestLinkGraphMaterializer : IAsyncDisposable
         };
         builder["SSL Mode"] = options.SslMode;
         source = NpgsqlDataSource.Create(builder.ConnectionString);
+        lookup = new GraphEvidenceLookup(source);
     }
 
     /// <summary>Test Cases whose automated test name matched no test method, or more than one.</summary>
@@ -125,7 +127,7 @@ public sealed class TestLinkGraphMaterializer : IAsyncDisposable
         GraphNode from, GraphNode to, GraphRelationKind relation, string reference, CancellationToken cancellationToken)
     {
         if (!TryParseReference(reference, out var itemKey, out var revision) ||
-            await RevisionTimeAsync(itemKey, revision, cancellationToken) is not { } assertedAt)
+            await lookup.RevisionTimeAsync(itemKey, revision, cancellationToken) is not { } assertedAt)
         {
             return 0; // the cited evidence revision is not stored (yet): never assert without proof
         }
@@ -165,51 +167,12 @@ public sealed class TestLinkGraphMaterializer : IAsyncDisposable
         return rows;
     }
 
-    private async Task<string?> FindWorkItemAsync(string instance, string project, string id, CancellationToken cancellationToken)
-    {
-        await using var connection = await source.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand("""
-            SELECT item_key FROM evidence.source_items
-            WHERE provider = 'azure_devops' AND source_instance = @source AND project_id = @project
-              AND repository_id IS NULL AND kind = 'work_item_current' AND external_id = @id
-              AND latest_revision_id IS NOT NULL
-            """, connection);
-        command.Parameters.AddWithValue("source", instance);
-        command.Parameters.AddWithValue("project", project);
-        command.Parameters.AddWithValue("id", id);
-        return (string?)await command.ExecuteScalarAsync(cancellationToken);
-    }
-
-    private async Task<DateTimeOffset?> RevisionTimeAsync(string itemKey, string revision, CancellationToken cancellationToken)
-    {
-        await using var connection = await source.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand("""
-            SELECT source_updated_at FROM evidence.source_revisions
-            WHERE item_key = @key AND provider_revision_id = @revision
-            """, connection);
-        command.Parameters.AddWithValue("key", itemKey);
-        command.Parameters.AddWithValue("revision", revision);
-        return await command.ExecuteScalarAsync(cancellationToken) switch
-        {
-            DateTimeOffset time => time,
-            DateTime timestamp => new DateTimeOffset(DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)),
-            _ => null,
-        };
-    }
+    private Task<string?> FindWorkItemAsync(string instance, string project, string id, CancellationToken cancellationToken) =>
+        lookup.FindAsync(instance, project, null, "work_item_current", id, cancellationToken);
 
     /// <summary>Parses "evidence:&lt;64-hex item key&gt;:&lt;revision&gt;".</summary>
-    public static bool TryParseReference(string value, out string itemKey, out string revision)
-    {
-        itemKey = revision = string.Empty;
-        if (value is null || !value.StartsWith("evidence:", StringComparison.Ordinal) || value.Length < 9 + 64 + 2 || value[73] != ':')
-        {
-            return false;
-        }
-
-        itemKey = value.Substring(9, 64);
-        revision = value[74..];
-        return itemKey.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f') && !string.IsNullOrWhiteSpace(revision) && revision.Length <= 512;
-    }
+    public static bool TryParseReference(string value, out string itemKey, out string revision) =>
+        GraphEvidenceLookup.TryParseReference(value, out itemKey, out revision);
 
     public ValueTask DisposeAsync() => source.DisposeAsync();
 }

@@ -30,6 +30,9 @@ public enum GraphRelationKind
 
     /// <summary>LRN-07: a Test Case's automated test name matches exactly one test method in the latest scan.</summary>
     AutomatedBy,
+
+    /// <summary>LRN-07: a pull request triggered this build (PR builds compile a temporary merge commit).</summary>
+    CiPullRequest,
 }
 
 /// <summary>The proof strength of a relationship, distinct from review and revocation.</summary>
@@ -125,6 +128,7 @@ public sealed record GraphAssertion(
         [GraphRelationKind.FileTest] = [(GraphNodeKind.File, GraphNodeKind.TestCase)],
         [GraphRelationKind.TestedBy] = [(GraphNodeKind.WorkItem, GraphNodeKind.WorkItem)],
         [GraphRelationKind.AutomatedBy] = [(GraphNodeKind.WorkItem, GraphNodeKind.TestCase)],
+        [GraphRelationKind.CiPullRequest] = [(GraphNodeKind.CiRun, GraphNodeKind.PullRequest)],
         [GraphRelationKind.RepositoryDependency] = [(GraphNodeKind.File, GraphNodeKind.Repository)],
         [GraphRelationKind.CiCommit] = [(GraphNodeKind.CiRun, GraphNodeKind.Commit)],
         [GraphRelationKind.DesignRelated] =

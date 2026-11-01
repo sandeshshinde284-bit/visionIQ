@@ -31,6 +31,13 @@ map the same way later. Configured per provider and project in `ADO_ENVIRONMENT_
   reported as warnings; malformed JSON disables classification with one warning.
 - A PROD defect is **not** a confirmed production incident; no incident is inferred.
 
+## CI build links (LRN-07)
+
+`ci_commit`: a finished build -> the commit it built (same repository, exact 40-character SHA).
+`ci_pull_request`: a finished build -> the pull request that triggered it (PR builds compile a temporary merge
+commit that is not on the branch). In-progress builds are linked once they finish, so every edge cites the exact
+stored build revision. A build result is not a test result.
+
 ## Test evidence levels (LRN-07)
 
 A test node is **not** proof that a defect is covered. The graph keeps these levels separate, and no API

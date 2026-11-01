@@ -176,6 +176,9 @@ await using var linkStore = canonicalMode
 await using var testLinkStore = canonicalMode
     ? new VisionIQ.Api.Features.TestLinks.PostgresTestLinkStore(dbOptions!)
     : null;
+await using var buildLinkStore = canonicalMode
+    ? new VisionIQ.Api.Features.BuildLinks.PostgresBuildLinkStore(dbOptions!)
+    : null;
 using (var localSink = new JsonLinesSink(runDirectory))
 {
     IRecordSink sink = localSink;
@@ -185,9 +188,11 @@ using (var localSink = new JsonLinesSink(runDirectory))
             new EvidenceIngestionService(
                 new CloudStorageEvidenceArchive(archiveBucket), evidenceStore!),
             settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl);
-        sink = new TestLinkProjectionSink(
-            new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl),
-            testLinkStore!, settings.Ado.OrganizationUrl);
+        sink = new BuildLinkProjectionSink(
+            new TestLinkProjectionSink(
+                new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl),
+                testLinkStore!, settings.Ado.OrganizationUrl),
+            buildLinkStore!, settings.Ado.OrganizationUrl);
     }
     Console.WriteLine(canonicalMode
         ? "Evidence destination: canonical PostgreSQL + immutable Cloud Storage (ADO: project-level access, re-checked live; Confluence: hidden)"
@@ -237,6 +242,18 @@ if (canonicalMode && dbOptions is not null)
         foreach (var gap in testLinks.Unresolved.Take(20))
         {
             Console.WriteLine("  unresolved automated test: " + gap);
+        }
+
+        // LRN-07: CI builds -> the commit they built and the pull request that triggered them.
+        await using var buildLinks = new VisionIQ.Api.Features.Graph.BuildLinkGraphMaterializer(dbOptions, graphStore);
+        Console.WriteLine($"Build link assertions processed: {await buildLinks.ReconcileAsync(settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'))}");
+        if (buildLinks.Failed.Count > 0)
+        {
+            graphFailed = true;
+            foreach (var failure in buildLinks.Failed.Take(20))
+            {
+                Console.Error.WriteLine("  build link failed: " + failure);
+            }
         }
 
         if (testLinks.Failed.Count > 0)
