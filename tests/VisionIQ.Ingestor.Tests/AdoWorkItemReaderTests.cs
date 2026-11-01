@@ -34,6 +34,64 @@ public sealed class AdoWorkItemReaderTests
         Assert.ThrowsAny<ArgumentException>(() => AdoWorkItemReader.BuildWiql(project, null));
     }
 
+
+    [Theory]
+    [InlineData("Bug")]
+    [InlineData("User Story")]
+    [InlineData("Task")]
+    [InlineData("Test Case")]
+    [InlineData("Feature")]
+    [InlineData("Test Suite")]
+    public void Source_work_item_type_and_title_are_preserved_without_reclassification(string type)
+    {
+        var payload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            id = 42,
+            rev = 3,
+            fields = new Dictionary<string, object>
+            {
+                ["System.WorkItemType"] = type,
+                ["System.Title"] = "Checkout failure regression",
+                ["System.State"] = "Active",
+                ["System.ChangedDate"] = "2026-10-01T04:55:24.323Z"
+            }
+        });
+
+        var outcome = AdoWorkItemReader.ParseWorkItem(payload);
+
+        Assert.True(outcome.IsSynced);
+        Assert.Equal(type, outcome.Record!.WorkItemType);
+        Assert.Equal("Checkout failure regression", outcome.Record.Title);
+        Assert.Equal(3, outcome.Record.Revision);
+    }
+
+    [Fact]
+    public void Historical_revision_preserves_original_state_title_and_reason()
+    {
+        using var json = System.Text.Json.JsonDocument.Parse("""
+            {
+              "id": 42,
+              "rev": 2,
+              "fields": {
+                "System.ChangedDate": "2026-10-01T04:55:24.323Z",
+                "System.State": "Resolved",
+                "System.Title": "Earlier checkout failure",
+                "System.Reason": "Fixed"
+              }
+            }
+            """);
+
+        var revision = AdoWorkItemReader.ParseRevision(json.RootElement);
+
+        Assert.NotNull(revision);
+        Assert.Equal(42, revision.Id);
+        Assert.Equal(2, revision.Revision);
+        Assert.Equal("Resolved", revision.State);
+        Assert.Equal("Earlier checkout failure", revision.Title);
+        Assert.Equal("Fixed", revision.Reason);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-01T04:55:24.323Z"), revision.ChangedDate);
+    }
+
     [Fact]
     public void Recorded_work_item_is_parsed_into_a_record()
     {
