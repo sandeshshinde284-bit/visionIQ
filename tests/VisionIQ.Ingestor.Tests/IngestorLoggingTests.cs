@@ -116,6 +116,8 @@ public sealed class IngestorLoggingTests
         Assert.Contains(log.Lines, l => l.Message.Contains("Checkpoint VisionIQ Demo/work-items: saved", StringComparison.Ordinal));
         Assert.Contains(log.Lines, l => l.Message.Contains("1 deleted work item(s) recorded", StringComparison.Ordinal));
         Assert.All(log.Lines.Where(l => l.Message.StartsWith("Stream", StringComparison.Ordinal)), l => Assert.Contains("runId=" + request.RunId, l.Scopes, StringComparison.Ordinal));
+        Assert.All(log.Lines.Where(l => l.Scopes.Length > 0), l => Assert.DoesNotContain("System.Collections.Generic.Dictionary", l.Scopes, StringComparison.Ordinal));
+        Assert.Contains(log.Lines, l => l.Scopes.Contains("runId=" + request.RunId + " source=ado", StringComparison.Ordinal));
         Assert.DoesNotContain("Retry loop never stops", log.All, StringComparison.Ordinal); // work-item titles are content
         NoSecrets(log);
     }
