@@ -33,14 +33,16 @@ test passed, covers all affected code paths, or prevents recurrence.
 | M-8 | Revert a PR with Azure DevOps' **Revert** button in the sandbox and record the resulting commit/PR message. Only `git revert` messages ("This reverts commit <sha>") are detected today. |
 | B-6 | ADO project membership via the team-members API, with a real member and a non-member. |
 
+## Fixed after the first follow-up list
+
+m-1 (graph ties prefer current evidence), m-6 (runtime/dev requirement split; Docker images install the
+hash-verified `requirements-runtime.lock.txt`), m-10 (link evidence uses the source record's time).
+
 ## Accepted as is (documented, not changed)
 
 | Item | Reason |
 |---|---|
 | M-4 | Round trips per row/hop. Measure on real data volumes before refactoring (batching would touch the materializer, traversal and Python graph persistence). |
-| m-1 | Final tie-break on `assertion_key` when timestamps are equal is deterministic; no better ordering exists in the data. |
-| m-6 | The Python image installs test tools and dependencies are not locked. Splitting runtime and test requirements changes CI and the Dockerfile; do it with a lock file. |
-| m-10 | Link records use the ingestion time as source time because ADO relation records carry no timestamp. |
 
 ## Pending CI change
 

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Build context is the repository root (see docker-compose.yml) because requirements.txt lives there:
+# Build context is the repository root (see docker-compose.yml) because the requirement files live there:
 # docker compose build intelligence
 
 FROM python:3.12-slim
@@ -12,9 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Shared Python dependencies; the runtime image deliberately excludes db/ migration code.
-COPY requirements.txt ./requirements.txt
-RUN pip install -r requirements.txt
+# m-6: runtime dependencies only, pinned and hash-verified (no test tools in the image).
+# The runtime image deliberately excludes db/ migration code.
+COPY requirements-runtime.lock.txt ./requirements-runtime.lock.txt
+RUN pip install --require-hashes -r requirements-runtime.lock.txt
 
 COPY src/VisionIQ.Intelligence/app ./app
 

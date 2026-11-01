@@ -16,7 +16,8 @@ backed by PostgreSQL with pgvector. Cloud deployment (Google Cloud) comes later.
 | `tests/intelligence` | pytest tests for the Python service |
 | `db/` | Database start-up SQL and notes |
 | `scripts/` | `check-env.ps1` (machine check) and `use-db.ps1` (local or cloud database target) |
-| `requirements.txt` | The single Python dependency file (runtime and test tools) |
+| `requirements.txt` | Python development/CI dependencies: runtime plus test tools |
+| `requirements-runtime.txt` / `requirements-runtime.lock.txt` | Runtime dependencies, and their pinned, hash-verified lock used by the Docker images (regenerate the lock with `pip-compile --generate-hashes --strip-extras`) |
 
 ## Run locally (Windows PowerShell, repository root)
 
