@@ -45,7 +45,19 @@ Five exported records selected across the change-date range:
 | 116460 | 6 | Closed | 6 |
 | 116507 | 2 | New | 2 |
 
-The user manually checked **state/status** in Azure DevOps and reported that it matched. **Revision numbers, changed timestamps and historical revision content have not been independently confirmed** against the source. Those checks must remain open; local row-count matches are not equivalent to live-source fidelity.
+The user manually checked **state/status** and **changed dates** in Azure DevOps and reported matches. Subsequent read-only Azure DevOps REST API comparisons verified that all five exported revision numbers exist and equal the current latest revisions, and that **work-item type and full title matched exactly** for each sampled item. Historical revision content (earlier states/titles/reasons) has **not** been independently compared to the source; structural row-count checks do not establish historical-content fidelity.
+
+| Work item | Type | Type match | Title match | Revision match | Revision exists/latest |
+|---|---|---|---|---|---|
+| 107328 | User Story | Yes | Yes | Yes | 16 / 16 |
+| 106675 | Test Case | Yes | Yes | Yes | 13 / 13 |
+| 115804 | Task | Yes | Yes | Yes | 5 / 5 |
+| 116460 | Bug | Yes | Yes | Yes | 6 / 6 |
+| 116507 | Bug | Yes | Yes | Yes | 2 / 2 |
+
+**Work-item types in the 363-record export:** Test Case 152; User Story 96; Bug 54; Task 46; Feature 8; Test Suite 7. The LRN-01 WIQL intentionally ingests all work-item types; preserving a source type does not itself make a non-Bug item defect evidence. Dedicated downstream defect-only classification/search behavior remains a separate validation requirement.
+
+**Additional test evidence:** 41/41 targeted AdoWorkItemReader/DefectEnvironmentClassifier tests passed (0 skipped, exit 0). These tests do not alone prove downstream defect-only search filtering.
 
 ## Code fixes verified
 
@@ -75,7 +87,7 @@ Seven opt-in PostgreSQL integration tests were skipped in the solution run: grap
 ## Open gates before LRN-01 final acceptance
 
 1. **Azure Repos access:** restore authorized Basic/repo read rights; verify repository inventory, commits and pull requests, pagination and independent checkpoint behavior. Do not treat 0 repositories as a completed repo test.
-2. **Source fidelity:** manually compare exported revisions, changed dates and selected revision-history details against the specific historic versions in ADO. Note any source updates after export.
+2. **Source fidelity:** current sampled ID/type/title/revision and manually checked state/date now match ADO for five items; compare **earlier historical revision contents** (state/title/reason where present) against their corresponding versions. Explicitly verify downstream searches distinguish Bugs from supporting work-item types.
 3. **Canonical persistence where required by the approved story acceptance criteria:** use disposable PostgreSQL/GCS test resources, check tombstone behavior, atomicity/idempotency and applicable skipped integration tests. Coordinate cross-story ownership with LRN-03/05/07.
 4. **Final code review and evidence signoff:** evaluate any additional review blockers or CI gates at the final branch head. Do not merge on the basis of this report alone.
 
