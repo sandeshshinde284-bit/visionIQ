@@ -153,10 +153,22 @@ public static class SyncRunLogging
         Logging.IngestionLog.RunFinished(log, report.RunId, elapsedMs, report.Streams.Count, report.AllSynced);
     }
 
+    // Console scopes use ToString; structured log providers enumerate key/value pairs.
+    private sealed class RunScope : Dictionary<string, object>
+    {
+        public RunScope(Guid runId, string source)
+        {
+            Add("runId", runId);
+            Add("source", source);
+        }
+
+        public override string ToString() => $"runId={this["runId"]} source={this["source"]}";
+    }
+
     public static IDisposable? BeginRun(Microsoft.Extensions.Logging.ILogger log, SyncRequest request, string source)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var scope = log.BeginScope("runId={RunId} source={Source}", request.RunId, source);
+        var scope = log.BeginScope(new RunScope(request.RunId, source));
         Logging.IngestionLog.RunStarted(log, request.RunId, string.Join(",", request.Kinds.Order()),
             request.Reconcile ? "reconcile" : request.IgnoreCheckpoints ? "full" : "delta",
             request.Since?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "checkpoint");
