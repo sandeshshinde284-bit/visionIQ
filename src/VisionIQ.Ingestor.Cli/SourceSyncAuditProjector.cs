@@ -33,7 +33,9 @@ public static class SourceSyncAuditProjector
                     StreamStatus.NotSynced => SourceSyncState.NotSynced,
                     _ => throw new ArgumentOutOfRangeException(nameof(report)),
                 },
-                stream.Records,
+                // M-12: received = stored + not stored. This .NET path keeps no quarantine list:
+                // unstored items are retried because the stream's checkpoint does not advance.
+                stream.Records + stream.NotStored,
                 stream.Records,
                 0,
                 null,

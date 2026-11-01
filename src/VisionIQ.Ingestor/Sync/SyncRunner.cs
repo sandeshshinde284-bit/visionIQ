@@ -155,6 +155,7 @@ public sealed class SyncRunner
             {
                 if (outcome.Record is null)
                 {
+                    result.NotStored++;
                     Partial(result, outcome.NotSyncedReason ?? "A work item could not be read.");
                     continue;
                 }

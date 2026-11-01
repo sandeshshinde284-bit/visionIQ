@@ -39,6 +39,9 @@ public sealed class StreamResult
 
     public int Records { get; set; }
 
+    /// <summary>M-12: items the source returned that were not written (e.g. omitted work items).</summary>
+    public int NotStored { get; set; }
+
     public int Links { get; set; }
 
     /// <summary>Why the stream is partial or not synced. Never contains credentials.</summary>
