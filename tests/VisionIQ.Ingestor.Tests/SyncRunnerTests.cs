@@ -31,6 +31,20 @@ public sealed class SyncRunnerTests
     }
 
     [Fact]
+    public async Task Merged_sync_report_preserves_the_execution_run_id()
+    {
+        var request = new SyncRequest(new HashSet<SyncKind> { SyncKind.WorkItems }, null, IncludeRevisions: false);
+        var sourceReport = await Runner(DemoAdo.Server(), new InMemoryCheckpointStore(), new MemorySink()).RunAsync(request);
+
+        var merged = SyncReport.Merge([sourceReport]);
+
+        Assert.NotEqual(Guid.Empty, merged.RunId);
+        Assert.Equal(request.RunId, merged.RunId);
+        Assert.Equal(sourceReport.RunId, merged.RunId);
+        Assert.Equal(sourceReport.Streams.Count, merged.Streams.Count);
+    }
+
+    [Fact]
     public async Task A_second_run_resumes_from_checkpoints_without_duplicates()
     {
         var checkpoints = new InMemoryCheckpointStore();
