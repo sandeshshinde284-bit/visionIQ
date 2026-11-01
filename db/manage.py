@@ -145,6 +145,9 @@ def bootstrap(settings: LocalConfig) -> None:
         cur.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC")
         for name, _ in runtime:
             cur.execute(sql.SQL("REVOKE ALL ON SCHEMA public FROM {}").format(sql.Identifier(name)))
+            # LRN-08: pgvector's type, functions and operators live in public; the services may
+            # USE them (vector columns, <=> search) but never CREATE objects there.
+            cur.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(name)))
 
         admin = sql.Identifier(settings.db_local_user)
         for name in SCHEMAS:

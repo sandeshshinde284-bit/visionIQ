@@ -203,6 +203,7 @@ jobs:
           tests/intelligence/test_sync_quarantine_db.py
           tests/intelligence/test_lesson_schema_db.py
           tests/intelligence/test_lessons_db.py
+          tests/intelligence/test_search_index_db.py
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
