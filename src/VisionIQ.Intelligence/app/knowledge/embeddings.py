@@ -18,6 +18,15 @@ from typing import Protocol
 DIMENSION = 768  # the database column is vector(768): a different dimension needs a migration
 
 
+class VertexEmbeddingError(RuntimeError):
+    """A Vertex AI request failed; ``status`` is the HTTP status (None for a malformed answer)."""
+
+    def __init__(self, message: str, status: int | None = None, detail: str = "") -> None:
+        super().__init__(message)
+        self.status = status
+        self.detail = detail
+
+
 class Embedder(Protocol):
     model_id: str
     dimension: int
@@ -112,17 +121,22 @@ class VertexGeminiEmbedder:
                 self.sleep(min(60.0, 2.0**attempt))
                 continue
             if response.status_code != 200:
-                raise RuntimeError(
-                    f"Vertex AI embedding request failed: HTTP {response.status_code}"
+                status = response.status_code
+                try:
+                    detail = str(response.json().get("error", {}).get("message", ""))[:300]
+                except Exception:  # not JSON
+                    detail = ""
+                raise VertexEmbeddingError(
+                    f"Vertex AI embedding request failed: HTTP {status}", status, detail
                 )
             predictions = response.json().get("predictions", [])
             vectors = [p.get("embeddings", {}).get("values") for p in predictions]
             if len(vectors) != len(texts) or any(
                 not v or len(v) != self.dimension for v in vectors
             ):
-                raise RuntimeError("Vertex AI returned an unexpected embedding shape")
+                raise VertexEmbeddingError("Vertex AI returned an unexpected embedding shape")
             return [normalize(v) for v in vectors]
-        raise RuntimeError("Vertex AI embedding request kept failing")
+        raise VertexEmbeddingError("Vertex AI embedding request kept failing")
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
