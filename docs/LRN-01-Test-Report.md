@@ -77,6 +77,12 @@ The targeted executions overlap the full suite; **do not sum their counts**. Two
 
 Seven opt-in PostgreSQL integration tests were skipped in the solution run: graph (2), source-change inbox (1), source-sync audit (1), evidence immutability (1), ticket-fix history (1) and database readiness (1). Their ownership spans LRN-01–07; determine required story gates and run with **disposable** PostgreSQL and explicit test environment flags; do not point tests at production or a shared development database.
 
+## Additional regression cases added — execution pending
+
+Commit `07651d9` adds six parameterized `AdoWorkItemReaderTests` covering source type/title preservation across Bug, User Story, Task, Test Case, Feature and Test Suite, plus one historical-revision parse case covering ID, revision, state, title, reason and changed date. **These seven test cases have not yet been executed in the local environment and must not be counted as passing.** They test parsing and source type preservation, not downstream defect-specific retrieval.
+
+Next run: `dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Tests.csproj --configuration Release --filter "FullyQualifiedName~AdoWorkItemReaderTests"`.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
