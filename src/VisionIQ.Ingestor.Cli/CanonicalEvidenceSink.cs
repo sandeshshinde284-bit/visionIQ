@@ -155,7 +155,8 @@ public sealed class CanonicalEvidenceSink(
             {
                 var project = AdoProjectFromKey(key, "/link/");
                 return new Datum("azure_devops", adoInstance, project, null,
-                    "declared_link", link.Key, ContentRevision("1", link), observed,
+                    // m-10: the source record's time, not the ingestion time (fallback only when absent).
+                    "declared_link", link.Key, ContentRevision("1", link), link.SourceTimestamp ?? observed,
                     AdoUrl(project, "_workitems"));
             }
 

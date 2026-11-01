@@ -124,6 +124,25 @@ public sealed class CanonicalEvidenceSinkTests
         });
     }
 
+    [Fact]
+    public async Task A_link_carries_its_source_record_time_not_the_ingestion_time()
+    {
+        // m-10: the link was stated by the work item revision changed at this time.
+        var changed = new DateTimeOffset(2026, 3, 4, 5, 6, 7, TimeSpan.Zero);
+        var item = new WorkItemRecord(123, 7, "Bug", "Closed", "Title", [], changed)
+        {
+            Project = "Alpha",
+            Relations = [new WorkItemRelation("ArtifactLink", "vstfs:///Git/PullRequestId/p%2Fr%2F42", "Pull Request")],
+        };
+        var store = new RecordingStore();
+        var link = Assert.Single(VisionIQ.Ingestor.Links.LinkExtractor.FromWorkItem(item));
+
+        await Sink(store).WriteAsync("links", "contoso/ado/Alpha/link/" + link.Key, link);
+
+        Assert.Equal(changed, link.SourceTimestamp);
+        Assert.Equal(changed, Assert.Single(store.Rows).Envelope.SourceUpdatedAt);
+    }
+
     private static CanonicalEvidenceSink Sink(RecordingStore store) =>
         new(new EvidenceIngestionService(new FakeArchive(), store),
             new Uri("https://dev.azure.com/contoso"), "contoso",

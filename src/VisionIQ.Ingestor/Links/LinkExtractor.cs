@@ -22,6 +22,12 @@ public sealed record SourceLink(EntityKind FromKind, string FromId, EntityKind T
     /// artifact links are "vstfs:///Git/{type}/{projectId}%2F{repositoryId}%2F{id}".
     /// </summary>
     public string? ToRepositoryId { get; init; }
+
+    /// <summary>
+    /// m-10: when the source stated this link: the time of the source record it was read from
+    /// (work item change, PR activity, commit date, build finish). Null when the source has none.
+    /// </summary>
+    public DateTimeOffset? SourceTimestamp { get; init; }
 }
 
 /// <summary>Extracts explicit links from source records (S04-11). Verification and storage belong to LRN-04.</summary>
@@ -65,7 +71,7 @@ public static partial class LinkExtractor
             }
         }
 
-        return Deduplicate(links);
+        return Stamp(Deduplicate(links), workItem.ChangedDate);
     }
 
     public static IReadOnlyList<SourceLink> FromPullRequest(PullRequestRecord pullRequest)
@@ -82,7 +88,7 @@ public static partial class LinkExtractor
             links.Add(new(EntityKind.PullRequest, from, EntityKind.Commit, merge.ToLowerInvariant(), "pr_merge_commit", "completed merge commit"));
         }
 
-        return Deduplicate(links);
+        return Stamp(Deduplicate(links), pullRequest.LastActivity);
     }
 
     public static IReadOnlyList<SourceLink> FromCommit(CommitRecord commit)
@@ -112,7 +118,7 @@ public static partial class LinkExtractor
             links.Add(new(EntityKind.Commit, from, EntityKind.WorkItem, match.Groups[1].Value, "commit_mention", match.Value));
         }
 
-        return Deduplicate(links);
+        return Stamp(Deduplicate(links), commit.CommitterDate);
     }
 
     public static IReadOnlyList<SourceLink> FromBuild(BuildRecord build)
@@ -130,8 +136,11 @@ public static partial class LinkExtractor
             links.Add(new(EntityKind.Build, from, EntityKind.PullRequest, Text(pullRequest), "build_pull_request", "build triggerInfo pr.number"));
         }
 
-        return Deduplicate(links);
+        return Stamp(Deduplicate(links), build.FinishTime ?? build.StartTime ?? build.QueueTime);
     }
+
+    private static IReadOnlyList<SourceLink> Stamp(IReadOnlyList<SourceLink> links, DateTimeOffset? sourceTime) =>
+        links.Select(link => link with { SourceTimestamp = sourceTime }).ToList();
 
     /// <summary>Keeps the first occurrence of each from-to-type link.</summary>
     public static IReadOnlyList<SourceLink> Deduplicate(IEnumerable<SourceLink> links) =>
