@@ -7,6 +7,7 @@ public enum CliCommand
 {
     Help,
     Inventory,
+    ServeWebhooks,
     Sync,
 }
 
@@ -14,6 +15,9 @@ public sealed record CliOptions(CliCommand Command, IReadOnlySet<SyncKind> Kinds
 {
     /// <summary>True when --source was given, so a requested but unconfigured source is an error rather than skipped.</summary>
     public bool SourceExplicit { get; init; }
+
+    /// <summary>LRN-05: --reconcile-days N re-reads the last N days without moving checkpoints.</summary>
+    public bool Reconcile { get; init; }
 }
 
 public static class CommandLine
@@ -31,6 +35,12 @@ public static class CommandLine
         --source  one or more kinds, comma-separated (default: all configured sources)
         --since   read from this date when there is no checkpoint (overrides INGESTION_SINCE)
         --full    ignore saved checkpoints and read again from --since (or all history)
+        serve-webhooks
+                  host the ADO Service Hook endpoint (POST /webhooks/ado/work-items); needs canonical mode,
+                  ADO_WEBHOOK_USERNAME and ADO_WEBHOOK_SECRET (32+ characters)
+        --reconcile-days N
+                  scheduled reconciliation sweep: re-read the last N days (1-90) to catch anything a webhook
+                  missed; checkpoints are not moved
         """;
 
     public static CliOptions Parse(IReadOnlyList<string> args)
@@ -49,6 +59,13 @@ public static class CommandLine
                 : new CliOptions(CliCommand.Help, all, null, false, "inventory takes no options.");
         }
 
+        if (args[0] == "serve-webhooks")
+        {
+            return args.Count == 1
+                ? new CliOptions(CliCommand.ServeWebhooks, all, null, false, null)
+                : new CliOptions(CliCommand.Help, all, null, false, "serve-webhooks takes no options.");
+        }
+
         if (args[0] != "sync")
         {
             return new CliOptions(CliCommand.Help, all, null, false, $"Unknown command '{args[0]}'.");
@@ -58,12 +75,23 @@ public static class CommandLine
         DateTimeOffset? since = null;
         var full = false;
         var explicitSource = false;
+        var reconcile = false;
         for (var index = 1; index < args.Count; index++)
         {
             switch (args[index])
             {
                 case "--full":
                     full = true;
+                    break;
+                case "--reconcile-days" when index + 1 < args.Count:
+                    if (!int.TryParse(args[++index], NumberStyles.None, CultureInfo.InvariantCulture, out var days) || days is < 1 or > 90)
+                    {
+                        return new CliOptions(CliCommand.Help, all, null, false, "--reconcile-days must be a whole number from 1 to 90.");
+                    }
+
+                    since = DateTimeOffset.UtcNow.AddDays(-days);
+                    full = true;
+                    reconcile = true;
                     break;
                 case "--source" when index + 1 < args.Count:
                     var parsedKinds = ParseKinds(args[++index]);
@@ -88,7 +116,7 @@ public static class CommandLine
             }
         }
 
-        return new CliOptions(CliCommand.Sync, kinds, since, full, null) { SourceExplicit = explicitSource };
+        return new CliOptions(CliCommand.Sync, kinds, since, full, null) { SourceExplicit = explicitSource, Reconcile = reconcile };
     }
 
     private static HashSet<SyncKind>? ParseKinds(string text)

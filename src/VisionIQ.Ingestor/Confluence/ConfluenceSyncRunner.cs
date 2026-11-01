@@ -161,7 +161,7 @@ public sealed class ConfluenceSyncRunner
 
         // A withheld page could become public without a content revision.
         // Retain the cursor so the next scan can safely reevaluate every page.
-        if (result.Status == StreamStatus.Synced && TimeCursor.Advance(cursor, written) is { } next)
+        if (!request.Reconcile && result.Status == StreamStatus.Synced && TimeCursor.Advance(cursor, written) is { } next)
         {
             try
             {

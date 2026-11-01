@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- LRN-05: the serve-webhooks command hosts the ADO Service Hook endpoint. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\VisionIQ.Ingestor\VisionIQ.Ingestor.csproj" />
     <ProjectReference Include="..\VisionIQ.Api\VisionIQ.Api.csproj" />
   </ItemGroup>

@@ -19,6 +19,12 @@ public enum StreamStatus
 /// <summary>What to read. <see cref="IgnoreCheckpoints"/> re-reads from <see cref="Since"/> (or all history).</summary>
 public sealed record SyncRequest(IReadOnlySet<SyncKind> Kinds, DateTimeOffset? Since, bool IgnoreCheckpoints = false, bool IncludeRevisions = true)
 {
+    /// <summary>
+    /// LRN-05 reconciliation sweep: re-read a recent window (Since, ignoring checkpoints) to catch anything a
+    /// webhook missed, WITHOUT saving checkpoints, so the regular delta position never moves backwards.
+    /// </summary>
+    public bool Reconcile { get; init; }
+
     public static IReadOnlySet<SyncKind> AllKinds { get; } =
         new HashSet<SyncKind> { SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds, SyncKind.Confluence };
 }

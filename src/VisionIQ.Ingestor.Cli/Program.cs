@@ -63,6 +63,21 @@ if (canonicalMode && (settings.Database is null || string.IsNullOrWhiteSpace(arc
     return 1;
 }
 
+if (options.Command == CliCommand.ServeWebhooks)
+{
+    // LRN-05: webhooks write canonical evidence, so they need the same database and archive as canonical sync.
+    if (!canonicalMode)
+    {
+        Console.Error.WriteLine("serve-webhooks requires INGESTION_OUTPUT_MODE=canonical.");
+        return 1;
+    }
+
+    return await WebhookHost.RunAsync(settings, configuration,
+        new DatabaseOptions(settings.Database!.Host, settings.Database.Port, settings.Database.Name,
+            settings.Database.User, settings.Database.Password!, settings.Database.SslMode),
+        archiveBucket!);
+}
+
 var json = new JsonSerializerOptions
 {
     WriteIndented = true,
@@ -143,7 +158,7 @@ if (kinds.Contains(SyncKind.Confluence) && confluenceSource is null)
     kinds.Remove(SyncKind.Confluence);
 }
 
-var request = new SyncRequest(kinds, options.Since ?? settings.Since, options.Full);
+var request = new SyncRequest(kinds, options.Since ?? settings.Since, options.Full) { Reconcile = options.Reconcile };
 foreach (var warning in settings.EnvironmentWarnings)
 {
     Console.Error.WriteLine("Warning: " + warning);
@@ -280,7 +295,7 @@ if (settings.Database is { } auditDatabase)
         auditDatabase.Host, auditDatabase.Port, auditDatabase.Name,
         auditDatabase.User, auditDatabase.Password!, auditDatabase.SslMode));
     await SourceSyncAuditProjector.SaveAsync(
-        report, request.IgnoreCheckpoints ? SourceSyncMode.Full : SourceSyncMode.Delta,
+        report, request.Reconcile ? SourceSyncMode.Reconcile : request.IgnoreCheckpoints ? SourceSyncMode.Full : SourceSyncMode.Delta,
         audit);
 }
 

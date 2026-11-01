@@ -46,6 +46,7 @@ public sealed class SyncRunner
     public async Task<SyncReport> RunAsync(SyncRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        reconciling = request.Reconcile;
         var report = new SyncReport { Tenant = client.Options.Tenant, StartedAt = time.GetUtcNow() };
 
         foreach (var project in client.Options.Projects)
@@ -368,11 +369,13 @@ public sealed class SyncRunner
         }
     }
 
+    private bool reconciling;
+
     private async Task SaveCursorAsync(string scope, TimeCursor? cursor, StreamResult result, CancellationToken cancellationToken)
     {
-        if (cursor is null)
+        if (cursor is null || reconciling)
         {
-            return;
+            return; // a reconciliation sweep never moves the delta checkpoint (LRN-05)
         }
 
         try
