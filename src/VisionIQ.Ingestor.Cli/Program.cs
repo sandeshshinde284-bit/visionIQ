@@ -173,6 +173,9 @@ await using var evidenceStore = canonicalMode
 await using var linkStore = canonicalMode
     ? new PostgresTicketFixLinkStore(dbOptions!)
     : null;
+await using var testLinkStore = canonicalMode
+    ? new VisionIQ.Api.Features.TestLinks.PostgresTestLinkStore(dbOptions!)
+    : null;
 using (var localSink = new JsonLinesSink(runDirectory))
 {
     IRecordSink sink = localSink;
@@ -182,7 +185,9 @@ using (var localSink = new JsonLinesSink(runDirectory))
             new EvidenceIngestionService(
                 new CloudStorageEvidenceArchive(archiveBucket), evidenceStore!),
             settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl);
-        sink = new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl);
+        sink = new TestLinkProjectionSink(
+            new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl),
+            testLinkStore!, settings.Ado.OrganizationUrl);
     }
     Console.WriteLine(canonicalMode
         ? "Evidence destination: canonical PostgreSQL + immutable Cloud Storage (ADO: project-level access, re-checked live; Confluence: hidden)"
@@ -222,6 +227,24 @@ if (canonicalMode && dbOptions is not null)
             foreach (var failure in graphMaterializer.FailedAssociations.Take(20))
             {
                 Console.Error.WriteLine("  - " + failure);
+            }
+        }
+
+        // LRN-07: declared test associations and exact automated-test mappings.
+        await using var testLinks = new VisionIQ.Api.Features.Graph.TestLinkGraphMaterializer(dbOptions, graphStore);
+        var testEdges = await testLinks.ReconcileAsync(settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
+        Console.WriteLine($"Test link assertions processed: {testEdges}");
+        foreach (var gap in testLinks.Unresolved.Take(20))
+        {
+            Console.WriteLine("  unresolved automated test: " + gap);
+        }
+
+        if (testLinks.Failed.Count > 0)
+        {
+            graphFailed = true;
+            foreach (var failure in testLinks.Failed.Take(20))
+            {
+                Console.Error.WriteLine("  test link failed: " + failure);
             }
         }
     }

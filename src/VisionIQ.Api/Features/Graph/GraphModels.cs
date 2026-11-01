@@ -24,6 +24,12 @@ public enum GraphRelationKind
 
     /// <summary>LRN-07: a file declares a test case (latest scan only, like file_symbol).</summary>
     FileTest,
+
+    /// <summary>LRN-07: ADO "Tested By": a work item is associated with a Test Case (declared, not proof of coverage).</summary>
+    TestedBy,
+
+    /// <summary>LRN-07: a Test Case's automated test name matches exactly one test method in the latest scan.</summary>
+    AutomatedBy,
 }
 
 /// <summary>The proof strength of a relationship, distinct from review and revocation.</summary>
@@ -117,6 +123,8 @@ public sealed record GraphAssertion(
         [GraphRelationKind.FileDependency] = [(GraphNodeKind.File, GraphNodeKind.File)],
         [GraphRelationKind.FileRenamed] = [(GraphNodeKind.File, GraphNodeKind.File)],
         [GraphRelationKind.FileTest] = [(GraphNodeKind.File, GraphNodeKind.TestCase)],
+        [GraphRelationKind.TestedBy] = [(GraphNodeKind.WorkItem, GraphNodeKind.WorkItem)],
+        [GraphRelationKind.AutomatedBy] = [(GraphNodeKind.WorkItem, GraphNodeKind.TestCase)],
         [GraphRelationKind.RepositoryDependency] = [(GraphNodeKind.File, GraphNodeKind.Repository)],
         [GraphRelationKind.CiCommit] = [(GraphNodeKind.CiRun, GraphNodeKind.Commit)],
         [GraphRelationKind.DesignRelated] =

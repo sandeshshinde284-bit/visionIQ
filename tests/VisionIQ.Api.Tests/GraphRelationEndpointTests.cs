@@ -18,6 +18,8 @@ public sealed class GraphRelationEndpointTests
     [InlineData(GraphNodeKind.Commit, GraphNodeKind.File, GraphRelationKind.CommitFile)]
     [InlineData(GraphNodeKind.File, GraphNodeKind.Repository, GraphRelationKind.RepositoryDependency)]
     [InlineData(GraphNodeKind.File, GraphNodeKind.File, GraphRelationKind.FileRenamed)]
+    [InlineData(GraphNodeKind.WorkItem, GraphNodeKind.WorkItem, GraphRelationKind.TestedBy)]
+    [InlineData(GraphNodeKind.WorkItem, GraphNodeKind.TestCase, GraphRelationKind.AutomatedBy)]
     public void Valid_endpoints_are_accepted(GraphNodeKind from, GraphNodeKind to, GraphRelationKind relation) =>
         Edge(from, to, relation).Validate();
 
@@ -25,6 +27,8 @@ public sealed class GraphRelationEndpointTests
     [InlineData(GraphNodeKind.Commit, GraphNodeKind.Commit, GraphRelationKind.TicketPr)]
     [InlineData(GraphNodeKind.PullRequest, GraphNodeKind.WorkItem, GraphRelationKind.TicketPr)]
     [InlineData(GraphNodeKind.File, GraphNodeKind.Commit, GraphRelationKind.CommitFile)]
+    [InlineData(GraphNodeKind.WorkItem, GraphNodeKind.TestCase, GraphRelationKind.TestedBy)]
+    [InlineData(GraphNodeKind.File, GraphNodeKind.TestCase, GraphRelationKind.AutomatedBy)]
     public void Mismatched_endpoints_are_rejected(GraphNodeKind from, GraphNodeKind to, GraphRelationKind relation) =>
         Assert.Throws<ArgumentException>(() => Edge(from, to, relation).Validate());
 }

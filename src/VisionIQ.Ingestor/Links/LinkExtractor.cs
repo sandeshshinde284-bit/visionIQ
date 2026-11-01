@@ -38,6 +38,9 @@ public static partial class LinkExtractor
     private const string BuildArtifact = "vstfs:///Build/Build/";
     private const string WorkItemApiSegment = "/_apis/wit/workItems/";
 
+    /// <summary>ADO relation type on a work item pointing to the Test Case that tests it.</summary>
+    public const string TestedByForward = "Microsoft.VSTS.Common.TestedBy-Forward";
+
     public static IReadOnlyList<SourceLink> FromWorkItem(WorkItemRecord workItem)
     {
         ArgumentNullException.ThrowIfNull(workItem);
@@ -67,7 +70,12 @@ public static partial class LinkExtractor
             }
             else if (TryWorkItemId(relation.Url, out var other))
             {
-                links.Add(new(EntityKind.WorkItem, from, EntityKind.WorkItem, other, "work_item_relation", relation.Rel));
+                // LRN-07: ADO's "Tested By" relation declares that a Test Case is associated with this item.
+                // It is a declared association only: not proof that the test passed or prevents recurrence.
+                var type = string.Equals(relation.Rel, TestedByForward, StringComparison.OrdinalIgnoreCase)
+                    ? "tested_by"
+                    : "work_item_relation";
+                links.Add(new(EntityKind.WorkItem, from, EntityKind.WorkItem, other, type, relation.Rel));
             }
         }
 

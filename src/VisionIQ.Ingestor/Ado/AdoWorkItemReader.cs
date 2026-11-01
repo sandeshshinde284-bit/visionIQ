@@ -27,6 +27,14 @@ public sealed record WorkItemRecord(
 
     public IReadOnlyList<WorkItemRelation> Relations { get; init; } = [];
 
+    /// <summary>Test Case work items: the associated automated test, e.g. "Shop.Tests.CartTests.Adds_item".</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AutomatedTestName { get; init; }
+
+    /// <summary>Test Case work items: where the automated test lives, e.g. "Shop.Tests.dll".</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AutomatedTestStorage { get; init; }
+
     /// <summary>
     /// Optional enrichment: environment where the defect was found (PROD, UAT, TEST, UNKNOWN, CONFLICT).
     /// A PROD defect is not a confirmed production incident.
@@ -186,6 +194,8 @@ public static class AdoWorkItemReader
             {
                 Description = JsonRead.String(fields, "System.Description"),
                 AreaPath = JsonRead.String(fields, "System.AreaPath"),
+                AutomatedTestName = JsonRead.String(fields, "Microsoft.VSTS.TCM.AutomatedTestName"),
+                AutomatedTestStorage = JsonRead.String(fields, "Microsoft.VSTS.TCM.AutomatedTestStorage"),
                 CreatedDate = JsonRead.Date(fields, "System.CreatedDate"),
                 Relations = relations,
             },

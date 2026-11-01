@@ -189,10 +189,19 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
               AND (
                   latest.relation_type NOT IN (
                       'commit_file','file_symbol','file_dependency','repository_dependency',
-                      'file_test'
+                      'file_test','tested_by','automated_by'
                   )
                   OR provenance.latest_revision_id = latest.provenance_revision_id
               )
+              -- LRN-07: an automated-test mapping is shown only while its test method still exists
+              -- in the latest code scan of its repository.
+              AND (latest.relation_type <> 'automated_by' OR EXISTS (
+                  SELECT 1
+                  FROM evidence.graph_assertions declared
+                  JOIN evidence.source_items scan ON scan.item_key = declared.provenance_item_key
+                  WHERE declared.to_node_key = latest.to_node_key
+                    AND declared.relation_type = 'file_test'
+                    AND declared.provenance_revision_id = scan.latest_revision_id))
               AND (latest.ticket_fix_association_key IS NULL
                    OR (fix.association_key IS NOT NULL
                        AND fix.review_status IS DISTINCT FROM 'disputed'

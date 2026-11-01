@@ -40,8 +40,8 @@ may present a weaker level as a stronger one:
 |---|---|---|---|
 | Structural | File F contains test method T | Code scan (`file_test` edge) | Implemented |
 | Changed with fix (candidate) | T is in a file changed by a fix commit | Path: fix commit -> file -> test | Derivable; must be labelled a candidate, never "covers the defect" |
-| Declared association | The defect is linked to an ADO Test Case ("Tested By") | ADO relation | Planned |
-| Mapped automated test | The Test Case's "Automated test name" matches exactly one test method | ADO field + code scan; otherwise "unresolved" | Planned |
+| Declared association | The defect is linked to an ADO Test Case ("Tested By") | ADO relation (`tested_by` edge) | Implemented; shown only while the defect's latest revision states it |
+| Mapped automated test | The Test Case's "Automated test name" matches exactly one test method | ADO field + latest code scan (`automated_by` edge); zero or several matches are reported as unresolved | Implemented; shown only while the method exists in the latest scan |
 | Test result | T passed or failed in a specific CI run | CI test results | Not ingested |
 
 A declared association proves only that someone linked the test to the defect. It does not prove the
