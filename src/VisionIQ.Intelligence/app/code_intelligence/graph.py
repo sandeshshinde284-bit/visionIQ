@@ -8,6 +8,7 @@ and exactly the same full commit SHA.
 
 import hashlib
 import struct
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC
 from typing import TYPE_CHECKING
@@ -141,6 +142,52 @@ def project_declared_dependencies(
     return tuple(output)
 
 
+def project_rename_edges(
+    scan: "RepositoryScan", evidence: "ScanEvidence", previous_commit: str | None
+) -> tuple[GraphCodeEdge, ...]:
+    """M-16: 'file_renamed' edges (old path -> new path) between the previous and this scan.
+
+    Uses Git rename detection on the two pinned commits. If they cannot be compared
+    (e.g. a shallow clone without the previous commit), no rename edges are produced;
+    the scan itself is unaffected.
+    """
+    if (
+        not previous_commit
+        or previous_commit == scan.commit_sha
+        or len(previous_commit) != 40
+        or not all(c in "0123456789abcdef" for c in previous_commit)
+    ):
+        return ()
+    from app.code_intelligence.impact import _diff_names
+
+    try:
+        changes = _diff_names(scan.repo_root, previous_commit, scan.commit_sha)
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return ()
+    current = {file.path for file in scan.files}
+    edges: list[GraphCodeEdge] = []
+    for change, old, new in changes:
+        if change.startswith("R") and old and new and old != new and new in current:
+            edges.append(
+                GraphCodeEdge(
+                    GraphCodeNode(evidence.item_key, "file", old),
+                    GraphCodeNode(evidence.item_key, "file", new),
+                    "file_renamed",
+                )
+            )
+    return tuple(edges)
+
+
+def latest_scanned_commit(connection_string: str, item_key: str) -> str | None:
+    """The commit of the latest stored scan for this repository item, read before ingesting."""
+    with psycopg.connect(connection_string, connect_timeout=10) as connection:
+        row = connection.execute(
+            "SELECT latest_revision_id FROM evidence.source_items WHERE item_key = %s",
+            (item_key,),
+        ).fetchone()
+    return row[0] if row else None
+
+
 def persist_code_graph(
     scan: "RepositoryScan",
     evidence: "ScanEvidence",
@@ -148,10 +195,12 @@ def persist_code_graph(
     approved_ado_instance: str | None = None,
     declared_dependencies: tuple["DependencyLink", ...] = (),
     approved_targets: dict[str, "ScanEvidence"] | None = None,
+    previous_commit: str | None = None,
 ) -> int:
     """Upsert typed code graph assertions with immutable provenance in one transaction."""
     edges = (
         *project_scan_edges(scan, evidence),
+        *project_rename_edges(scan, evidence, previous_commit),
         *project_declared_dependencies(
             scan, evidence, declared_dependencies, approved_targets or {}
         ),

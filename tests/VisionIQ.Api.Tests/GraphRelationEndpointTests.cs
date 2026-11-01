@@ -17,6 +17,7 @@ public sealed class GraphRelationEndpointTests
     [InlineData(GraphNodeKind.WorkItem, GraphNodeKind.Commit, GraphRelationKind.TicketCommit)]
     [InlineData(GraphNodeKind.Commit, GraphNodeKind.File, GraphRelationKind.CommitFile)]
     [InlineData(GraphNodeKind.File, GraphNodeKind.Repository, GraphRelationKind.RepositoryDependency)]
+    [InlineData(GraphNodeKind.File, GraphNodeKind.File, GraphRelationKind.FileRenamed)]
     public void Valid_endpoints_are_accepted(GraphNodeKind from, GraphNodeKind to, GraphRelationKind relation) =>
         Edge(from, to, relation).Validate();
 

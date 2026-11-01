@@ -108,6 +108,10 @@ def main(args: list[str] | None = None) -> int:
     # m-4: read the commit time and build the evidence once, then reuse both.
     committed_at = _committed_at(scan.repo_root, scan.commit_sha)
     archived = build_scan_evidence(scan, identity, url, committed_at)
+    # M-16: remember the previously scanned commit BEFORE storing this scan (which becomes latest).
+    from app.code_intelligence.graph import latest_scanned_commit
+
+    previous_commit = latest_scanned_commit(db, archived.item_key)
     state = ingest_complete_scan(
         scan,
         identity,
@@ -147,6 +151,7 @@ def main(args: list[str] | None = None) -> int:
                 if arguments.ado_source_instance
                 else None
             ),
+            previous_commit=previous_commit,
             declared_dependencies=links,
         )
         print(f"LRN-07 structural graph edges processed: {edges}")

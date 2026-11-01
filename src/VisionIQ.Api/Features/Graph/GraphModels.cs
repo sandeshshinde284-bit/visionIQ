@@ -15,6 +15,9 @@ public enum GraphRelationKind
 {
     TicketPr, PrCommit, CommitFile, FileSymbol, FileDependency,
     RepositoryDependency, TicketCommit, DesignRelated, CiCommit,
+
+    /// <summary>M-16: old file path -> new path. A permanent historical fact, visible after later scans.</summary>
+    FileRenamed,
 }
 
 /// <summary>The proof strength of a relationship, distinct from review and revocation.</summary>
@@ -106,6 +109,7 @@ public sealed record GraphAssertion(
         [GraphRelationKind.CommitFile] = [(GraphNodeKind.Commit, GraphNodeKind.File)],
         [GraphRelationKind.FileSymbol] = [(GraphNodeKind.File, GraphNodeKind.Symbol)],
         [GraphRelationKind.FileDependency] = [(GraphNodeKind.File, GraphNodeKind.File)],
+        [GraphRelationKind.FileRenamed] = [(GraphNodeKind.File, GraphNodeKind.File)],
         [GraphRelationKind.RepositoryDependency] = [(GraphNodeKind.File, GraphNodeKind.Repository)],
         [GraphRelationKind.CiCommit] = [(GraphNodeKind.CiRun, GraphNodeKind.Commit)],
         [GraphRelationKind.DesignRelated] =
