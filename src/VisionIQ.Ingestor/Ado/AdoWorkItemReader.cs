@@ -21,6 +21,15 @@ public sealed record WorkItemRecord(
 
     public string? Description { get; init; }
 
+    /// <summary>LRN-08: Bug templates keep most defect detail here, often with an empty Description (HTML).</summary>
+    public string? ReproSteps { get; init; }
+
+    /// <summary>LRN-08: environment details from the Bug template (HTML).</summary>
+    public string? SystemInfo { get; init; }
+
+    /// <summary>LRN-08: acceptance criteria (HTML).</summary>
+    public string? AcceptanceCriteria { get; init; }
+
     public string? AreaPath { get; init; }
 
     public DateTimeOffset? CreatedDate { get; init; }
@@ -193,6 +202,9 @@ public static class AdoWorkItemReader
             new WorkItemRecord(id, revision, type, state, title, tags, changedDate)
             {
                 Description = JsonRead.String(fields, "System.Description"),
+                ReproSteps = JsonRead.String(fields, "Microsoft.VSTS.TCM.ReproSteps"),
+                SystemInfo = JsonRead.String(fields, "Microsoft.VSTS.TCM.SystemInfo"),
+                AcceptanceCriteria = JsonRead.String(fields, "Microsoft.VSTS.Common.AcceptanceCriteria"),
                 AreaPath = JsonRead.String(fields, "System.AreaPath"),
                 AutomatedTestName = JsonRead.String(fields, "Microsoft.VSTS.TCM.AutomatedTestName"),
                 AutomatedTestStorage = JsonRead.String(fields, "Microsoft.VSTS.TCM.AutomatedTestStorage"),

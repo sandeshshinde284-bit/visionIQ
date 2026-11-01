@@ -8,6 +8,24 @@ public sealed class AdoWorkItemReaderTests
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
     [Fact]
+    public void Bug_template_text_fields_are_captured_for_search()
+    {
+        const string Bug = """
+            {"id":7,"rev":3,"fields":{"System.WorkItemType":"Bug","System.State":"Active","System.Title":"Barcode print fails",
+              "System.ChangedDate":"2026-01-01T00:00:00Z","System.Description":"",
+              "Microsoft.VSTS.TCM.ReproSteps":"<div>1. Pay at kiosk</div><div>2. Retry print</div>",
+              "Microsoft.VSTS.TCM.SystemInfo":"<p>Kiosk OS 4.2</p>",
+              "Microsoft.VSTS.Common.AcceptanceCriteria":"<p>Receipt prints once</p>"},"relations":[]}
+            """;
+
+        var item = AdoWorkItemReader.ParseWorkItem(Bug).Record!;
+
+        Assert.Equal("<div>1. Pay at kiosk</div><div>2. Retry print</div>", item.ReproSteps);
+        Assert.Equal("<p>Kiosk OS 4.2</p>", item.SystemInfo);
+        Assert.Equal("<p>Receipt prints once</p>", item.AcceptanceCriteria);
+    }
+
+    [Fact]
     public void Wiql_for_a_project_without_a_checkpoint_has_no_date_filter()
     {
         var query = AdoWorkItemReader.BuildWiql("VisionIQ Demo", null);
