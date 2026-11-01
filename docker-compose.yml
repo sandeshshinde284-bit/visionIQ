@@ -12,8 +12,9 @@ services:
       POSTGRES_DB: ${DB_LOCAL_NAME:-visioniq}
       POSTGRES_USER: ${DB_LOCAL_USER:-visioniq}
       POSTGRES_PASSWORD: ${DB_LOCAL_PASSWORD:?Set DB_LOCAL_PASSWORD in .env}
+    # m-5: published on localhost only, not on every network interface.
     ports:
-      - "${DB_LOCAL_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_LOCAL_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Runs once, when the data volume is first created.
@@ -67,7 +68,7 @@ services:
       DB_SSL_MODE: disable
       PYTHON_SERVICE_URL: http://intelligence:8000
     ports:
-      - "5100:5100"
+      - "127.0.0.1:5100:5100"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5100/health"]
       interval: 10s
@@ -95,7 +96,7 @@ services:
       DB_INTELLIGENCE_PASSWORD: ${DB_INTELLIGENCE_PASSWORD:?Set DB_INTELLIGENCE_PASSWORD in .env}
       DB_SSL_MODE: disable
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test:
         - CMD
