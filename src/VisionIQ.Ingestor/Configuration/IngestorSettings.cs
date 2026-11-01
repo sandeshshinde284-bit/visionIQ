@@ -70,6 +70,12 @@ public sealed class IngestorSettings
 
     public CheckpointStoreKind CheckpointStore { get; init; }
 
+    /// <summary>Optional per-project environment rules (ADO_ENVIRONMENT_RULES_FILE or ADO_ENVIRONMENT_RULES).</summary>
+    public Defects.DefectEnvironmentClassifier Environments { get; init; } = Defects.DefectEnvironmentClassifier.None;
+
+    /// <summary>Environment-rule problems; reported as warnings, never a reason to stop ingestion.</summary>
+    public IReadOnlyList<string> EnvironmentWarnings { get; init; } = [];
+
     /// <summary>HTTP timeout for source calls (INGESTION_REQUEST_TIMEOUT_SECONDS, default 100).</summary>
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(100);
 
@@ -195,6 +201,30 @@ public sealed class IngestorSettings
             }
         }
 
+        // Optional per-project environment rules (PROD/UAT/TEST). Problems in the rules never stop
+        // ingestion: they are reported as warnings and the affected project's defects stay UNKNOWN.
+        var environments = Defects.DefectEnvironmentClassifier.None;
+        var environmentWarnings = new List<string>();
+        var rulesJson = Get("ADO_ENVIRONMENT_RULES");
+        if (Get("ADO_ENVIRONMENT_RULES_FILE") is { } rulesFile)
+        {
+            try
+            {
+                rulesJson = File.ReadAllText(rulesFile);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                environmentWarnings.Add($"ADO_ENVIRONMENT_RULES_FILE cannot be read ({error.GetType().Name}); classification is disabled.");
+            }
+        }
+
+        if (rulesJson is not null)
+        {
+            environments = Defects.DefectEnvironmentClassifier.FromJson(rulesJson,
+                new Dictionary<string, IReadOnlyCollection<string>> { ["azure_devops"] = projects });
+            environmentWarnings.AddRange(environments.Problems);
+        }
+
         var confluence = ReadConfluence(Get, problems);
 
         if (problems.Count > 0)
@@ -215,6 +245,8 @@ public sealed class IngestorSettings
             Since = since,
             OutputDirectory = Get("INGESTION_OUTPUT_DIR") ?? Path.Combine("artifacts", "ingestion"),
             CheckpointStore = store,
+            Environments = environments,
+            EnvironmentWarnings = environmentWarnings,
             RequestTimeout = requestTimeout,
             Database = database,
             Confluence = confluence,

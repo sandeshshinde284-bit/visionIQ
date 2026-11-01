@@ -144,6 +144,10 @@ if (kinds.Contains(SyncKind.Confluence) && confluenceSource is null)
 }
 
 var request = new SyncRequest(kinds, options.Since ?? settings.Since, options.Full);
+foreach (var warning in settings.EnvironmentWarnings)
+{
+    Console.Error.WriteLine("Warning: " + warning);
+}
 if (options.Since is not null && !options.Full)
 {
     // m-11: say so instead of silently ignoring --since for streams that already have a checkpoint.
@@ -185,7 +189,7 @@ using (var localSink = new JsonLinesSink(runDirectory))
         : "Evidence destination: local JSONL (restricted/unverified Confluence bodies withheld)");
     if (kinds.Overlaps([SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds]))
     {
-        reports.Add(await new SyncRunner(client, checkpoints, sink, registry).RunAsync(request));
+        reports.Add(await new SyncRunner(client, checkpoints, sink, registry, environments: settings.Environments).RunAsync(request));
     }
 
     if (confluenceSource is not null && kinds.Contains(SyncKind.Confluence))

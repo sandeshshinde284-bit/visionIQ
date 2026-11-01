@@ -59,8 +59,10 @@ public sealed class TicketFixProjectionSink(
         var sourceKey = new EvidenceIdentity(
             "azure_devops", sourceInstance, item.Project, null,
             "work_item_current", item.Id.ToString(CultureInfo.InvariantCulture)).ItemKey();
-        var reference = "evidence:" + sourceKey + ":" +
-            item.Revision.ToString(CultureInfo.InvariantCulture);
+        // Must match the stored revision: current work items carry derived fields (environment),
+        // so their revision is content-addressed like B-9.
+        var reference = "evidence:" + sourceKey + ":" + CanonicalEvidenceSink.ContentRevision(
+            item.Revision.ToString(CultureInfo.InvariantCulture), item);
 
         foreach (var link in LinkExtractor.FromWorkItem(item))
         {

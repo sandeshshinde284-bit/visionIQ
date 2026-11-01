@@ -10,6 +10,27 @@ their commit messages ("B-", "M-", "m-" prefixes).
 | M-7 | Should commit-message mentions (`#1234`) stay **explicit** graph edges? | The current design treats a mention as an explicit reference that is *not* proof of a fix (see `TicketFixResolver` and the tests `A_ticket_mentioned_in_a_commit_is_only_an_explicit_reference` / `A_commit_message_mention_is_explicit_but_not_proof_of_a_fix`). The design doc (§6.18) separates mentions from development links. Reclassifying them as inferred would drop mention-only links from the default graph; ADO development links (with repository since B-11) would remain. Left unchanged on purpose. |
 | M-16 | Add file-rename handling to the graph? | Needs a new relationship type (database migration + C# enum + Python projection), using `git diff -M` between the previous and current scanned commit. |
 
+## Defect environment (PROD / UAT / TEST) — optional enrichment
+
+Provider-neutral (`DefectEnvironmentClassifier`); Azure DevOps maps work items into it today, Jira issues
+map the same way later. Configured per provider and project in `ADO_ENVIRONMENT_RULES_FILE`
+(example: `config/environment-rules.example.json`).
+
+- Each project lists its sources in **its own precedence order**: `field`, `labels` (optional prefix),
+  `path`, `title` pattern, `description` pattern (patterns need a named group `env`).
+- Trust: field/labels/path default to verified; title defaults to candidate (a project may declare its
+  title convention verified); **description is always a candidate**.
+- All sources are evaluated. Verified findings decide; a candidate never overrides them. Disagreeing
+  sources in the deciding tier give **CONFLICT** with every finding preserved. An uninterpretable value
+  from a source that claims to be an environment gives UNKNOWN (`unmapped_value`); plain labels and path
+  segments that match nothing are ignored. No value gives UNKNOWN (`no_value`).
+- Stored per current work item: `environment` (PROD/UAT/TEST/UNKNOWN/CONFLICT), `environmentStatus`
+  (verified/candidate/unknown/conflict), `environmentRaw`, `environmentSource`, `environmentReason`,
+  `environmentRulesVersion` and `environmentFindings` (every source's finding).
+- Never blocks ingestion: invalid rules affect only their project (UNKNOWN `rules_invalid`) and are
+  reported as warnings; malformed JSON disables classification with one warning.
+- A PROD defect is **not** a confirmed production incident; no incident is inferred.
+
 ## Test evidence levels (LRN-07)
 
 A test node is **not** proof that a defect is covered. The graph keeps these levels separate, and no API

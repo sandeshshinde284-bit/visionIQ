@@ -118,7 +118,7 @@ public sealed class CanonicalEvidenceSink(
         {
             case WorkItemRecord item when stream == "work-items":
                 return new Datum("azure_devops", adoInstance, item.Project, null,
-                    "work_item_current", Id(item.Id), Id(item.Revision), item.ChangedDate,
+                    "work_item_current", Id(item.Id), ContentRevision(Id(item.Revision), item), item.ChangedDate,
                     AdoUrl(item.Project, "_workitems/edit/" + Id(item.Id)));
 
             case WorkItemRevisionRecord revision when stream == "work-item-revisions":

@@ -1,0 +1,38 @@
+{
+  "providers": {
+    "azure_devops": {
+      "projects": {
+        "Payments": {
+          "sources": [{ "type": "field", "name": "Custom.FoundInEnvironment" }],
+          "values": { "PROD": ["Production", "Live"], "UAT": ["UAT", "Staging"], "TEST": ["QA", "System Test"] }
+        },
+        "Ticketing": {
+          "sources": [{ "type": "title", "pattern": "^\\[(?<env>PROD|UAT|TEST)\\]", "trust": "verified" }],
+          "values": { "PROD": ["PROD"], "UAT": ["UAT"], "TEST": ["TEST"] }
+        },
+        "Mobile": {
+          "sources": [
+            { "type": "labels", "prefix": "env:" },
+            { "type": "title", "pattern": "\\b(?<env>prod|uat)\\b" }
+          ],
+          "values": { "PROD": ["prod"], "UAT": ["uat"], "TEST": ["test"] }
+        }
+      }
+    },
+    "jira": {
+      "projects": {
+        "CORE": {
+          "sources": [{ "type": "labels" }],
+          "values": { "PROD": ["production"], "UAT": ["uat"], "TEST": ["test"] }
+        },
+        "WEB": {
+          "sources": [
+            { "type": "field", "name": "environment" },
+            { "type": "description", "pattern": "observed in (?<env>\\w+)" }
+          ],
+          "values": { "PROD": ["Production", "PROD"], "UAT": ["UAT"], "TEST": ["TEST"] }
+        }
+      }
+    }
+  }
+}

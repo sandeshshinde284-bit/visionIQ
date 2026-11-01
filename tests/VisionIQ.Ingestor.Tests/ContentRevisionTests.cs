@@ -108,6 +108,24 @@ public sealed class ContentRevisionTests
     }
 
     [Fact]
+    public async Task A_changed_environment_classification_is_a_new_revision_and_kept_in_metadata()
+    {
+        // Rules can change without a new ADO revision; that must not be an immutable-content conflict.
+        var store = new ImmutableStore();
+        var sink = Sink(store);
+        WorkItemRecord Bug(string environment, string reason) =>
+            new WorkItemRecord(7, 3, "Bug", "Active", "t", [], DateTimeOffset.UnixEpoch) { Project = "Project-A" }
+                .WithEnvironment(new VisionIQ.Ingestor.Defects.EnvironmentClassification(
+                    environment, environment == "UAT" ? "verified" : "unknown", "Staging", "field:Custom.Env", reason, "env-rules-abc", []));
+
+        await sink.WriteAsync("work-items", "contoso/ado/Project-A/work-item/7", Bug("UNKNOWN", "unmapped_value"));
+        await sink.WriteAsync("work-items", "contoso/ado/Project-A/work-item/7", Bug("UAT", "matched"));
+
+        Assert.Equal(new[] { EvidenceImportStatus.Created, EvidenceImportStatus.Created }, store.Results.Select(r => r.Status));
+        Assert.All(store.Results, r => Assert.StartsWith("3#", r.ProviderRevisionId));
+    }
+
+    [Fact]
     public async Task The_projection_references_exactly_the_stored_revision()
     {
         var store = new ImmutableStore();

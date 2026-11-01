@@ -23,7 +23,7 @@ public sealed class SyncRunner
     private readonly AdoCommitSource commits;
     private readonly AdoBuildSource builds;
 
-    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null)
+    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(checkpoints);
@@ -35,7 +35,7 @@ public sealed class SyncRunner
         this.sink = sink;
         this.registry = registry;
         this.time = time ?? TimeProvider.System;
-        workItems = new AdoWorkItemSource(client);
+        workItems = new AdoWorkItemSource(client, environments);
         repositories = new AdoRepositorySource(client);
         commits = new AdoCommitSource(client);
         builds = new AdoBuildSource(client);

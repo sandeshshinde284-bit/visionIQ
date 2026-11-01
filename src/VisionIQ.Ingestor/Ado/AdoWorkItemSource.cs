@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 
 namespace VisionIQ.Ingestor.Ado;
 
@@ -10,6 +11,15 @@ public sealed class AdoWorkItemSource
 
     private const int BatchSize = 200;
     private readonly AdoClient client;
+
+    private readonly Defects.DefectEnvironmentClassifier environments = Defects.DefectEnvironmentClassifier.None;
+
+    /// <param name="environments">Per-project environment rules; omitted means every item is UNKNOWN (not_configured).</param>
+    public AdoWorkItemSource(AdoClient client, Defects.DefectEnvironmentClassifier? environments)
+        : this(client)
+    {
+        this.environments = environments ?? Defects.DefectEnvironmentClassifier.None;
+    }
 
     public AdoWorkItemSource(AdoClient client)
     {
@@ -52,11 +62,16 @@ public sealed class AdoWorkItemSource
             using var response = await client.PostJsonAsync(uri, body, cancellationToken).ConfigureAwait(false);
             // Azure DevOps errorPolicy=Omit may silently remove an inaccessible ID.
             // Reconstruct results by requested identity, never by response index.
-            var received = JsonRead.Items(response.Root, "value")
-                .Select(AdoWorkItemReader.ParseWorkItem)
-                .Where(outcome => outcome.Record is not null)
-                .Select(outcome => outcome.Record!)
-                .ToDictionary(record => record.Id);
+            var received = new Dictionary<int, WorkItemRecord>();
+            foreach (var element in JsonRead.Items(response.Root, "value"))
+            {
+                if (AdoWorkItemReader.ParseWorkItem(element).Record is { } parsed)
+                {
+                    // Environment is classified from the raw fields (custom fields included) per project rules.
+                    var fields = JsonRead.Child(element, "fields") ?? default;
+                    received[parsed.Id] = parsed.WithEnvironment(environments.Classify(ToDefectEvidence(project, parsed, fields)));
+                }
+            }
             foreach (var id in batch)
             {
                 outcomes.Add(received.TryGetValue(id, out var record)
@@ -66,6 +81,33 @@ public sealed class AdoWorkItemSource
         }
 
         return outcomes;
+    }
+
+    /// <summary>Maps an ADO work item into the provider-neutral defect evidence used for classification.</summary>
+    public static Defects.DefectEvidence ToDefectEvidence(string project, WorkItemRecord item, JsonElement fields)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (fields.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var field in fields.EnumerateObject())
+            {
+                var value = field.Value.ValueKind switch
+                {
+                    JsonValueKind.String => field.Value.GetString(),
+                    JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => field.Value.GetRawText(),
+                    _ => null, // identities and other objects are not environment values
+                };
+                if (value is not null)
+                {
+                    values[field.Name] = value;
+                }
+            }
+        }
+
+        return new Defects.DefectEvidence(
+            "azure_devops", project, item.Title, item.Description, values, item.Tags,
+            (item.AreaPath ?? string.Empty).Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
     /// <summary>Every revision of one work item, oldest first.</summary>

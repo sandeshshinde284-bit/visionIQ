@@ -112,6 +112,9 @@ public sealed class CanonicalEvidenceSinkTests
 
         Assert.Equal("Bug", Meta("work_item_current").GetProperty("workItemType").GetString());
         Assert.Equal("Resolved", Meta("work_item_current").GetProperty("state").GetString());
+        // Environment classification is part of the safe metadata (UNKNOWN: demo project has no rules).
+        Assert.Equal("UNKNOWN", Meta("work_item_current").GetProperty("environment").GetString());
+        Assert.Equal("not_configured", Meta("work_item_current").GetProperty("environmentReason").GetString());
         Assert.True(Meta("work_item").TryGetProperty("state", out _));
         Assert.Equal("completed", Meta("pull_request").GetProperty("status").GetString());
         Assert.Equal("failed", Meta("ci_run").GetProperty("result").GetString());

@@ -26,6 +26,45 @@ public sealed record WorkItemRecord(
     public DateTimeOffset? CreatedDate { get; init; }
 
     public IReadOnlyList<WorkItemRelation> Relations { get; init; } = [];
+
+    /// <summary>
+    /// Optional enrichment: environment where the defect was found (PROD, UAT, TEST, UNKNOWN, CONFLICT).
+    /// A PROD defect is not a confirmed production incident.
+    /// </summary>
+    public string Environment { get; init; } = Defects.EnvironmentClassification.Unknown;
+
+    /// <summary>verified, candidate, unknown or conflict.</summary>
+    public string EnvironmentStatus { get; init; } = Defects.EnvironmentClassification.Unresolved;
+
+    /// <summary>The raw value it was derived from, exactly as found (null when none).</summary>
+    public string? EnvironmentRaw { get; init; }
+
+    /// <summary>The deciding source: "field:&lt;name&gt;", "labels", "path", "title", "description" or "none".</summary>
+    public string EnvironmentSource { get; init; } = "none";
+
+    /// <summary>matched, unmapped_value, sources_disagree, candidates_disagree, no_value, not_configured or rules_invalid.</summary>
+    public string EnvironmentReason { get; init; } = "not_configured";
+
+    /// <summary>Version of the project's rules that produced this classification.</summary>
+    public string? EnvironmentRulesVersion { get; init; }
+
+    /// <summary>Every source's finding (source, trust, raw, normalized), kept as provenance.</summary>
+    public IReadOnlyList<Defects.EnvironmentFinding> EnvironmentFindings { get; init; } = [];
+
+    public WorkItemRecord WithEnvironment(Defects.EnvironmentClassification classification)
+    {
+        ArgumentNullException.ThrowIfNull(classification);
+        return this with
+        {
+            Environment = classification.Normalized,
+            EnvironmentStatus = classification.Status,
+            EnvironmentRaw = classification.Raw,
+            EnvironmentSource = classification.Source,
+            EnvironmentReason = classification.Reason,
+            EnvironmentRulesVersion = classification.RulesVersion,
+            EnvironmentFindings = classification.Findings,
+        };
+    }
 }
 
 /// <summary>One historical revision of a work item.</summary>
