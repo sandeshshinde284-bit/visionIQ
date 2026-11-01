@@ -6,6 +6,7 @@ on:
     branches:
       - feature/fnd03-sqlalchemy-alembic-local
       - feature/learn
+      - feature/learn-08-14
 
 permissions:
   contents: read
