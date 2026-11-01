@@ -145,3 +145,48 @@ def test_reruns_and_reordered_input_are_stable():
     )
     rerun = consolidate(items, state_after(first), NOW)
     assert not rerun.new_patterns and not rerun.revisions and not rerun.decisions
+
+
+def test_more_support_for_the_same_files_is_not_a_new_lesson_version():
+    first = consolidate([obs("1", "/a.cs", "/b.cs"), obs("2", "/a.cs", "/b.cs")], [], NOW)
+    # A third ticket touching the same files plus one of its own: same lesson, more support.
+    later = consolidate(
+        [
+            obs("1", "/a.cs", "/b.cs"),
+            obs("2", "/a.cs", "/b.cs"),
+            obs("3", "/a.cs", "/b.cs", "/c.cs"),
+        ],
+        state_after(first),
+        NOW,
+    )
+
+    assert [d.decision for d in later.decisions] == ["LINK_EXISTING"]
+    assert later.revisions == []
+
+
+def test_a_materially_changed_signature_is_a_new_lesson_version_with_history():
+    first = consolidate([obs("1", "/a.cs", "/b.cs"), obs("2", "/a.cs", "/b.cs")], [], NOW)
+    wider = ("/a.cs", "/b.cs", "/c.cs", "/d.cs")
+    current = state_after(first)
+    step = consolidate(
+        [obs("1", "/a.cs", "/b.cs"), obs("2", "/a.cs", "/b.cs"), obs("3", *wider)], current, NOW
+    )
+    current[0].members |= {k for k, _ in step.memberships}
+    later = consolidate(
+        [
+            obs("1", "/a.cs", "/b.cs"),
+            obs("2", "/a.cs", "/b.cs"),
+            obs("3", *wider),
+            obs("4", *wider),
+        ],
+        current,
+        NOW,
+    )
+
+    (revision,) = later.revisions
+    assert (revision.revision, revision.decision, revision.status) == (
+        2,
+        "REVISE_EXISTING",
+        "candidate",
+    )
+    assert revision.signature == wider and "was /a.cs, /b.cs" in revision.rationale

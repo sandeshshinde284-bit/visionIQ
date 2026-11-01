@@ -26,6 +26,10 @@ from fnmatch import fnmatch
 
 MIN_TICKETS = 2
 OVERLAP = 0.5
+# LRN-13 (S12-12): a lesson gets a new version only when its file signature changes materially
+# (overlap with the previous signature below this) or it becomes disputed. A ticket joining,
+# recurrence counts and "last seen" are not material (master design 6.10).
+MATERIAL_SIGNATURE_OVERLAP = 0.8
 GENERATED_BY = "process:visioniq-lessons"
 # Changes to these never characterise a failure mechanism.
 NOISE = (
@@ -228,6 +232,34 @@ def consolidate(
             member_of[key] = pattern_id
             plan.memberships.append((key, pattern_id))
             plan.decisions.append(Decision(key, "CREATE_NEW", (pattern_id,), rationale))
+
+    # Material signature change of a lesson whose members changed in this run (S12-12).
+    joined = {pattern_id for _, pattern_id in plan.memberships}
+    created = {p.pattern_id for p in plan.new_patterns}
+    for pattern_id in sorted(joined - created):
+        pattern = state[pattern_id]
+        members = [by_key[k] for k in pattern.members if k in by_key]
+        if len(members) < MIN_TICKETS:
+            continue
+        signature = _signature(members)
+        if jaccard(signature, pattern.signature) >= MATERIAL_SIGNATURE_OVERLAP:
+            continue  # same lesson, more support: no new version
+        previous = sorted(pattern.signature)
+        pattern.signature = signature
+        pattern.latest_revision += 1
+        plan.revisions.append(
+            Revision(
+                pattern.pattern_id,
+                pattern.latest_revision,
+                pattern.status,
+                _title(signature),
+                tuple(sorted(signature)),
+                tuple(sorted(pattern.members)),
+                "REVISE_EXISTING",
+                f"Supporting fixes now change {', '.join(sorted(signature))} "
+                f"(was {', '.join(previous)}); cause still unverified."[:2000],
+            )
+        )
 
     # A later revert of a supporting fix disputes the lesson (history kept: new revision).
     for pattern in state.values():

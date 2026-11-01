@@ -33,6 +33,7 @@ JOIN evidence.source_revisions AS r
 LEFT JOIN knowledge.index_items AS x ON x.item_key = i.item_key
 WHERE i.deleted_at IS NULL AND r.acl_verified AND jsonb_array_length(r.acl_principals) > 0
   AND i.kind = ANY(%(kinds)s)
+  AND (%(only)s::text[] IS NULL OR i.item_key = ANY(%(only)s::text[]))
   AND (x.item_key IS NULL OR x.source_content_sha256 <> r.content_sha256
        OR x.provider_revision_id <> r.provider_revision_id OR x.acl_principals <> r.acl_principals
        OR x.chunker_version <> %(chunker)s OR x.redaction_version <> %(redaction)s
@@ -42,13 +43,18 @@ LIMIT %(limit)s
 """
 
 STALE_SQL = """
-DELETE FROM knowledge.index_items AS x
-WHERE NOT EXISTS (
-    SELECT 1 FROM evidence.source_items AS i
-    JOIN evidence.source_revisions AS r
-      ON r.item_key = i.item_key AND r.provider_revision_id = i.latest_revision_id
-    WHERE i.item_key = x.item_key AND i.deleted_at IS NULL AND r.acl_verified
+WITH gone AS (
+    DELETE FROM knowledge.index_items AS x
+    WHERE NOT EXISTS (
+        SELECT 1 FROM evidence.source_items AS i
+        JOIN evidence.source_revisions AS r
+          ON r.item_key = i.item_key AND r.provider_revision_id = i.latest_revision_id
+        WHERE i.item_key = x.item_key AND i.deleted_at IS NULL AND r.acl_verified
+    )
+    RETURNING x.item_key
 )
+INSERT INTO knowledge.change_events (event_type, subject, payload)
+SELECT 'index.item_removed', item_key, jsonb_build_object('item_key', item_key) FROM gone
 """
 
 
@@ -57,6 +63,8 @@ class IndexReport:
     indexed: int = 0
     chunks: int = 0
     removed: int = 0
+    embedded: int = 0  # chunks sent to the embedding model
+    reused: int = 0  # unchanged chunks whose existing vector was kept (S12-11)
     failed: list[str] = field(default_factory=list)
 
 
@@ -70,8 +78,12 @@ def run(
     embedder: Embedder,
     limit: int = 500,
     kinds: tuple[str, ...] = INDEXED_KINDS,
+    only: list[str] | None = None,
 ) -> IndexReport:
-    """One bounded indexing pass. ``read_raw`` returns an archived raw evidence object by URI."""
+    """One bounded indexing pass. ``read_raw`` returns an archived raw evidence object by URI.
+
+    ``only`` restricts the pass to given item keys (targeted re-index after a PR event, S12-11).
+    """
     report = IndexReport()
     with psycopg.connect(conninfo, autocommit=True) as conn:
         conn.execute("SELECT pg_advisory_lock(%s)", (LOCK,))
@@ -84,12 +96,16 @@ def run(
                     "chunker": CHUNKER_VERSION,
                     "redaction": REDACTION_VERSION,
                     "model": embedder.model_id,
+                    "only": only,
                     "limit": limit,
                 },
             ).fetchall()
             for row in pending:
                 try:
-                    report.chunks += _index_item(conn, row, read_raw, embedder)
+                    total, embedded, reused = _index_item(conn, row, read_raw, embedder)
+                    report.chunks += total
+                    report.embedded += embedded
+                    report.reused += reused
                     report.indexed += 1
                 except Exception as error:  # isolate: one bad item never stops the run
                     report.failed.append(row[0])
@@ -104,7 +120,13 @@ def run(
     return report
 
 
-def _index_item(conn: psycopg.Connection, row, read_raw, embedder: Embedder) -> int:
+def _parse_vector(text: str) -> list[float]:
+    return [float(v) for v in text.strip("[]").split(",")]
+
+
+def _index_item(
+    conn: psycopg.Connection, row, read_raw, embedder: Embedder
+) -> tuple[int, int, int]:
     (
         item_key,
         provider,
@@ -123,7 +145,25 @@ def _index_item(conn: psycopg.Connection, row, read_raw, embedder: Embedder) -> 
     title = redact(document.title).text
     sections = [type(s)(s.name, redact(s.text).text) for s in document.sections]
     chunks = chunk(item_key, revision, document.label, title, sections)
-    vectors = embedder.embed_documents([c.text for c in chunks]) if chunks else []
+    # S12-11: only chunks whose text changed are re-embedded; unchanged ones keep their vector.
+    known = {
+        sha: _parse_vector(vector)
+        for sha, vector in conn.execute(
+            "SELECT c.content_sha256, e.embedding::text FROM knowledge.index_chunks AS c "
+            "JOIN knowledge.chunk_embeddings AS e USING (chunk_key) "
+            "WHERE c.item_key = %s AND e.model_id = %s",
+            (item_key, embedder.model_id),
+        )
+    }
+    fresh = [c for c in chunks if c.content_sha256 not in known]
+    new_vectors = dict(
+        zip(
+            (c.content_sha256 for c in fresh),
+            embedder.embed_documents([c.text for c in fresh]) if fresh else [],
+            strict=True,
+        )
+    )
+    vectors = [known.get(c.content_sha256) or new_vectors[c.content_sha256] for c in chunks]
     now = datetime.now(UTC)
     acl_json = json.dumps(acl)
     with conn.transaction():  # replace the item atomically
@@ -175,5 +215,28 @@ def _index_item(conn: psycopg.Connection, row, read_raw, embedder: Embedder) -> 
                 "embedding, embedded_at) VALUES (%s, %s, %s, %s::vector, %s)",
                 (piece.chunk_key, embedder.model_id, embedder.dimension, _vector(vector), now),
             )
-    log.debug("index.item_indexed", item_key=item_key, kind=kind, chunks=len(chunks))
-    return len(chunks)
+        conn.execute(  # knowledge.changed (S12-15), committed with the change itself
+            "INSERT INTO knowledge.change_events (event_type, subject, payload) "
+            "VALUES ('index.item_updated', %s, %s)",
+            (
+                item_key,
+                json.dumps(
+                    {
+                        "item_key": item_key,
+                        "kind": kind,
+                        "revision": revision,
+                        "chunks": len(chunks),
+                        "re_embedded": len(fresh),
+                    }
+                ),
+            ),
+        )
+    log.debug(
+        "index.item_indexed",
+        item_key=item_key,
+        kind=kind,
+        chunks=len(chunks),
+        embedded=len(fresh),
+        reused=len(chunks) - len(fresh),
+    )
+    return len(chunks), len(fresh), len(chunks) - len(fresh)

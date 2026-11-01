@@ -33,3 +33,24 @@ Thresholds and noise patterns are constants in `app/knowledge/lessons.py` (`MIN_
 
 Runs are deterministic and idempotent (same evidence, same lessons; a repeated decision is not re-logged)
 and serialized with an advisory lock.
+
+## Change only on proof (LRN-13)
+
+A lesson gets a **new version only when evidence materially changes**: it becomes **disputed** (a
+supporting fix was reverted) or its file signature changes materially (overlap with the previous
+signature below `MATERIAL_SIGNATURE_OVERLAP` = 0.8). A ticket joining, recurrence counts and "last
+seen" never create a version (master design §6.10).
+
+Show any lesson's timeline (read-only, `DB_API_*` login), e.g. to replay a real fix-then-revert:
+
+    PYTHONPATH=src/VisionIQ.Intelligence python -m app.knowledge.lesson_history            # list
+    PYTHONPATH=src/VisionIQ.Intelligence python -m app.knowledge.lesson_history <pattern>  # timeline
+
+CI saves a replayed fix-then-revert as `lesson-replay.json` in the `learn-evidence-<commit>` artifact.
+
+## knowledge.changed events
+
+Every index update and removal, new lesson and lesson revision writes a row to
+`knowledge.change_events` **in the same transaction** as the change (transactional outbox). A publisher
+that drains unpublished rows to Pub/Sub and sets `published_at` is FND-06 infrastructure.
+

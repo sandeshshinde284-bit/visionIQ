@@ -145,6 +145,26 @@ def apply(
             "WHERE pattern_id = %s AND latest_revision < %s",
             (revision.revision, revision.pattern_id, revision.revision),
         )
+    created = {p.pattern_id for p in plan.new_patterns}
+    for revision in plan.revisions:  # knowledge.changed (S12-15), same transaction
+        is_new = revision.pattern_id in created and revision.revision == 1
+        event = "lesson.created" if is_new else "lesson.revised"
+        conn.execute(
+            "INSERT INTO knowledge.change_events (event_type, subject, payload) "
+            "VALUES (%s, %s, %s)",
+            (
+                event,
+                revision.pattern_id,
+                json.dumps(
+                    {
+                        "pattern_id": revision.pattern_id,
+                        "revision": revision.revision,
+                        "status": revision.status,
+                        "decision": revision.decision,
+                    }
+                ),
+            ),
+        )
     for key, pattern_id in plan.memberships:
         conn.execute(
             "INSERT INTO knowledge.lesson_memberships (observation_key, pattern_id, joined_at) "

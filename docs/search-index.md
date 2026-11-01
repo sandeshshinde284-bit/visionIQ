@@ -19,6 +19,9 @@ Run one indexing pass (scheduled job):
 Uses the intelligence database login (reads evidence, writes the `knowledge` schema) and Application
 Default Credentials for Vertex AI and the raw evidence bucket.
 
+When you connect Vertex AI, follow [vertex-ai-setup.md](vertex-ai-setup.md) and run
+`python -m app.knowledge.vertex_check` to confirm everything is ready.
+
 ## What is indexed
 
 The latest revision of each work item (title, description, **repro steps, system info**, acceptance
@@ -37,6 +40,13 @@ list is **verified**.
 | Deletion propagates | Deleted or no-longer-verified items are removed from the index |
 | Isolation | Each item is replaced atomically; a failing item is logged and retried next run without stopping others |
 | Scope | Both searches return only chunks whose access list contains one of the caller's scopes |
+
+## Targeted re-index (LRN-13)
+
+`indexer.run(..., only=[item_key])` re-indexes just the items a PR event named. Within a changed item,
+chunks whose text is unchanged keep their existing vector; only touched chunks are sent to the
+embedding model (`report.embedded` / `report.reused`). Code files are re-parsed only when their content
+changed (the scanner's blob-hash cache).
 
 ## Database access
 

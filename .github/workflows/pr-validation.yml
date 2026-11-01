@@ -207,6 +207,7 @@ jobs:
           tests/intelligence/test_search_index_db.py
           tests/intelligence/test_retrieval_db.py
           tests/intelligence/test_kb_readiness_db.py
+          tests/intelligence/test_lrn13_db.py
       - name: Keep LRN-09 benchmark and LRN-11 readiness results
         if: always()
         uses: actions/upload-artifact@v4
