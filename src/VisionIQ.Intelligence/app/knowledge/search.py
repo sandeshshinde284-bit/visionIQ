@@ -7,6 +7,7 @@ redacted before it is embedded, because people paste logs and the query goes to 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -15,6 +16,8 @@ import psycopg
 from app.knowledge.embeddings import Embedder
 from app.knowledge.indexer import _vector
 from app.knowledge.redaction import redact
+
+MAX_ANY_WORDS = 64
 
 
 @dataclass(frozen=True)
@@ -35,11 +38,35 @@ _COLUMNS = (
 
 
 def keyword(
-    conn: psycopg.Connection, query: str, scopes: Sequence[str], limit: int = 20
+    conn: psycopg.Connection,
+    query: str,
+    scopes: Sequence[str],
+    limit: int = 20,
+    match: str = "all",
 ) -> list[Hit]:
-    """PostgreSQL full-text search (web-search syntax), best matches first."""
+    """PostgreSQL full-text search, best matches first.
+
+    ``match="all"`` uses web-search syntax (every word must match). ``match="any"`` matches any of
+    the words and ranks chunks containing more of them higher: needed for long defect descriptions,
+    where no past ticket contains every word.
+    """
     if not scopes or not query.strip():
         return []
+    if match == "any":
+        # Each word goes through plainto_tsquery (never parsed as operators); capped so a pasted
+        # log cannot build an unbounded query.
+        words = sorted(set(re.findall(r"[A-Za-z0-9_]{2,}", query)))[:MAX_ANY_WORDS]
+        if not words:
+            return []
+        any_word = " || ".join(["plainto_tsquery('english', %s)"] * len(words))
+        rows = conn.execute(
+            f"SELECT {_COLUMNS}, ts_rank_cd(c.tsv, t.q) AS score "
+            f"FROM knowledge.index_chunks AS c, (SELECT {any_word} AS q) AS t "
+            "WHERE c.tsv @@ t.q AND c.acl_principals ?| %s "
+            "ORDER BY score DESC, c.chunk_key LIMIT %s",
+            [*words, list(scopes), limit],
+        ).fetchall()
+        return [Hit(*row[:7], float(row[7])) for row in rows]
     rows = conn.execute(
         f"SELECT {_COLUMNS}, ts_rank_cd(c.tsv, q) AS score "
         "FROM knowledge.index_chunks AS c, websearch_to_tsquery('english', %(q)s) AS q "
