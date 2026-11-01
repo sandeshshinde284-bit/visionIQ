@@ -83,6 +83,22 @@ Commit `07651d9` adds six parameterized `AdoWorkItemReaderTests` covering source
 
 Next run: `dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Tests.csproj --configuration Release --filter "FullyQualifiedName~AdoWorkItemReaderTests"`.
 
+## Historical content source-fidelity verification — PASSED (five sampled revisions)
+
+A read-only Azure DevOps REST comparison against the local `work-item-revisions.jsonl` export confirmed exact matches for all four stored historical fields in each of five sampled earlier revisions:
+
+| Work item | Revision | State | Title | Reason | Changed date |
+|---|---:|---|---|---|---|
+| 107328 | 1 | Match | Match | Match | Match |
+| 106675 | 5 | Match | Match | Match | Match |
+| 115804 | 2 | Match | Match | Match | Match |
+| 116460 | 3 | Match | Match | Match | Match |
+| 116507 | 1 | Match | Match | Match | Match |
+
+**Result:** 20/20 field comparisons match across 5/5 sampled historical revisions, with no missing local revision or ADO lookup failure reported. This completes the **sampled historical revision fidelity** acceptance check; it is not a comparison of every one of the 5,141 exported revisions.
+
+The seven newly added type/history regression cases completed with exit code 0 in local tests; the full test-count summary was not supplied for that execution.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
@@ -93,7 +109,7 @@ Next run: `dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Test
 ## Open gates before LRN-01 final acceptance
 
 1. **Azure Repos access:** restore authorized Basic/repo read rights; verify repository inventory, commits and pull requests, pagination and independent checkpoint behavior. Do not treat 0 repositories as a completed repo test.
-2. **Source fidelity:** current sampled ID/type/title/revision and manually checked state/date now match ADO for five items; compare **earlier historical revision contents** (state/title/reason where present) against their corresponding versions. Explicitly verify downstream searches distinguish Bugs from supporting work-item types.
+2. **Source fidelity:** sampled latest fields and five earlier historical revisions have now been matched against ADO; **dedicated downstream defect-only classification/search** validation is still open. The sample does not prove exhaustive history correctness.
 3. **Canonical persistence where required by the approved story acceptance criteria:** use disposable PostgreSQL/GCS test resources, check tombstone behavior, atomicity/idempotency and applicable skipped integration tests. Coordinate cross-story ownership with LRN-03/05/07.
 4. **Final code review and evidence signoff:** evaluate any additional review blockers or CI gates at the final branch head. Do not merge on the basis of this report alone.
 
