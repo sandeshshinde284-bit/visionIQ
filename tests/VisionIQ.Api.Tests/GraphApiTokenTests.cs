@@ -51,7 +51,13 @@ public sealed class GraphApiTokenTests(WebApplicationFactory<Program> factory) :
     private HttpClient Client(bool graphApi = true) => factory.WithWebHostBuilder(builder =>
     {
         builder.UseEnvironment("Testing");
-        builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(Settings(graphApi)));
+        // UseSetting (not ConfigureAppConfiguration): Program.cs reads these while starting up to decide whether
+        // to expose the API, and only UseSetting values are visible that early in the test host.
+        foreach (var (key, value) in Settings(graphApi).Where(setting => setting.Value is not null))
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IGraphQueryService, FakeQuery>();
