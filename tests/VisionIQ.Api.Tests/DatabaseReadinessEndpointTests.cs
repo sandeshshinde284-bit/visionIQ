@@ -54,8 +54,8 @@ public sealed class DatabaseReadinessEndpointTests
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
                         ["DB_HOST"] = Environment.GetEnvironmentVariable("DB_HOST") ?? "127.0.0.1",
-                        ["DB_PORT"] = "5432",
-                        ["DB_NAME"] = Environment.GetEnvironmentVariable("DB_LOCAL_NAME") ?? "visioniq",
+                        ["DB_PORT"] = Environment.GetEnvironmentVariable("DB_PORT") ?? "5432",
+                        ["DB_NAME"] = Environment.GetEnvironmentVariable("DB_NAME") ?? "visioniq",
                         ["DB_API_USER"] = Environment.GetEnvironmentVariable("DB_API_USER") ?? "visioniq_api",
                         ["DB_API_PASSWORD"] = password!,
                         ["DB_SSL_MODE"] = "disable",
