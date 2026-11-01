@@ -335,7 +335,9 @@ public sealed class DefectEnvironmentClassifier
             {
                 case "field":
                     var field = defect.Fields.FirstOrDefault(pair => string.Equals(pair.Key, rule.Name, StringComparison.OrdinalIgnoreCase)).Value?.Trim();
-                    return string.IsNullOrEmpty(field) ? [] : [field];
+                    // Explicit array: tree-sitter-c-sharp 0.23.5 cannot parse a collection expression starting with
+                    // the identifier "field" (it reads "[field" as an attribute target). See N-16.
+                    return string.IsNullOrEmpty(field) ? Array.Empty<string>() : new[] { field };
                 case "labels":
                     return defect.Labels
                         .Select(label => label.Trim())
