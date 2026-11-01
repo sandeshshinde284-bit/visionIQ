@@ -53,6 +53,9 @@ public sealed class GraphCallerAuthorizer(GraphApiOptions options)
         // The user's sign-in name is their ADO identity; live project membership is still checked per item.
         var projects = options.ApprovedProjects
             .Select(project => AdoAccessPrincipals.Project(options.AdoInstance, project))
+            .Concat(options.ConfluenceSite is { } site
+                ? options.ConfluenceSpaces.Select(space => ConfluenceAccessPrincipals.Space(site, space))
+                : [])
             .ToHashSet(StringComparer.Ordinal);
         return new GraphCallerDecision(true, new EvidenceRequester(name.ToLowerInvariant(), projects), "allowed");
     }

@@ -63,7 +63,10 @@ public sealed class CanonicalEvidenceSink(
         // evidence stays unverified (hidden) until a Confluence-specific read path exists.
         var access = datum.Provider == "azure_devops"
             ? new EvidenceAccess(true, [AdoAccessPrincipals.Project(datum.Instance, datum.Project)])
-            : new EvidenceAccess(false, Array.Empty<string>());
+            : datum.Provider == "confluence" && datum.Kind is "design_page" or "design_decision"
+                // LRN-02: page evidence names its space; Confluence's live page permission check decides.
+                ? new EvidenceAccess(true, [ConfluenceAccessPrincipals.Space(datum.Instance, datum.Project)])
+                : new EvidenceAccess(false, Array.Empty<string>());
         var envelope = new EvidenceEnvelope(
             new EvidenceIdentity(
                 datum.Provider, datum.Instance, datum.Project, datum.Repository,

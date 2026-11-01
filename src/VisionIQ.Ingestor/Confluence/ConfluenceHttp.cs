@@ -71,11 +71,25 @@ public sealed class ConfluenceHttp
             : new Uri(Options.SiteRoot, link);
     }
 
-    public async Task<JsonDocument> GetAsync(Uri uri, CancellationToken cancellationToken = default)
+    public Task<JsonDocument> GetAsync(Uri uri, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        return SendAsync(() => new HttpRequestMessage(HttpMethod.Get, uri), cancellationToken);
+    }
+
+    /// <summary>POSTs a JSON body with the same authentication, retries and timeout handling as GET.</summary>
+    public Task<JsonDocument> PostJsonAsync(Uri uri, object body, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        ArgumentNullException.ThrowIfNull(body);
+        return SendAsync(() => new HttpRequestMessage(HttpMethod.Post, uri) { Content = System.Net.Http.Json.JsonContent.Create(body) }, cancellationToken);
+    }
+
+    private async Task<JsonDocument> SendAsync(Func<HttpRequestMessage> createRequest, CancellationToken cancellationToken)
     {
         for (var attempt = 0; ; attempt++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            using var request = createRequest();
             request.Headers.Authorization = authorization;
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 

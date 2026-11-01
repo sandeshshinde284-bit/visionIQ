@@ -38,8 +38,16 @@ public static class GraphServiceRegistration
         services.AddSingleton<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(_ =>
             new VisionIQ.Ingestor.Ado.AdoTeamProjectMembership(
                 new VisionIQ.Ingestor.Ado.AdoClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }, options)));
-        services.AddSingleton<IProviderAccessVerifier>(provider => new ProviderRoutingAccessVerifier(
-            new Dictionary<string, IProviderAccessVerifier>(StringComparer.Ordinal)
+        var confluence = ConfluenceReadOptions(configuration);
+        if (confluence is not null)
+        {
+            services.AddSingleton(new VisionIQ.Ingestor.Confluence.ConfluenceHttp(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }, confluence.Value.Options));
+            services.AddSingleton<IConfluenceIdentityResolver>(confluence.Value.Identities);
+        }
+
+        services.AddSingleton<IProviderAccessVerifier>(provider =>
+        {
+            var verifiers = new Dictionary<string, IProviderAccessVerifier>(StringComparer.Ordinal)
             {
                 ["azure_devops"] = new AdoProjectAccessVerifier(
                     provider.GetRequiredService<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(),
@@ -47,8 +55,48 @@ public static class GraphServiceRegistration
                 // N-17: code-scan evidence is readable by live members of the project it was scanned for.
                 ["git"] = new CodeScanAccessVerifier(
                     provider.GetRequiredService<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(), projects),
-            }));
+            };
+            if (confluence is not null)
+            {
+                // LRN-02: Confluence pages are readable only if Confluence's live permission check says so.
+                verifiers["confluence"] = new ConfluencePageAccessVerifier(
+                    provider.GetRequiredService<VisionIQ.Ingestor.Confluence.ConfluenceHttp>(),
+                    provider.GetRequiredService<IConfluenceIdentityResolver>());
+            }
+
+            return new ProviderRoutingAccessVerifier(verifiers);
+        });
         return services;
+    }
+
+    /// <summary>
+    /// Confluence read access is enabled only with CONFLUENCE_BASE_URL, CONFLUENCE_SPACE_KEYS, CONFLUENCE_API_TOKEN
+    /// (and CONFLUENCE_USER_EMAIL on Cloud) plus an identity map (CONFLUENCE_IDENTITY_MAP_FILE). Otherwise
+    /// Confluence evidence stays hidden.
+    /// </summary>
+    private static (VisionIQ.Ingestor.Confluence.ConfluenceOptions Options, IConfluenceIdentityResolver Identities)? ConfluenceReadOptions(IConfiguration configuration)
+    {
+        var spaces = (configuration["CONFLUENCE_SPACE_KEYS"] ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!Uri.TryCreate(configuration["CONFLUENCE_BASE_URL"], UriKind.Absolute, out var site) || site.Scheme != Uri.UriSchemeHttps ||
+            spaces.Length == 0 || string.IsNullOrWhiteSpace(configuration["CONFLUENCE_API_TOKEN"]) ||
+            configuration["CONFLUENCE_IDENTITY_MAP_FILE"] is not { Length: > 0 } mapFile)
+        {
+            return null;
+        }
+
+        var deployment = string.Equals(configuration["CONFLUENCE_DEPLOYMENT"], "datacenter", StringComparison.OrdinalIgnoreCase)
+            ? VisionIQ.Ingestor.Confluence.ConfluenceDeployment.DataCenter
+            : VisionIQ.Ingestor.Confluence.ConfluenceOptions.Infer(site);
+        var options = new VisionIQ.Ingestor.Confluence.ConfluenceOptions
+        {
+            BaseUrl = site,
+            SpaceKeys = spaces,
+            Deployment = deployment,
+            UserEmail = configuration["CONFLUENCE_USER_EMAIL"],
+            ApiToken = configuration["CONFLUENCE_API_TOKEN"]!,
+        };
+        return (options, MappedConfluenceIdentityResolver.FromJson(File.ReadAllText(mapFile)));
     }
 
     public static IServiceCollection AddRelationshipGraph(this IServiceCollection services)

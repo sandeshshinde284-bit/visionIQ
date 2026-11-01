@@ -12,6 +12,11 @@ public sealed record GraphApiOptions(
     string AdoInstance,
     IReadOnlyList<string> ApprovedProjects)
 {
+    /// <summary>Approved Confluence site and spaces (optional): candidate scopes; the live page check decides.</summary>
+    public string? ConfluenceSite { get; init; }
+
+    public IReadOnlyList<string> ConfluenceSpaces { get; init; } = [];
+
     public static readonly string[] Keys =
     [
         "VISIONIQ_AUTH_TENANT_ID", "VISIONIQ_AUTH_AUDIENCES", "VISIONIQ_AUTH_ALLOWED_CALLERS",
@@ -53,9 +58,17 @@ public sealed record GraphApiOptions(
             throw new InvalidOperationException("Graph API configuration is incomplete: " + string.Join("; ", problems) + ".");
         }
 
+        var spaces = Split(configuration["CONFLUENCE_SPACE_KEYS"]);
+        var site = Uri.TryCreate(configuration["CONFLUENCE_BASE_URL"], UriKind.Absolute, out var confluence) && spaces.Count > 0
+            ? confluence.AbsoluteUri.TrimEnd('/')
+            : null;
         return new GraphApiOptions(tenant, audiences, scope,
             new HashSet<string>(callers, StringComparer.OrdinalIgnoreCase),
-            organization!.AbsoluteUri.TrimEnd('/'), projects);
+            organization!.AbsoluteUri.TrimEnd('/'), projects)
+        {
+            ConfluenceSite = site,
+            ConfluenceSpaces = site is null ? [] : spaces,
+        };
     }
 
     private static List<string> Split(string? value) =>

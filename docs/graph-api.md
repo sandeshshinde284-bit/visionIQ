@@ -13,6 +13,7 @@ classification). It is exposed **only** when all `VISIONIQ_AUTH_*` settings and 
 | User | Delegated token only (`scp` must contain the required scope; app-only tokens are rejected); `oid` and an e-mail style `preferred_username`/`upn` required |
 | ADO identity | The user's sign-in name is used as their ADO identity; live ADO project-team membership is checked for every returned item |
 | Code evidence | Files, symbols and tests are readable by live members of the ADO project the repository was scanned for (scanner run with `--ado-source-instance`; otherwise hidden) |
+| Confluence pages | Readable only when Confluence Cloud's live permission check (`/rest/api/content/{id}/permission/check`) says this user can read the page right now: space, page and inherited ancestor restrictions are evaluated by Confluence. The user's Atlassian account ID comes from `CONFLUENCE_IDENTITY_MAP_FILE` (JSON: e-mail to account ID); unmapped users, Data Center pages and ACL snapshots stay hidden |
 | Results | Only authorized nodes and edges; "not found" and "not allowed" both return 404; no counts of hidden items; `Cache-Control: no-store` |
 
 Nothing is ever taken from request bodies or custom headers. Any missing or unexpected value denies.
@@ -28,6 +29,12 @@ Nothing is ever taken from request bodies or custom headers. Any missing or unex
 | `ADO_ORG_URL`, `ADO_PROJECTS`, `ADO_READ_PAT` | ADO access used to check project membership |
 
 A partial configuration stops the API at startup with a clear error.
+
+## Confluence identity (decision for your Atlassian administrators)
+
+Atlassian does not reliably expose e-mail to account ID lookups, so VisionIQ never guesses. Provide a JSON
+map `{"ana@contoso.com": "<atlassian account id>", ...}` in `CONFLUENCE_IDENTITY_MAP_FILE` (for example
+exported from Atlassian Guard / your SSO directory). Without it, Confluence evidence stays hidden.
 
 ## Future Entra setup (not done yet; needs your Entra administrators)
 

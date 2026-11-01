@@ -79,6 +79,19 @@ public sealed class GraphApiAuthorizationTests
     }
 
     [Fact]
+    public void Confluence_spaces_become_candidate_scopes_only_when_configured()
+    {
+        var settings = Settings();
+        settings["CONFLUENCE_BASE_URL"] = "https://contoso.atlassian.net";
+        settings["CONFLUENCE_SPACE_KEYS"] = "ENG";
+
+        var withConfluence = new GraphCallerAuthorizer(Options(settings)!).Authorize(Token()).Requester!;
+
+        Assert.Contains("confluence-space:https://contoso.atlassian.net/ENG", withConfluence.GroupPrincipalIds);
+        Assert.DoesNotContain(Authorizer.Authorize(Token()).Requester!.GroupPrincipalIds, p => p.StartsWith("confluence-", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_v1_token_with_appid_instead_of_azp_is_accepted() =>
         Assert.True(Authorizer.Authorize(Token(c => { c.Remove("azp"); c["appid"] = ImpactAgent; })).Allowed);
 

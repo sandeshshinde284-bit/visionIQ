@@ -35,7 +35,7 @@ public sealed class CanonicalEvidenceSinkTests
     }
 
     [Fact]
-    public async Task Restricted_confluence_page_is_archived_but_never_granted_to_a_viewer()
+    public async Task Restricted_confluence_page_stores_only_a_space_candidate_and_no_text()
     {
         var store = new RecordingStore();
         var sink = Sink(store);
@@ -55,8 +55,11 @@ public sealed class CanonicalEvidenceSinkTests
 
         var archived = Assert.Single(store.Rows);
         Assert.Equal("design_page", archived.Envelope.Identity.Kind);
-        Assert.False(archived.Envelope.Access.Verified);
-        Assert.Equal("[]", archived.Envelope.Access.Json());
+        // LRN-02: storage never grants access by itself. Only a space-level candidate is stored (never the
+        // page's restricted users/groups); reading requires Confluence's live "yes" for that person.
+        Assert.Equal(new[] { "confluence-space:https://contoso.atlassian.net/ENG" }, archived.Envelope.Access.PrincipalIds);
+        Assert.DoesNotContain("acc-lead", archived.Envelope.Access.Json(), StringComparison.Ordinal);
+        Assert.DoesNotContain("ENG-LEADS", archived.Envelope.Access.Json(), StringComparison.Ordinal);
         Assert.DoesNotContain("Sensitive architecture", archived.RedactedJson, StringComparison.Ordinal);
     }
 
