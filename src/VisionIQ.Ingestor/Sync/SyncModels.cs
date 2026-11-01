@@ -87,6 +87,7 @@ public sealed class SyncReport
         ArgumentNullException.ThrowIfNull(reports);
         var merged = new SyncReport
         {
+            RunId = reports.Count == 0 ? Guid.Empty : reports[0].RunId,
             Tenant = string.Join(", ", reports.Select(report => report.Tenant).Distinct(StringComparer.Ordinal)),
             StartedAt = reports.Count == 0 ? DateTimeOffset.UtcNow : reports.Min(report => report.StartedAt),
             FinishedAt = reports.Count == 0 ? null : reports.Max(report => report.FinishedAt),
@@ -155,7 +156,7 @@ public static class SyncRunLogging
     public static IDisposable? BeginRun(Microsoft.Extensions.Logging.ILogger log, SyncRequest request, string source)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var scope = log.BeginScope(new Dictionary<string, object> { ["runId"] = request.RunId, ["source"] = source });
+        var scope = log.BeginScope("runId={RunId} source={Source}", request.RunId, source);
         Logging.IngestionLog.RunStarted(log, request.RunId, string.Join(",", request.Kinds.Order()),
             request.Reconcile ? "reconcile" : request.IgnoreCheckpoints ? "full" : "delta",
             request.Since?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "checkpoint");
