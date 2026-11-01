@@ -212,3 +212,35 @@ def test_only_the_schema_dimension_and_valid_projects_are_accepted():
     with pytest.raises(ValueError):
         VertexGeminiEmbedder("Bad Project!", "europe-west1", session=FakeSession([]))
     assert json.dumps({"ok": True})
+
+
+def test_empty_settings_copied_from_the_template_fall_back_to_defaults(monkeypatch):
+    from app.knowledge import embeddings
+
+    captured = {}
+
+    class Recorder:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    for name in (
+        "VERTEX_PROJECT",
+        "VERTEX_LOCATION",
+        "GCP_REGION",
+        "EMBEDDING_MODEL",
+        "EMBEDDING_DIMENSION",
+        "EMBEDDING_BATCH_SIZE",
+    ):
+        monkeypatch.setenv(name, "")  # present but empty, as in a .env copied from the template
+    monkeypatch.setenv("GCP_PROJECT_ID", "my-gcp-project")
+    monkeypatch.setattr(embeddings, "VertexGeminiEmbedder", Recorder)
+
+    embeddings.vertex_from_environment()
+
+    assert captured == {
+        "project": "my-gcp-project",
+        "location": "europe-west1",
+        "model": "gemini-embedding-001",
+        "dimension": 768,
+        "batch_size": 1,
+    }

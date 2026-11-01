@@ -87,6 +87,7 @@ public sealed class SyncReport
         ArgumentNullException.ThrowIfNull(reports);
         var merged = new SyncReport
         {
+            RunId = reports.Count == 0 ? Guid.Empty : reports[0].RunId,
             Tenant = string.Join(", ", reports.Select(report => report.Tenant).Distinct(StringComparer.Ordinal)),
             StartedAt = reports.Count == 0 ? DateTimeOffset.UtcNow : reports.Min(report => report.StartedAt),
             FinishedAt = reports.Count == 0 ? null : reports.Max(report => report.FinishedAt),
@@ -160,10 +161,23 @@ public static class SyncRunLogging
         Logging.IngestionLog.RunFinished(log, report.RunId, elapsedMs, report.Streams.Count, report.AllSynced);
     }
 
+    // Console scopes use ToString; structured log providers enumerate key/value pairs.
+    private sealed class RunScope : Dictionary<string, object>
+    {
+        public RunScope(Guid runId, string source)
+        {
+            Add("runId", runId);
+            Add("source", source);
+        }
+
+        public override string ToString() => $"runId={this["runId"]} source={this["source"]}";
+    }
+
     public static IDisposable? BeginRun(Microsoft.Extensions.Logging.ILogger log, SyncRequest request, string source)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var scope = log.BeginScope(new Dictionary<string, object> { ["runId"] = request.RunId, ["source"] = source });
+        // Testing fix (feature/learn): a typed RunScope keeps run scopes readable in logs.
+        var scope = log.BeginScope(new RunScope(request.RunId, source));
         if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Information))
         {
             var kinds = string.Join(",", request.Kinds.Order());

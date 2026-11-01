@@ -10,19 +10,19 @@ Use the Google Cloud project that hosts VisionIQ. Pick a region where `gemini-em
 offered (check the current Vertex AI model availability list; availability changes) and, ideally, the
 same region as Cloud SQL.
 
-    export VERTEX_PROJECT=<project-id>
+    export GCP_PROJECT_ID=<project-id>
     export VERTEX_LOCATION=<region>        # e.g. europe-west1
 
 ## 2. Enable the API
 
-    gcloud services enable aiplatform.googleapis.com --project "$VERTEX_PROJECT"
+    gcloud services enable aiplatform.googleapis.com --project "$GCP_PROJECT_ID"
 
 ## 3. Grant access (least privilege)
 
 The identity that runs the indexer and the retriever needs `roles/aiplatform.user` on the project:
 
-    gcloud projects add-iam-policy-binding "$VERTEX_PROJECT" \
-      --member "serviceAccount:<indexer-sa>@$VERTEX_PROJECT.iam.gserviceaccount.com" \
+    gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
+      --member "serviceAccount:<indexer-sa>@$GCP_PROJECT_ID.iam.gserviceaccount.com" \
       --role roles/aiplatform.user
 
 The same service account also needs read access to the raw evidence bucket (it already has it for

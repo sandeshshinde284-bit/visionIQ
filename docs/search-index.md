@@ -11,7 +11,7 @@ Run one indexing pass (scheduled job):
 | Setting | Default | Meaning |
 |---|---|---|
 | `EMBEDDING_PROVIDER` | `vertex` | `vertex` (Gemini on Vertex AI) or `test` (offline hashing embedder; never production) |
-| `VERTEX_PROJECT` / `VERTEX_LOCATION` | — / `europe-west1` | Google Cloud project and region with Vertex AI enabled |
+| `GCP_PROJECT_ID` (or `GCP_PROJECT_ID`) / `VERTEX_LOCATION` | — / `europe-west1` | Google Cloud project and region with Vertex AI enabled |
 | `EMBEDDING_MODEL` | `gemini-embedding-001` | D08; stored as `vertex:gemini-embedding-001@768` |
 | `EMBEDDING_BATCH_SIZE` | `1` | Texts per Vertex request |
 | `INDEX_BATCH_LIMIT` | `500` | Items per run |

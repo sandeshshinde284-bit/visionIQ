@@ -76,8 +76,8 @@ def test_a_model_that_does_not_separate_meaning_fails():
 
 def test_missing_configuration_fails_with_setup_guidance():
     def broken():
-        raise KeyError("VERTEX_PROJECT")
+        raise KeyError("GCP_PROJECT_ID")
 
     (step,) = run_checks(broken)
 
-    assert not step.passed and "VERTEX_PROJECT" in step.fix
+    assert not step.passed and "GCP_PROJECT_ID" in step.fix

@@ -31,6 +31,20 @@ public sealed class SyncRunnerTests
     }
 
     [Fact]
+    public async Task Merged_sync_report_preserves_the_execution_run_id()
+    {
+        var request = new SyncRequest(new HashSet<SyncKind> { SyncKind.WorkItems }, null, IncludeRevisions: false);
+        var sourceReport = await Runner(DemoAdo.Server(), new InMemoryCheckpointStore(), new MemorySink()).RunAsync(request);
+
+        var merged = SyncReport.Merge([sourceReport]);
+
+        Assert.NotEqual(Guid.Empty, merged.RunId);
+        Assert.Equal(request.RunId, merged.RunId);
+        Assert.Equal(sourceReport.RunId, merged.RunId);
+        Assert.Equal(sourceReport.Streams.Count, merged.Streams.Count);
+    }
+
+    [Fact]
     public async Task A_second_run_resumes_from_checkpoints_without_duplicates()
     {
         var checkpoints = new InMemoryCheckpointStore();
@@ -43,6 +57,38 @@ public sealed class SyncRunnerTests
         Assert.Empty(second.Items);
         var saved = await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items");
         Assert.Equal("2026-10-21T09:00:00.0000000Z|1240", saved!.Cursor);
+    }
+
+    [Fact]
+    public async Task Multiple_projects_have_independent_scopes_keys_and_checkpoints()
+    {
+        var options = new VisionIQ.Ingestor.Ado.AdoOptions
+        {
+            OrganizationUrl = new Uri(DemoAdo.Org),
+            Projects = ["VisionIQ Demo", "Second Demo"],
+            PersonalAccessToken = "test-token-not-real",
+            MaxRetries = 2,
+        };
+        var checkpoints = new InMemoryCheckpointStore();
+        var sink = new MemorySink();
+        var request = new SyncRequest(new HashSet<SyncKind> { SyncKind.WorkItems }, null, IncludeRevisions: false);
+
+        var first = await new SyncRunner(DemoAdo.Client(DemoAdo.Server(), options), checkpoints, sink, new SourceCapabilityRegistry()).RunAsync(request);
+
+        Assert.True(first.AllSynced);
+        Assert.Equal(2, first.Streams.Count);
+        Assert.Contains(first.Streams, stream => stream.Scope == "VisionIQ Demo/work-items" && stream.Records == 2);
+        Assert.Contains(first.Streams, stream => stream.Scope == "Second Demo/work-items" && stream.Records == 2);
+        Assert.Equal(4, sink.Count("work-items"));
+        Assert.Equal(4, sink.Items.Where(item => item.Stream == "work-items").Select(item => item.Key).Distinct(StringComparer.Ordinal).Count());
+        Assert.NotNull(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
+        Assert.NotNull(await checkpoints.GetAsync("contoso/ado", "Second Demo/work-items"));
+
+        var repeat = await new SyncRunner(DemoAdo.Client(DemoAdo.Server(), options), checkpoints, sink, new SourceCapabilityRegistry()).RunAsync(request);
+
+        Assert.True(repeat.AllSynced);
+        Assert.All(repeat.Streams, stream => Assert.Equal(0, stream.Records));
+        Assert.Equal(4, sink.Count("work-items"));
     }
 
     [Fact]

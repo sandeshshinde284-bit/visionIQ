@@ -10,14 +10,18 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import statistics
 import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
-from app.knowledge.embeddings import DIMENSION, VertexEmbeddingError, VertexGeminiEmbedder
+from app.knowledge.embeddings import (
+    DIMENSION,
+    VertexEmbeddingError,
+    VertexGeminiEmbedder,
+    vertex_from_environment,
+)
 
 QUERY = "Printer fails after payment retry"
 SAME_MEANING = "Receipt printing broken when retrying a card payment"  # different words
@@ -56,7 +60,7 @@ def run_checks(make_embedder: Callable[[], VertexGeminiEmbedder]) -> list[Step]:
                 "credentials and configuration",
                 False,
                 type(error).__name__ + ": " + str(error)[:200],
-                "Set VERTEX_PROJECT (and VERTEX_LOCATION); provide credentials with "
+                "Set GCP_PROJECT_ID and VERTEX_LOCATION in .env; provide credentials with "
                 "`gcloud auth application-default login` or a service account.",
             )
         )
@@ -114,14 +118,9 @@ def run_checks(make_embedder: Callable[[], VertexGeminiEmbedder]) -> list[Step]:
     return steps
 
 
-def main() -> int:
-    def make() -> VertexGeminiEmbedder:
-        return VertexGeminiEmbedder(
-            project=os.environ["VERTEX_PROJECT"],
-            location=os.environ.get("VERTEX_LOCATION", "europe-west1"),
-            model=os.environ.get("EMBEDDING_MODEL", "gemini-embedding-001"),
-        )
-
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    make = vertex_from_environment
     steps = run_checks(make)
     for step in steps:
         print(f"{'PASS' if step.passed else 'FAIL'}  {step.name}: {step.detail}")
@@ -129,7 +128,7 @@ def main() -> int:
             print(f"      fix: {step.fix}")
     ok = len(steps) == 5 and all(s.passed for s in steps)
     print("Vertex AI embeddings are ready for LRN-08." if ok else "Vertex AI is NOT ready yet.")
-    if os.environ.get("VERTEX_CHECK_JSON"):
+    if "--json" in args:
         print(json.dumps([asdict(s) for s in steps]))
     return 0 if ok else 1
 

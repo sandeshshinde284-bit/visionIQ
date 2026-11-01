@@ -150,16 +150,30 @@ class VertexGeminiEmbedder:
         return self._predict([text], "RETRIEVAL_QUERY")[0]
 
 
+def setting(name: str, default: str = "") -> str:
+    """An environment value where empty counts as unset (a .env copied from the template)."""
+    return os.environ.get(name) or default
+
+
+def vertex_from_environment() -> VertexGeminiEmbedder:
+    """Vertex AI settings shared with the Google Cloud section of .env.example."""
+    project = setting("VERTEX_PROJECT") or setting("GCP_PROJECT_ID")
+    if not project:
+        raise KeyError("GCP_PROJECT_ID (or VERTEX_PROJECT) is required for Vertex AI embeddings")
+    return VertexGeminiEmbedder(
+        project=project,
+        location=setting("VERTEX_LOCATION") or setting("GCP_REGION", "europe-west1"),
+        model=setting("EMBEDDING_MODEL", "gemini-embedding-001"),
+        dimension=int(setting("EMBEDDING_DIMENSION", str(DIMENSION))),
+        batch_size=int(setting("EMBEDDING_BATCH_SIZE", "1")),
+    )
+
+
 def from_environment() -> Embedder:
-    """EMBEDDING_PROVIDER=vertex (default; needs VERTEX_PROJECT) or test (offline only)."""
-    provider = os.environ.get("EMBEDDING_PROVIDER", "vertex")
+    """EMBEDDING_PROVIDER=vertex (default) or test (offline only, never production)."""
+    provider = setting("EMBEDDING_PROVIDER", "vertex")
     if provider == "test":
         return HashingEmbedder()
     if provider != "vertex":
         raise ValueError(f"Unknown EMBEDDING_PROVIDER {provider!r}")
-    return VertexGeminiEmbedder(
-        project=os.environ["VERTEX_PROJECT"],
-        location=os.environ.get("VERTEX_LOCATION", "europe-west1"),
-        model=os.environ.get("EMBEDDING_MODEL", "gemini-embedding-001"),
-        batch_size=int(os.environ.get("EMBEDDING_BATCH_SIZE", "1")),
-    )
+    return vertex_from_environment()
