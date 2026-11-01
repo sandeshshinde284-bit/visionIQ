@@ -79,6 +79,16 @@ def project_scan_edges(
         for symbol in analysis.symbols:
             name = symbol.qualified_name or symbol.name
             native = f"{analysis.path}::{name}:{symbol.start_line}"
+            if symbol.kind == "test":
+                # LRN-07: tests are first-class, so "defect -> fix -> test" can be queried.
+                edges.append(
+                    GraphCodeEdge(
+                        file_node,
+                        GraphCodeNode(evidence.item_key, "test_case", native),
+                        "file_test",
+                    )
+                )
+                continue
             edges.append(
                 GraphCodeEdge(
                     file_node, GraphCodeNode(evidence.item_key, "symbol", native), "file_symbol"

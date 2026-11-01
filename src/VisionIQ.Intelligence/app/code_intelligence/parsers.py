@@ -18,7 +18,7 @@ from app.code_intelligence.adapters import (
 
 class PythonAstAdapter:
     name = "python-ast"
-    version = "1"
+    version = "2"  # LRN-07: test functions are "test" symbols
     extensions = frozenset({".py"})
     capabilities = frozenset({"symbols", "imports", "lexical_calls"})
 
@@ -27,6 +27,10 @@ class PythonAstAdapter:
         symbols: list[SymbolReference] = []
         imports: list[ImportReference] = []
         calls: list[CallReference] = []
+
+        # LRN-07: pytest/unittest test functions in test files become "test" symbols.
+        file_name = path.rsplit("/", 1)[-1]
+        is_test_file = file_name.startswith("test_") or file_name.endswith("_test.py")
 
         class Walker(ast.NodeVisitor):
             def __init__(self) -> None:
@@ -37,7 +41,13 @@ class PythonAstAdapter:
                 symbols.append(
                     SymbolReference(
                         name=node.name,
-                        kind=("class" if isinstance(node, ast.ClassDef) else "function"),
+                        kind=(
+                            "class"
+                            if isinstance(node, ast.ClassDef)
+                            else "test"
+                            if is_test_file and node.name.startswith("test")
+                            else "function"
+                        ),
                         start_line=node.lineno,
                         end_line=node.end_lineno or node.lineno,
                         qualified_name=qualified,
@@ -83,8 +93,8 @@ class PythonAstAdapter:
 
 class CSharpTreeSitterAdapter:
     name = "csharp-tree-sitter"
-    # Grammar 0.23.5; ".2" = M-9 output (namespaces, using forms, properties).
-    version = "0.23.5.2"
+    # Grammar 0.23.5; ".3" = namespaces, using forms, properties (M-9) and test methods (LRN-07).
+    version = "0.23.5.3"
     extensions = frozenset({".cs"})
     capabilities = frozenset({"symbols", "namespace_imports", "lexical_calls"})
 
@@ -110,6 +120,31 @@ class CSharpTreeSitterAdapter:
             "property_declaration": "property",
         }
         name_types = {"identifier", "qualified_name", "generic_name", "alias_qualified_name"}
+        test_attributes = {
+            "Fact",
+            "Theory",
+            "Test",
+            "TestCase",
+            "TestCaseSource",
+            "TestMethod",
+            "DataTestMethod",
+        }
+
+        def is_test_method(method) -> bool:
+            for attribute_list in (c for c in method.named_children if c.type == "attribute_list"):
+                for attribute in (
+                    c for c in attribute_list.named_children if c.type == "attribute"
+                ):
+                    name_node = attribute.child_by_field_name("name") or next(
+                        (c for c in attribute.named_children if c.type in name_types), None
+                    )
+                    if name_node is None:
+                        continue
+                    name = node_text(name_node).rsplit(".", 1)[-1].removesuffix("Attribute")
+                    # Custom subclasses such as [DatabaseFact] or [SkippableTheory] count too.
+                    if name in test_attributes or name.endswith(("Fact", "Theory")):
+                        return True
+            return False
 
         def node_text(node: object) -> str:
             return raw[node.start_byte : node.end_byte].decode("utf-8")
@@ -125,10 +160,13 @@ class CSharpTreeSitterAdapter:
                     )
                 if name_node is not None:
                     name = node_text(name_node)
+                    kind = kinds[node_type]
+                    if node_type == "method_declaration" and is_test_method(node):
+                        kind = "test"  # LRN-07: xUnit/NUnit/MSTest test method
                     symbols.append(
                         SymbolReference(
                             name=name,
-                            kind=kinds[node_type],
+                            kind=kind,
                             start_line=node.start_point.row + 1,
                             end_line=node.end_point.row + 1,
                             qualified_name=".".join((*scope, name)),

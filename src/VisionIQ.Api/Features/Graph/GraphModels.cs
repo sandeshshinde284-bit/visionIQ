@@ -8,6 +8,9 @@ namespace VisionIQ.Api.Features.Graph;
 public enum GraphNodeKind
 {
     WorkItem, PullRequest, Commit, Repository, File, Symbol, DesignPage, CiRun,
+
+    /// <summary>LRN-07: a test method/function (xUnit, NUnit, MSTest, pytest).</summary>
+    TestCase,
 }
 
 /// <summary>Supported relationship types; never inferred from timestamps or name similarity.</summary>
@@ -18,6 +21,9 @@ public enum GraphRelationKind
 
     /// <summary>M-16: old file path -> new path. A permanent historical fact, visible after later scans.</summary>
     FileRenamed,
+
+    /// <summary>LRN-07: a file declares a test case (latest scan only, like file_symbol).</summary>
+    FileTest,
 }
 
 /// <summary>The proof strength of a relationship, distinct from review and revocation.</summary>
@@ -110,6 +116,7 @@ public sealed record GraphAssertion(
         [GraphRelationKind.FileSymbol] = [(GraphNodeKind.File, GraphNodeKind.Symbol)],
         [GraphRelationKind.FileDependency] = [(GraphNodeKind.File, GraphNodeKind.File)],
         [GraphRelationKind.FileRenamed] = [(GraphNodeKind.File, GraphNodeKind.File)],
+        [GraphRelationKind.FileTest] = [(GraphNodeKind.File, GraphNodeKind.TestCase)],
         [GraphRelationKind.RepositoryDependency] = [(GraphNodeKind.File, GraphNodeKind.Repository)],
         [GraphRelationKind.CiCommit] = [(GraphNodeKind.CiRun, GraphNodeKind.Commit)],
         [GraphRelationKind.DesignRelated] =

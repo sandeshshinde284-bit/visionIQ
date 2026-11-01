@@ -182,7 +182,8 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
               AND latest.classification IN ('explicit','verified')
               AND (
                   latest.relation_type NOT IN (
-                      'commit_file','file_symbol','file_dependency','repository_dependency'
+                      'commit_file','file_symbol','file_dependency','repository_dependency',
+                      'file_test'
                   )
                   OR provenance.latest_revision_id = latest.provenance_revision_id
               )
