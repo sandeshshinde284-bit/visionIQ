@@ -169,9 +169,15 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                     g.relation_type, g.classification, g.assertion_state,
                     g.relationship_key, g.ticket_fix_association_key
                 FROM evidence.graph_assertions g
+                LEFT JOIN evidence.source_items current_source
+                  ON current_source.item_key = g.provenance_item_key
                 WHERE g.from_node_key = @node
+                -- m-1: on equal times, prefer the assertion proven by the CURRENT revision of its
+                -- evidence; the assertion key is only a final deterministic tie-break.
                 ORDER BY g.relationship_key, g.source_asserted_at DESC,
-                         g.observed_at DESC, g.assertion_key DESC
+                         g.observed_at DESC,
+                         (g.provenance_revision_id = current_source.latest_revision_id) DESC NULLS LAST,
+                         g.assertion_key DESC
             ) AS latest
             JOIN evidence.graph_nodes n ON n.node_key = latest.to_node_key
             JOIN evidence.source_items provenance
