@@ -18,7 +18,7 @@ public sealed class EvidenceDatabaseIntegrationTests
         Assert.False(string.IsNullOrWhiteSpace(password));
         var options = new DatabaseOptions(
             Environment.GetEnvironmentVariable("DB_HOST") ?? "127.0.0.1",
-            5432,
+            int.TryParse(Environment.GetEnvironmentVariable("DB_PORT"), out var port) ? port : 5432,
             Environment.GetEnvironmentVariable("DB_NAME") ?? "visioniq",
             Environment.GetEnvironmentVariable("DB_API_USER") ?? "visioniq_api",
             password!,
