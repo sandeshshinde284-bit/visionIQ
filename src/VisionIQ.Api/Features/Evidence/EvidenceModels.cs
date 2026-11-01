@@ -111,7 +111,7 @@ public static class EvidenceNormalizer
         // B-13: names must match the camelCase JSON the ingestor actually serializes.
         ["work_item_current"] = ["state", "workItemType", "environment", "environmentStatus", "environmentRaw", "environmentSource", "environmentReason"],
         ["work_item"] = ["state", "workItemType", "reason"],
-        ["pull_request"] = ["status", "isDraft"],
+        ["pull_request"] = ["status", "isDraft", "lifecycle"],
         ["commit"] = ["commentTruncated"],
         ["declared_link"] = ["linkType"],
         ["review"] = ["status", "vote"],

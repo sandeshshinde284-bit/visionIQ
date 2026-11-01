@@ -75,15 +75,17 @@ knowledge reconciliation.
 
 | Event | Immediate evidence (§8.12) | Built in LRN-12? |
 |---|---|---|
-| created | PR ID, source/target, **source SHA**, work-item links, **initial changed files**, patch intent | IDs, branches, work items, commits; **not** source SHA / changed files |
-| updated / push | **New PR_ITERATION, source SHA, file diff**, comments/votes, obsolete prior diff pointers | Votes and state; **not** iterations / diffs / comments |
-| abandoned / rejected | **Review rationale, abandoned patch fingerprint** | State only |
-| completed / merged | Merge commit, **final patch fingerprint, required human approval and branch-policy evidence** | Merge commit; **not** fingerprint / policy evidence |
+| created | PR ID, source/target, **source SHA**, work-item links, **initial changed files**, patch intent | Yes: IDs, branches, source/target SHA, work items, commits, changed files |
+| updated / push | **New PR_ITERATION, source SHA, file diff**, comments/votes, obsolete prior diff pointers | Yes: every iteration (source/target commit), cumulative changed files, review threads, votes. Per-iteration diffs: not stored |
+| abandoned / rejected | **Review rationale, abandoned patch fingerprint** | Yes: review threads (no system messages) and a file-level change-set fingerprint |
+| completed / merged | Merge commit, **final patch fingerprint, required human approval and branch-policy evidence** | Yes: merge commit, fingerprint, required reviewer votes, branch-policy evaluations |
 | build / test result | Runner manifest, test IDs, pass/fail/inconclusive | Build links (LRN-07) |
 | deployment, revert, reopen | Release SHA, environment, rollout; canonical links | LRN-14 (after demo) |
 
-**LRN-12 follow-ups to reach §8.12:** source SHA, PR iterations with changed files, review rationale /
-comment threads (with redaction), patch fingerprints, branch-policy evidence.
+LRN-12 follows §8.12 for the PR itself. Notes: the patch fingerprint is file-level (paths + change types), not
+a content diff; parts ADO will not return (e.g. no permission) are listed in `enrichmentGaps` and left null
+(unavailable, never "none"); review text goes only to the restricted raw archive (indexed metadata is the
+allowlist: status, isDraft, lifecycle).
 
 ## Post-merge observation (§3.6, §8.8) — LRN-14
 

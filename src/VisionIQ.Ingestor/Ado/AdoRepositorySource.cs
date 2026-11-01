@@ -3,7 +3,11 @@ using System.Text.Json;
 
 namespace VisionIQ.Ingestor.Ado;
 
-public sealed record RepositoryRecord(string Id, string Name, string Project, string? DefaultBranch);
+public sealed record RepositoryRecord(string Id, string Name, string Project, string? DefaultBranch)
+{
+    /// <summary>The ADO project GUID (needed for branch-policy evaluations).</summary>
+    public string? ProjectId { get; init; }
+}
 
 public sealed record PullRequestRecord(
     int Id,
@@ -35,6 +39,36 @@ public sealed record PullRequestRecord(
     /// <summary>LRN-12: a draft PR is not yet ready for review.</summary>
     public bool IsDraft { get; init; }
 
+    /// <summary>§8.12: head commit of the source branch for the latest iteration (the code under review).</summary>
+    public string? SourceCommitId { get; init; }
+
+    /// <summary>§8.12: target-branch commit the latest iteration was compared against.</summary>
+    public string? TargetCommitId { get; init; }
+
+    /// <summary>§8.12: every push to the PR (PR_ITERATION) with its source and target commits.</summary>
+    public IReadOnlyList<PullRequestIteration>? Iterations { get; init; }
+
+    /// <summary>§8.12: files the PR changes overall (latest iteration vs. its base). Null when unavailable.</summary>
+    public IReadOnlyList<PullRequestFileChange>? ChangedFiles { get; init; }
+
+    /// <summary>§8.12: review threads (rationale), excluding system messages. Null when unavailable.</summary>
+    public IReadOnlyList<PullRequestThread>? ReviewThreads { get; init; }
+
+    /// <summary>§8.12: branch-policy evaluations (required reviewers, builds...). Null when unavailable.</summary>
+    public IReadOnlyList<PullRequestPolicyEvaluation>? PolicyEvaluations { get; init; }
+
+    /// <summary>Parts of the enrichment that could not be read ("unavailable" is never shown as "none").</summary>
+    public IReadOnlyList<string> EnrichmentGaps { get; init; } = [];
+
+    /// <summary>
+    /// §8.12 change-set fingerprint: SHA-256 of the sorted "changeType path" lines of <see cref="ChangedFiles"/>.
+    /// Identifies the same set of file changes across PRs; it is file-level, not a content diff.
+    /// </summary>
+    public string? PatchFingerprint => ChangedFiles is null
+        ? null
+        : Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            string.Join('\n', ChangedFiles.Select(change => change.ChangeType + " " + change.Path).Order(StringComparer.Ordinal)))));
+
     /// <summary>LRN-12: reviewers and their votes, by ADO identity ID only (no names or e-mails).</summary>
     public IReadOnlyList<PullRequestReviewer> Reviewers { get; init; } = [];
 
@@ -44,6 +78,20 @@ public sealed record PullRequestRecord(
     /// <summary>LRN-12 (S12-01): the lifecycle state derived from status, draft flag and votes.</summary>
     public string Lifecycle => PullRequestLifecycle.Of(this);
 }
+
+/// <summary>§8.12 PR_ITERATION: one push to the PR.</summary>
+public sealed record PullRequestIteration(int Id, string? SourceCommitId, string? TargetCommitId, DateTimeOffset? CreatedDate);
+
+/// <summary>§8.12: one file changed by the PR (path and ADO change type, e.g. "edit", "add", "delete, rename").</summary>
+public sealed record PullRequestFileChange(string Path, string ChangeType);
+
+/// <summary>§8.12: a review thread; authors by ADO identity ID only.</summary>
+public sealed record PullRequestThread(int Id, string? Status, string? FilePath, IReadOnlyList<PullRequestComment> Comments);
+
+public sealed record PullRequestComment(int Id, string? AuthorId, DateTimeOffset? PublishedDate, string Content);
+
+/// <summary>§8.12: one branch-policy evaluation (e.g. "Minimum number of reviewers": approved, blocking).</summary>
+public sealed record PullRequestPolicyEvaluation(string Policy, string Status, bool IsBlocking);
 
 /// <summary>An ADO reviewer vote: 10 approved, 5 approved with suggestions, 0 none, -5 waiting for author, -10 rejected.</summary>
 public sealed record PullRequestReviewer(string Id, int Vote, bool IsRequired, bool HasDeclined);
@@ -206,18 +254,163 @@ public sealed class AdoRepositorySource
         }
         while (token is not null && token != previous);
 
+        var gaps = new List<string>();
+        var iterations = await TryAsync("iterations", gaps, () => GetIterationsAsync(project, basePath, cancellationToken)).ConfigureAwait(false);
+        var latest = iterations?.Count > 0 ? iterations.Max(iteration => iteration.Id) : (int?)null;
+        var changes = latest is { } last
+            ? await TryAsync("changed files", gaps, () => GetChangedFilesAsync(project, basePath, last, cancellationToken)).ConfigureAwait(false)
+            : iterations is null ? null : [];
+        var threads = await TryAsync("review threads", gaps, () => GetThreadsAsync(project, basePath, cancellationToken)).ConfigureAwait(false);
+        var policies = repository.ProjectId is { Length: > 0 } projectId
+            ? await TryAsync("branch policies", gaps, () => GetPolicyEvaluationsAsync(project, projectId, pullRequest.Id, cancellationToken)).ConfigureAwait(false)
+            : null;
+        if (repository.ProjectId is not { Length: > 0 })
+        {
+            gaps.Add("branch policies: project ID unknown");
+        }
+
         return pullRequest with
         {
             WorkItemIds = workItemIds,
             CommitIds = commitIds.Distinct(StringComparer.Ordinal).ToList(),
+            Iterations = iterations,
+            ChangedFiles = changes,
+            ReviewThreads = threads,
+            PolicyEvaluations = policies,
+            EnrichmentGaps = gaps,
         };
+    }
+
+    /// <summary>Reads one optional part; on a source error records a gap and returns null (unavailable, not empty).</summary>
+    private static async Task<T?> TryAsync<T>(string part, List<string> gaps, Func<Task<T>> read) where T : class
+    {
+        try
+        {
+            return await read().ConfigureAwait(false);
+        }
+        catch (AdoSourceException error)
+        {
+            gaps.Add(part + ": " + (error.StatusCode is { } status ? "HTTP " + ((int)status).ToString(CultureInfo.InvariantCulture) : "unavailable"));
+            return null;
+        }
+    }
+
+    private async Task<IReadOnlyList<PullRequestIteration>> GetIterationsAsync(string project, string basePath, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(client.BuildUri(project, basePath + "/iterations"), cancellationToken).ConfigureAwait(false);
+        return JsonRead.Items(response.Root, "value")
+            .Select(item => JsonRead.Int(item, "id") is { } id
+                ? new PullRequestIteration(id,
+                    JsonRead.Child(item, "sourceRefCommit") is { } source ? JsonRead.String(source, "commitId") : null,
+                    JsonRead.Child(item, "targetRefCommit") is { } target ? JsonRead.String(target, "commitId") : null,
+                    JsonRead.Date(item, "createdDate"))
+                : null)
+            .OfType<PullRequestIteration>()
+            .OrderBy(iteration => iteration.Id)
+            .ToList();
+    }
+
+    /// <summary>Cumulative changes of the latest iteration against the PR base ($compareTo=0), paged.</summary>
+    private async Task<IReadOnlyList<PullRequestFileChange>> GetChangedFilesAsync(string project, string basePath, int iteration, CancellationToken cancellationToken)
+    {
+        var changes = new List<PullRequestFileChange>();
+        var skip = 0;
+        for (var page = 0; page < 100; page++)
+        {
+            var uri = client.BuildUri(project, basePath + "/iterations/" + iteration.ToString(CultureInfo.InvariantCulture) + "/changes",
+            [
+                new("$compareTo", "0"),
+                new("$top", "2000"),
+                new("$skip", skip.ToString(CultureInfo.InvariantCulture)),
+            ]);
+            using var response = await client.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+            foreach (var entry in JsonRead.Items(response.Root, "changeEntries"))
+            {
+                var path = JsonRead.Child(entry, "item") is { } item ? JsonRead.String(item, "path") : null;
+                if (path is not null && JsonRead.String(entry, "changeType") is { } type)
+                {
+                    changes.Add(new PullRequestFileChange(path, type));
+                }
+            }
+
+            var next = JsonRead.Int(response.Root, "nextSkip") ?? 0;
+            if (next <= skip)
+            {
+                break; // no further page (or a non-advancing page token)
+            }
+
+            skip = next;
+        }
+
+        return changes
+            .DistinctBy(change => change.Path, StringComparer.Ordinal)
+            .OrderBy(change => change.Path, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>Review threads with human comments; system messages and deleted comments/threads are skipped.</summary>
+    private async Task<IReadOnlyList<PullRequestThread>> GetThreadsAsync(string project, string basePath, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(client.BuildUri(project, basePath + "/threads"), cancellationToken).ConfigureAwait(false);
+        var threads = new List<PullRequestThread>();
+        foreach (var thread in JsonRead.Items(response.Root, "value"))
+        {
+            if (JsonRead.Int(thread, "id") is not { } id || JsonRead.Bool(thread, "isDeleted"))
+            {
+                continue;
+            }
+
+            var comments = JsonRead.Items(thread, "comments")
+                .Where(comment => !JsonRead.Bool(comment, "isDeleted") &&
+                    !string.Equals(JsonRead.String(comment, "commentType"), "system", StringComparison.OrdinalIgnoreCase))
+                .Select(comment => JsonRead.Int(comment, "id") is { } commentId && JsonRead.String(comment, "content") is { } content
+                    ? new PullRequestComment(commentId, JsonRead.Child(comment, "author") is { } author ? JsonRead.String(author, "id") : null,
+                        JsonRead.Date(comment, "publishedDate"), content)
+                    : null)
+                .OfType<PullRequestComment>()
+                .OrderBy(comment => comment.Id)
+                .ToList();
+            if (comments.Count > 0)
+            {
+                var file = JsonRead.Child(thread, "threadContext") is { } context ? JsonRead.String(context, "filePath") : null;
+                threads.Add(new PullRequestThread(id, JsonRead.String(thread, "status"), file, comments));
+            }
+        }
+
+        return threads.OrderBy(thread => thread.Id).ToList();
+    }
+
+    private async Task<IReadOnlyList<PullRequestPolicyEvaluation>> GetPolicyEvaluationsAsync(string project, string projectId, int pullRequestId, CancellationToken cancellationToken)
+    {
+        var artifact = "vstfs:///CodeReview/CodeReviewId/" + projectId + "/" + pullRequestId.ToString(CultureInfo.InvariantCulture);
+        using var response = await client.GetAsync(
+            client.BuildUri(project, "_apis/policy/evaluations", [new("artifactId", artifact)], apiVersion: "7.1-preview.1"),
+            cancellationToken).ConfigureAwait(false);
+        return JsonRead.Items(response.Root, "value")
+            .Select(evaluation =>
+            {
+                var configuration = JsonRead.Child(evaluation, "configuration");
+                var policy = configuration is { } config && JsonRead.Child(config, "type") is { } type ? JsonRead.String(type, "displayName") : null;
+                return policy is not null && JsonRead.String(evaluation, "status") is { } status
+                    ? new PullRequestPolicyEvaluation(policy, status, configuration is { } c && JsonRead.Bool(c, "isBlocking"))
+                    : null;
+            })
+            .OfType<PullRequestPolicyEvaluation>()
+            .OrderBy(evaluation => evaluation.Policy, StringComparer.Ordinal)
+            .ThenBy(evaluation => evaluation.Status, StringComparer.Ordinal)
+            .ToList();
     }
 
     public static RepositoryRecord? ParseRepository(JsonElement element, string project)
     {
         var id = JsonRead.String(element, "id");
         var name = JsonRead.String(element, "name");
-        return id is null || name is null ? null : new RepositoryRecord(id, name, project, JsonRead.String(element, "defaultBranch"));
+        return id is null || name is null
+            ? null
+            : new RepositoryRecord(id, name, project, JsonRead.String(element, "defaultBranch"))
+            {
+                ProjectId = JsonRead.Child(element, "project") is { } owner ? JsonRead.String(owner, "id") : null,
+            };
     }
 
     public static PullRequestRecord? ParsePullRequest(JsonElement element, string project, RepositoryRecord repository)
@@ -245,6 +438,8 @@ public sealed class AdoRepositorySource
             CreatedById = JsonRead.Child(element, "createdBy") is { } author ? JsonRead.String(author, "id") : null,
             MergeCommitId = mergeCommit,
             IsDraft = JsonRead.Bool(element, "isDraft"),
+            SourceCommitId = JsonRead.Child(element, "lastMergeSourceCommit") is { } head ? JsonRead.String(head, "commitId") : null,
+            TargetCommitId = JsonRead.Child(element, "lastMergeTargetCommit") is { } baseCommit ? JsonRead.String(baseCommit, "commitId") : null,
             Reviewers = JsonRead.Items(element, "reviewers")
                 .Select(reviewer => JsonRead.String(reviewer, "id") is { } reviewerId
                     ? new PullRequestReviewer(reviewerId, JsonRead.Int(reviewer, "vote") ?? 0,
