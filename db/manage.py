@@ -287,8 +287,9 @@ def _grant_code_scan_writes(cur: psycopg.Cursor, settings: LocalConfig) -> None:
                 sql.SQL("DROP POLICY IF EXISTS {} ON {}").format(sql.Identifier(name), qualified)
             )
             cur.execute(
-                sql.SQL("CREATE POLICY {} ON {} " + operation + " TO {} " + rule).format(
-                    sql.Identifier(name), qualified, intel
+                # operation and rule are fixed constants above, never input (second-pass review).
+                sql.SQL("CREATE POLICY {} ON {} {} TO {} {}").format(
+                    sql.Identifier(name), qualified, sql.SQL(operation), intel, sql.SQL(rule)
                 )
             )
 

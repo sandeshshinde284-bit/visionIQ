@@ -147,7 +147,7 @@ public static partial class LinkExtractor
         return Stamp(Deduplicate(links), build.FinishTime ?? build.StartTime ?? build.QueueTime);
     }
 
-    private static IReadOnlyList<SourceLink> Stamp(IReadOnlyList<SourceLink> links, DateTimeOffset? sourceTime) =>
+    private static List<SourceLink> Stamp(IReadOnlyList<SourceLink> links, DateTimeOffset? sourceTime) =>
         links.Select(link => link with { SourceTimestamp = sourceTime }).ToList();
 
     /// <summary>Keeps the first occurrence of each from-to-type link.</summary>

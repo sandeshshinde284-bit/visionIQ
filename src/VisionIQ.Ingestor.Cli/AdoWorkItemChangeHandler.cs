@@ -24,10 +24,7 @@ public sealed class AdoChangedWorkItemReader(AdoWorkItemSource source) : IAdoCha
         string project, int id, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(project);
-        if (id < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(id));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThan(id, 1);
 
         var records = await source.GetWorkItemsAsync(project, [id], cancellationToken)
             .ConfigureAwait(false);

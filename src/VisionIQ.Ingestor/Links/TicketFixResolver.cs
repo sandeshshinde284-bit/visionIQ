@@ -159,7 +159,7 @@ public static class TicketFixResolver
     }
 
     /// <summary>Indexes only exact or unambiguous SHA-prefix revert references.</summary>
-    private static IReadOnlyDictionary<string, IReadOnlyList<string>> GetReverts(
+    private static Dictionary<string, IReadOnlyList<string>> GetReverts(
         IReadOnlyList<CommitRecord> commits)
     {
         var shaSet = commits.Select(commit => commit.CommitId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -193,7 +193,7 @@ public static class TicketFixResolver
 
     /// <summary>Returns all source-observed reverting commits for a candidate revision.</summary>
     private static IReadOnlyList<string> FindRevertShas(
-        string? commitSha, IReadOnlyDictionary<string, IReadOnlyList<string>> reverts)
+        string? commitSha, Dictionary<string, IReadOnlyList<string>> reverts)
     {
         return commitSha is not null && reverts.TryGetValue(commitSha, out var shas)
             ? shas : [];

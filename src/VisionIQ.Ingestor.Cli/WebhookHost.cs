@@ -59,10 +59,25 @@ public static class WebhookHost
         var port = int.TryParse(configuration.GetValueOrDefault("PORT"), out var configured) ? configured : 8080;
         builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
         await using var app = builder.Build();
-        app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "VisionIQ.Ingestor.Webhooks" }));
-        app.MapPost(AdoWebhookEndpoint.Route, endpoint.HandleAsync);
+        Map(app, endpoint);
         Console.WriteLine($"Listening for ADO work-item Service Hooks on port {port} at {AdoWebhookEndpoint.Route}");
         await app.RunAsync();
         return 0;
+    }
+
+    /// <summary>
+    /// Maps the routes so the handler's IResult (401/500/503...) is executed. Mapping the method group or a
+    /// HttpContext lambda binds the RequestDelegate overload, which discards the result and always answers 200
+    /// (found by the ASP0016 analyzer in the second-pass review; proven by WebhookHttpTests over real HTTP).
+    /// </summary>
+    public static void Map(WebApplication app, AdoWebhookEndpoint endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(endpoint);
+        app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "VisionIQ.Ingestor.Webhooks" }));
+        // A plain HttpContext -> Task lambda would bind to the RequestDelegate overload and discard the result
+        // again; the explicit Func<..., Task<IResult>> cast to Delegate forces the minimal-API handler path.
+        Func<HttpContext, Task<IResult>> handler = endpoint.HandleAsync;
+        app.MapPost(AdoWebhookEndpoint.Route, (Delegate)handler);
     }
 }

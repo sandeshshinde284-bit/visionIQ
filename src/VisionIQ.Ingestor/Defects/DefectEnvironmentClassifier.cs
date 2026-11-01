@@ -86,6 +86,7 @@ public sealed class DefectEnvironmentClassifier
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly Regex FieldName = new(@"^[A-Za-z][A-Za-z0-9_\-]*(\.[A-Za-z0-9_\-]+)*$", RegexOptions.CultureInvariant, RegexTimeout);
 
+    private static readonly JsonSerializerOptions RulesJson = new(JsonSerializerDefaults.Web);
     private readonly Dictionary<(string Provider, string Project), CompiledRules> projects = [];
     private readonly HashSet<(string Provider, string Project)> invalid = [];
 
@@ -107,7 +108,7 @@ public sealed class DefectEnvironmentClassifier
         RulesDocument? document;
         try
         {
-            document = JsonSerializer.Deserialize<RulesDocument>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            document = JsonSerializer.Deserialize<RulesDocument>(json, RulesJson);
         }
         catch (JsonException error)
         {
