@@ -46,6 +46,8 @@ builder.Services.AddSingleton<EvidenceIngestionService>();
 // LRN-07 (B-16): authorized relationship-graph traversal; fail-closed provider access.
 builder.Services.AddAdoEvidenceAccess(builder.Configuration);
 builder.Services.AddRelationshipGraph();
+// LRN-07 graph query API: exposed only when Entra ID and ADO access are fully configured.
+var graphApi = VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.AddGraphApi(builder.Services, builder.Configuration);
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
@@ -55,6 +57,12 @@ _ = app.Services.GetRequiredService<DatabaseOptions>();
 
 app.MapHealthEndpoints();
 app.MapDatabaseReadiness();
+if (graphApi)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+    VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.MapGraphApi(app);
+}
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();

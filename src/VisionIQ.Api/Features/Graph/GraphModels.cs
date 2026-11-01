@@ -149,7 +149,7 @@ public sealed record GraphNeighbor(
 
 /// <summary>An authorized graph node; the source's redacted data stays in the evidence service.</summary>
 public sealed record AuthorizedGraphNode(
-    string NodeKey, string AnchorItemKey, GraphNodeKind Kind);
+    string NodeKey, string AnchorItemKey, GraphNodeKind Kind, string NativeId);
 
 /// <summary>An authorized edge with opaque node keys and proof type only.</summary>
 public sealed record AuthorizedGraphEdge(

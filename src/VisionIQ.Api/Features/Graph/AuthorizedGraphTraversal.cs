@@ -109,7 +109,7 @@ public sealed class AuthorizedGraphTraversal(
 
         var accepted = new Dictionary<string, AuthorizedGraphNode>(StringComparer.Ordinal)
         {
-            [startNodeKey] = new(startNodeKey, root.AnchorItemKey, root.Kind),
+            [startNodeKey] = new(startNodeKey, root.AnchorItemKey, root.Kind, root.NativeId),
         };
         var edges = new List<AuthorizedGraphEdge>();
         var queue = new Queue<(string Key, int Hops)>();
@@ -158,7 +158,7 @@ public sealed class AuthorizedGraphTraversal(
                     }
 
                     accepted[neighbor.DestinationNodeKey] = new(
-                        neighbor.DestinationNodeKey, target.AnchorItemKey, target.Kind);
+                        neighbor.DestinationNodeKey, target.AnchorItemKey, target.Kind, target.NativeId);
                 }
 
                 edges.Add(new AuthorizedGraphEdge(nodeKey, neighbor.DestinationNodeKey,
