@@ -44,6 +44,9 @@ public static class GraphServiceRegistration
                 ["azure_devops"] = new AdoProjectAccessVerifier(
                     provider.GetRequiredService<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(),
                     organization.AbsoluteUri.TrimEnd('/'), projects),
+                // N-17: code-scan evidence is readable by live members of the project it was scanned for.
+                ["git"] = new CodeScanAccessVerifier(
+                    provider.GetRequiredService<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(), projects),
             }));
         return services;
     }

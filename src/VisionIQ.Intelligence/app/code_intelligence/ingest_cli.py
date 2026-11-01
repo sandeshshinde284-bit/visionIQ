@@ -75,7 +75,10 @@ def main(args: list[str] | None = None) -> int:
     parser.add_argument("--source-url", required=True, help="Trusted HTTPS repository source URL")
     parser.add_argument(
         "--ado-source-instance",
-        help="Optional exact approved ADO organization URL for commit-to-file links",
+        help=(
+            "Approved ADO organization URL: links commits to files, and makes this "
+            "repository's code readable to members of --project-id (the ADO project name)"
+        ),
     )
     arguments = parser.parse_args(args)
 
@@ -113,7 +116,14 @@ def main(args: list[str] | None = None) -> int:
 
     # m-4: read the commit time and build the evidence once, then reuse both.
     committed_at = _committed_at(scan.repo_root, scan.commit_sha)
-    archived = build_scan_evidence(scan, identity, url, committed_at)
+    ado_organization = (
+        _source_url(arguments.ado_source_instance).rstrip("/")
+        if arguments.ado_source_instance
+        else None
+    )
+    archived = build_scan_evidence(
+        scan, identity, url, committed_at, ado_organization=ado_organization
+    )
     # M-16: remember the previously scanned commit BEFORE storing this scan (which becomes latest).
     from app.code_intelligence.graph import latest_scanned_commit
 

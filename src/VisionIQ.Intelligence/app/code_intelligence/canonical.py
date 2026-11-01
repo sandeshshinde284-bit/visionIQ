@@ -61,6 +61,7 @@ class ScanEvidence:
     raw_json: bytes
     redacted_json: str = '{"kind":"code_scan"}'
     acl_verified: bool = False
+    acl_principals: tuple[str, ...] = ()
 
 
 class ScanArchive(Protocol):
@@ -98,6 +99,7 @@ def build_scan_evidence(
     source_url: str,
     source_committed_at: datetime,
     observed_at: datetime | None = None,
+    ado_organization: str | None = None,
 ) -> ScanEvidence:
     """Normalize commit-pinned code metadata without copying source file contents."""
     if scan.status != "COMPLETE":
@@ -144,7 +146,21 @@ def build_scan_evidence(
         observed_at=observed.astimezone(UTC),
         content_hash=hashlib.sha256(payload).hexdigest(),
         raw_json=payload,
+        # N-17: code belongs to its ADO project and is readable by that project's members
+        # (re-checked live by the API). Without an approved ADO organization the access
+        # list is unverified and the evidence stays hidden.
+        acl_verified=ado_organization is not None,
+        acl_principals=(ado_project_principal(ado_organization, identity.project_id),)
+        if ado_organization is not None
+        else (),
     )
+
+
+def ado_project_principal(organization: str, project: str) -> str:
+    """Same format as .NET AdoAccessPrincipals.Project: "ado-project:{organization}/{project}"."""
+    if not organization.startswith("https://") or not project.strip():
+        raise ValueError("An approved HTTPS ADO organization URL and a project are required")
+    return f"ado-project:{organization.rstrip('/')}/{project}"
 
 
 def ingest_complete_scan(
@@ -273,7 +289,7 @@ class PostgresScanEvidenceStore:
                 ) VALUES (
                     %(key)s, %(revision)s, %(updated)s,
                     %(observed)s, %(hash)s, %(url)s,
-                    'visioniq-code-scanner', FALSE, %(acl)s,
+                    'visioniq-code-scanner', %(verified)s, %(acl)s,
                     %(metadata)s, %(normalizer)s, %(normalizer)s, %(archive)s
                 )
                 """,
@@ -284,7 +300,8 @@ class PostgresScanEvidenceStore:
                     "observed": evidence.observed_at,
                     "hash": evidence.content_hash,
                     "url": evidence.source_url,
-                    "acl": Jsonb([]),
+                    "verified": evidence.acl_verified,
+                    "acl": Jsonb(list(evidence.acl_principals)),
                     "metadata": Jsonb({"kind": "code_scan"}),
                     "normalizer": _NORMALIZER_VERSION,
                     "archive": archive_uri,

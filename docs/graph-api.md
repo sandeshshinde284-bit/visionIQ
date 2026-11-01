@@ -12,6 +12,7 @@ classification). It is exposed **only** when all `VISIONIQ_AUTH_*` settings and 
 | Caller | `azp` (v2) / `appid` (v1) must be in `VISIONIQ_AUTH_ALLOWED_CALLERS` |
 | User | Delegated token only (`scp` must contain the required scope; app-only tokens are rejected); `oid` and an e-mail style `preferred_username`/`upn` required |
 | ADO identity | The user's sign-in name is used as their ADO identity; live ADO project-team membership is checked for every returned item |
+| Code evidence | Files, symbols and tests are readable by live members of the ADO project the repository was scanned for (scanner run with `--ado-source-instance`; otherwise hidden) |
 | Results | Only authorized nodes and edges; "not found" and "not allowed" both return 404; no counts of hidden items; `Cache-Control: no-store` |
 
 Nothing is ever taken from request bodies or custom headers. Any missing or unexpected value denies.
