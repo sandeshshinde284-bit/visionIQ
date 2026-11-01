@@ -59,6 +59,15 @@ test passed, covers all affected code paths, or prevents recurrence.
 m-1 (graph ties prefer current evidence), m-6 (runtime/dev requirement split; Docker images install the
 hash-verified `requirements-runtime.lock.txt`), m-10 (link evidence uses the source record's time).
 
+## N-16: grammar gaps no longer freeze a whole repository (fixed)
+
+tree-sitter-c-sharp 0.23.5 (the latest release) cannot parse some valid C#, e.g. a collection expression
+starting with the identifier `field` (`[field]` is read as an attribute target). A file the grammar cannot
+fully parse (or a Python file with a syntax error) is now `UNAVAILABLE` with a diagnostic naming the first
+problem line: file-level evidence only, and the rest of the repository updates. Genuine parser crashes are
+still `FAILED` and mark the scan PARTIAL (last good scan kept). Safety: grammar gaps in at least 3 files and
+more than 20% of parsed files mark the scan PARTIAL. The scanner CLI lists every downgraded file.
+
 ## Accepted as is (documented, not changed)
 
 | Item | Reason |

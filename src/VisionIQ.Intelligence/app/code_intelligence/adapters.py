@@ -67,3 +67,18 @@ class ParserRegistry:
             return None
         extension = "." + name.rsplit(".", maxsplit=1)[-1]
         return self._by_extension.get(extension)
+
+
+class IncompleteParseError(ValueError):
+    """N-16: a grammar could not fully parse otherwise readable source.
+
+    This is not a parser crash: the scanner keeps file-level evidence for the file
+    (state UNAVAILABLE plus this diagnostic) instead of failing the whole repository.
+    """
+
+    def __init__(self, language: str, line: int) -> None:
+        self.line = line
+        super().__init__(
+            f"{language} grammar could not fully parse this file (first problem at line {line}); "
+            "file-level evidence only."
+        )

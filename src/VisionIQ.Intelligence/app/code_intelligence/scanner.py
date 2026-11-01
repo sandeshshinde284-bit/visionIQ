@@ -13,6 +13,7 @@ from typing import Literal
 from app.code_intelligence.adapters import (
     CallReference,
     ImportReference,
+    IncompleteParseError,
     ParserRegistry,
     SymbolReference,
 )
@@ -117,6 +118,12 @@ def _inventory(root: Path) -> tuple[str, tuple[GitFile, ...]]:
     return commit, tuple(files)
 
 
+# N-16: grammar gaps in more than this share of parsed files (and at least this many files) mark
+# the scan PARTIAL instead of COMPLETE.
+GRAMMAR_GAP_MAX_SHARE = 0.2
+GRAMMAR_GAP_MIN_FILES = 3
+
+
 def scan_repository(
     repository: str | Path,
     registry: ParserRegistry | None = None,
@@ -139,6 +146,8 @@ def scan_repository(
     registry = registry or ParserRegistry()
     analyses: list[FileAnalysis] = []
     errors: list[str] = []
+    attempted = 0
+    grammar_gaps = 0
     for item in files:
         adapter = registry.for_path(item.path)
         if adapter is None:
@@ -174,7 +183,23 @@ def scan_repository(
                 # characters instead of failing the whole repository scan.
                 text = content.decode("utf-8", errors="replace")
                 encoding_note = ("Source is not valid UTF-8; parsed with replacement characters.",)
-            parsed = adapter.parse(item.path, text)
+            attempted += 1
+            try:
+                parsed = adapter.parse(item.path, text)
+            except IncompleteParseError as gap:
+                # N-16: keep file-level evidence and record why; the repository is not failed.
+                grammar_gaps += 1
+                analyses.append(
+                    FileAnalysis(
+                        path=item.path,
+                        blob_sha=item.blob_sha,
+                        symbol_analysis="UNAVAILABLE",
+                        adapter_name=adapter.name,
+                        adapter_version=adapter.version,
+                        diagnostics=(str(gap), *encoding_note),
+                    )
+                )
+                continue
             analyses.append(
                 FileAnalysis(
                     path=item.path,
@@ -202,6 +227,13 @@ def scan_repository(
                 )
             )
 
+    if grammar_gaps >= GRAMMAR_GAP_MIN_FILES and grammar_gaps > GRAMMAR_GAP_MAX_SHARE * attempted:
+        # N-16 safety: a systematic gap (e.g. an unsupported language version) must not silently
+        # replace a good scan with a mostly symbol-less one.
+        errors.append(
+            f"Grammar could not fully parse {grammar_gaps} of {attempted} parsed files; "
+            "keeping the last good scan."
+        )
     status: ScanStatus = "PARTIAL" if errors else "COMPLETE"
     last_good = None
     if status == "PARTIAL" and previous is not None:

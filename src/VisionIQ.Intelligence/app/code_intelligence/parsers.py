@@ -10,6 +10,7 @@ import ast
 from app.code_intelligence.adapters import (
     CallReference,
     ImportReference,
+    IncompleteParseError,
     ParserRegistry,
     ParserResult,
     SymbolReference,
@@ -23,7 +24,11 @@ class PythonAstAdapter:
     capabilities = frozenset({"symbols", "imports", "lexical_calls"})
 
     def parse(self, path: str, content: str) -> ParserResult:
-        tree = ast.parse(content, filename=path)
+        try:
+            tree = ast.parse(content, filename=path)
+        except SyntaxError as error:
+            # N-16: invalid or newer-than-supported syntax is a grammar gap, not a crash.
+            raise IncompleteParseError("Python", error.lineno or 1) from None
         symbols: list[SymbolReference] = []
         imports: list[ImportReference] = []
         calls: list[CallReference] = []
@@ -104,8 +109,11 @@ class CSharpTreeSitterAdapter:
 
         raw = content.encode("utf-8")
         tree = Parser(Language(tree_sitter_c_sharp.language())).parse(raw)
-        if tree is None or tree.root_node.has_error:
-            raise ValueError("C# grammar returned an incomplete parse")
+        if tree is None:
+            raise ValueError("C# grammar returned no parse tree")
+        if tree.root_node.has_error:
+            # N-16: e.g. tree-sitter-c-sharp 0.23.5 cannot parse "[field]" collection expressions.
+            raise IncompleteParseError("C#", _first_error_line(tree.root_node))
         symbols: list[SymbolReference] = []
         imports: list[ImportReference] = []
         calls: list[CallReference] = []
@@ -219,3 +227,14 @@ def default_parser_registry() -> ParserRegistry:
     registry.register(PythonAstAdapter())
     registry.register(CSharpTreeSitterAdapter())
     return registry
+
+
+def _first_error_line(node) -> int:
+    """1-based line of the first ERROR or missing node (iterative; no recursion limit)."""
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type == "ERROR" or current.is_missing:
+            return current.start_point.row + 1
+        stack.extend(reversed(current.children))
+    return 1

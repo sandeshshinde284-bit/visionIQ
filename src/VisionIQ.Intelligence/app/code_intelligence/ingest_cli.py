@@ -88,6 +88,12 @@ def main(args: list[str] | None = None) -> int:
     identity.item_key()
     repository = Path(arguments.repo).resolve()
     scan = scan_with_recovery(repository, arguments.cache, default_parser_registry())
+    gaps = [a for a in scan.analyses if any("could not fully parse" in d for d in a.diagnostics)]
+    if gaps:
+        # N-16: visible, never silent.
+        print(f"LRN-06 grammar gaps (file-level evidence only): {len(gaps)} file(s)")
+        for analysis in gaps[:20]:
+            print(f"  - {analysis.path}: {analysis.diagnostics[0]}")
     if scan.status != "COMPLETE":
         print("LRN-06 scan PARTIAL; durable last-good evidence remains unchanged")
         return 2
