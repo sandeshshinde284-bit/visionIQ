@@ -10,6 +10,22 @@ their commit messages ("B-", "M-", "m-" prefixes).
 | M-7 | Should commit-message mentions (`#1234`) stay **explicit** graph edges? | The current design treats a mention as an explicit reference that is *not* proof of a fix (see `TicketFixResolver` and the tests `A_ticket_mentioned_in_a_commit_is_only_an_explicit_reference` / `A_commit_message_mention_is_explicit_but_not_proof_of_a_fix`). The design doc (§6.18) separates mentions from development links. Reclassifying them as inferred would drop mention-only links from the default graph; ADO development links (with repository since B-11) would remain. Left unchanged on purpose. |
 | M-16 | Add file-rename handling to the graph? | Needs a new relationship type (database migration + C# enum + Python projection), using `git diff -M` between the previous and current scanned commit. |
 
+## Test evidence levels (LRN-07)
+
+A test node is **not** proof that a defect is covered. The graph keeps these levels separate, and no API
+may present a weaker level as a stronger one:
+
+| Level | Meaning | Source | Status |
+|---|---|---|---|
+| Structural | File F contains test method T | Code scan (`file_test` edge) | Implemented |
+| Changed with fix (candidate) | T is in a file changed by a fix commit | Path: fix commit -> file -> test | Derivable; must be labelled a candidate, never "covers the defect" |
+| Declared association | The defect is linked to an ADO Test Case ("Tested By") | ADO relation | Planned |
+| Mapped automated test | The Test Case's "Automated test name" matches exactly one test method | ADO field + code scan; otherwise "unresolved" | Planned |
+| Test result | T passed or failed in a specific CI run | CI test results | Not ingested |
+
+A declared association proves only that someone linked the test to the defect. It does not prove the
+test passed, covers all affected code paths, or prevents recurrence.
+
 ## Needs live verification (manual testing)
 
 | Item | What to check |
