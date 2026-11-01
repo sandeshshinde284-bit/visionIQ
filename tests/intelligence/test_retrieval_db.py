@@ -199,6 +199,7 @@ def test_benchmark_retrieval_quality_speed_and_access_leakage(tmp_path) -> None:
         "p95_latency_ms": round(statistics.quantiles(latencies, n=20)[18], 1),
     }
     out = Path(os.environ.get("VISIONIQ_BENCHMARK_DIR", tmp_path)) / "retrieval-benchmark.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2))
     print(json.dumps(report))
 
