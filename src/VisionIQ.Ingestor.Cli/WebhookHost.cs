@@ -42,7 +42,8 @@ public static class WebhookHost
         await using var linkStore = new PostgresTicketFixLinkStore(database);
         await using var testLinkStore = new PostgresTestLinkStore(database);
         await using var inbox = new PostgresSourceChangeInbox(database);
-        var evidence = new TestLinkProjectionSink(
+        await using var changeSetStore = new VisionIQ.Api.Features.Lessons.PostgresFixChangeSetStore(database);
+        var evidence = new FixChangeSetProjectionSink(new TestLinkProjectionSink(
             new TicketFixProjectionSink(
                 new CanonicalEvidenceSink(new EvidenceIngestionService(new CloudStorageEvidenceArchive(archiveBucket), evidenceStore),
                     settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl)
@@ -50,7 +51,8 @@ public static class WebhookHost
                     Tombstones = evidenceStore, // N-2
                 },
                 linkStore, settings.Ado.OrganizationUrl),
-            testLinkStore, settings.Ado.OrganizationUrl);
+            testLinkStore, settings.Ado.OrganizationUrl),
+            changeSetStore, settings.Ado.OrganizationUrl); // LRN-10: what each fix changed
         var handler = new AdoChangeHandler(
             new AdoWorkItemChangeHandler(settings.Ado,
                 new AdoChangedWorkItemReader(new AdoWorkItemSource(client, settings.Environments)), evidence),

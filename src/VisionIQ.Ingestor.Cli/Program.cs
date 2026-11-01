@@ -201,6 +201,7 @@ await using var buildLinkStore = canonicalMode
     : null;
 // G-1: per-item quarantine list (PostgreSQL in canonical mode; local mode lists items in sync-quarantine.jsonl).
 await using var quarantineStore = canonicalMode ? new PostgresSyncQuarantine(dbOptions!) : null;
+await using var changeSetStore = canonicalMode ? new VisionIQ.Api.Features.Lessons.PostgresFixChangeSetStore(dbOptions!) : null;
 using (var localSink = new JsonLinesSink(runDirectory))
 {
     IRecordSink sink = localSink;
@@ -213,11 +214,13 @@ using (var localSink = new JsonLinesSink(runDirectory))
         {
             Tombstones = evidenceStore, // N-2
         };
-        sink = new BuildLinkProjectionSink(
-            new TestLinkProjectionSink(
-                new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl),
-                testLinkStore!, settings.Ado.OrganizationUrl),
-            buildLinkStore!, settings.Ado.OrganizationUrl);
+        sink = new FixChangeSetProjectionSink( // LRN-10: what each fix changed
+            new BuildLinkProjectionSink(
+                new TestLinkProjectionSink(
+                    new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl),
+                    testLinkStore!, settings.Ado.OrganizationUrl),
+                buildLinkStore!, settings.Ado.OrganizationUrl),
+            changeSetStore!, settings.Ado.OrganizationUrl);
     }
     Console.WriteLine(canonicalMode
         ? "Evidence destination: canonical PostgreSQL + immutable Cloud Storage (ADO: project-level access, re-checked live; Confluence: hidden)"
