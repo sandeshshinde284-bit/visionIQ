@@ -51,8 +51,11 @@ public static class WebhookHost
                 },
                 linkStore, settings.Ado.OrganizationUrl),
             testLinkStore, settings.Ado.OrganizationUrl);
-        var handler = new AdoWorkItemChangeHandler(settings.Ado,
-            new AdoChangedWorkItemReader(new AdoWorkItemSource(client, settings.Environments)), evidence);
+        var handler = new AdoChangeHandler(
+            new AdoWorkItemChangeHandler(settings.Ado,
+                new AdoChangedWorkItemReader(new AdoWorkItemSource(client, settings.Environments)), evidence),
+            // LRN-12: PR created/updated/reviewed/abandoned/merged/commented events.
+            new AdoPullRequestChangeHandler(settings.Ado, new AdoChangedPullRequestReader(new AdoRepositorySource(client)), evidence));
         var endpoint = new AdoWebhookEndpoint(credentials, new SourceChangeProcessor(inbox, handler),
             settings.Ado.OrganizationUrl, settings.Ado.Projects, settings.Ado.Tenant, loggerFactory.CreateLogger<AdoWebhookEndpoint>());
 
@@ -82,5 +85,7 @@ public static class WebhookHost
         // again; the explicit Func<..., Task<IResult>> cast to Delegate forces the minimal-API handler path.
         Func<HttpContext, Task<IResult>> handler = endpoint.HandleAsync;
         app.MapPost(AdoWebhookEndpoint.Route, (Delegate)handler);
+        // LRN-12: a separate URL for PR Service Hook subscriptions (same handler, events are told apart by type).
+        app.MapPost(AdoWebhookEndpoint.PullRequestRoute, (Delegate)handler);
     }
 }

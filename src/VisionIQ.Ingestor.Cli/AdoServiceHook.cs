@@ -41,6 +41,11 @@ public static class AdoServiceHook
             return ServiceHookOutcome.Invalid;
         }
 
+        if (PullRequestEvents.Contains(eventType, StringComparer.Ordinal))
+        {
+            return ParsePullRequest(eventId, eventType, root, resource, organization, approvedProjects, tenant, out change);
+        }
+
         if (!Supported.Contains(eventType, StringComparer.Ordinal))
         {
             return ServiceHookOutcome.Ignored;
@@ -71,6 +76,52 @@ public static class AdoServiceHook
         var kind = eventType == "workitem.deleted" ? "work_item_deleted" : "work_item";
         change = new SourceChangeNotification(tenant + "/ado/" + project, eventId, kind,
             id.Value.ToString(CultureInfo.InvariantCulture), rev.Value.ToString(CultureInfo.InvariantCulture));
+        return ServiceHookOutcome.Accepted;
+    }
+
+    /// <summary>LRN-12: PR created, updated (includes review votes and abandonment), merged and commented.</summary>
+    private static readonly string[] PullRequestEvents =
+    [
+        "git.pullrequest.created", "git.pullrequest.updated", "git.pullrequest.merged", "ms.vss-code.git-pullrequest-comment-event",
+    ];
+
+    /// <summary>
+    /// LRN-12: a PR event only identifies the PR (repository ID, PR ID, project); the handler re-fetches its current
+    /// state, so late or out-of-order events end in the same stored result.
+    /// </summary>
+    private static ServiceHookOutcome ParsePullRequest(
+        string eventId, string eventType, JsonElement root, JsonElement resource, Uri organization,
+        IReadOnlyCollection<string> approvedProjects, string tenant, out SourceChangeNotification? change)
+    {
+        change = null;
+        // Comment events carry the PR under resource.pullRequest; the others carry it as the resource.
+        var pullRequest = resource.TryGetProperty("pullRequest", out var nested) && nested.ValueKind == JsonValueKind.Object ? nested : resource;
+        var id = Number(pullRequest, "pullRequestId");
+        var url = Text(pullRequest, "url");
+        string? repositoryId = null;
+        string? project = null;
+        if (pullRequest.TryGetProperty("repository", out var repository) && repository.ValueKind == JsonValueKind.Object)
+        {
+            repositoryId = Text(repository, "id");
+            project = repository.TryGetProperty("project", out var owner) && owner.ValueKind == JsonValueKind.Object ? Text(owner, "name") : null;
+        }
+
+        if (id is not > 0 || url is null || repositoryId is not { Length: > 0 and <= 128 } || project is null ||
+            !repositoryId.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'))
+        {
+            return ServiceHookOutcome.Invalid;
+        }
+
+        var prefix = organization.AbsoluteUri.TrimEnd('/') + "/";
+        if (!url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !approvedProjects.Contains(project, StringComparer.Ordinal))
+        {
+            return ServiceHookOutcome.Ignored;
+        }
+
+        // The event time keeps redeliveries of one event identical; it is not used to order state.
+        var when = Text(root, "createdDate") ?? eventType;
+        change = new SourceChangeNotification(tenant + "/ado/" + project, eventId, "pull_request",
+            repositoryId + ":" + id.Value.ToString(CultureInfo.InvariantCulture), when.Length <= 256 ? when : when[..256]);
         return ServiceHookOutcome.Accepted;
     }
 

@@ -16,6 +16,9 @@ public sealed class AdoWebhookEndpoint(
     private readonly Microsoft.Extensions.Logging.ILogger log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
     public const string Route = "/webhooks/ado/work-items";
+
+    /// <summary>LRN-12: URL for PR Service Hook subscriptions.</summary>
+    public const string PullRequestRoute = "/webhooks/ado/pull-requests";
     private const long MaxBody = 1024 * 1024;
 
     public async Task<IResult> HandleAsync(HttpContext context)

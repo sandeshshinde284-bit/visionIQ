@@ -32,8 +32,68 @@ public sealed record PullRequestRecord(
 
     public IReadOnlyList<string> CommitIds { get; init; } = [];
 
+    /// <summary>LRN-12: a draft PR is not yet ready for review.</summary>
+    public bool IsDraft { get; init; }
+
+    /// <summary>LRN-12: reviewers and their votes, by ADO identity ID only (no names or e-mails).</summary>
+    public IReadOnlyList<PullRequestReviewer> Reviewers { get; init; } = [];
+
     /// <summary>When the pull request was closed, or created if it is still open.</summary>
     public DateTimeOffset LastActivity => ClosedDate ?? CreatedDate;
+
+    /// <summary>LRN-12 (S12-01): the lifecycle state derived from status, draft flag and votes.</summary>
+    public string Lifecycle => PullRequestLifecycle.Of(this);
+}
+
+/// <summary>An ADO reviewer vote: 10 approved, 5 approved with suggestions, 0 none, -5 waiting for author, -10 rejected.</summary>
+public sealed record PullRequestReviewer(string Id, int Vote, bool IsRequired, bool HasDeclined);
+
+/// <summary>
+/// LRN-12 (S12-01) PR lifecycle states. A closed PR is merged or abandoned; an open PR is draft, rejected,
+/// waiting for author, approved (every required reviewer approved and nobody rejected or waiting) or active.
+/// A lifecycle state is a fact about the PR, never evidence that a root cause is verified.
+/// </summary>
+public static class PullRequestLifecycle
+{
+    public const string Merged = "merged";
+    public const string Abandoned = "abandoned";
+    public const string Draft = "draft";
+    public const string Rejected = "rejected";
+    public const string WaitingForAuthor = "waiting_for_author";
+    public const string Approved = "approved";
+    public const string Active = "active";
+
+    public static string Of(PullRequestRecord pullRequest)
+    {
+        ArgumentNullException.ThrowIfNull(pullRequest);
+        switch (pullRequest.Status)
+        {
+            case "completed":
+                return Merged;
+            case "abandoned":
+                return Abandoned;
+        }
+
+        if (pullRequest.IsDraft)
+        {
+            return Draft;
+        }
+
+        var votes = pullRequest.Reviewers.Where(reviewer => !reviewer.HasDeclined).ToList();
+        if (votes.Any(reviewer => reviewer.Vote <= -10))
+        {
+            return Rejected;
+        }
+
+        if (votes.Any(reviewer => reviewer.Vote == -5))
+        {
+            return WaitingForAuthor;
+        }
+
+        var required = votes.Where(reviewer => reviewer.IsRequired).ToList();
+        var approvals = votes.Where(reviewer => reviewer.Vote >= 5).ToList();
+        return approvals.Count > 0 && required.All(reviewer => reviewer.Vote >= 5) ? Approved : Active;
+    }
 }
 
 /// <summary>Reads repositories and pull requests with their linked work items and commits (S04-04).</summary>
@@ -85,6 +145,37 @@ public sealed class AdoRepositorySource
     }
 
     /// <summary>Adds the work items and commits that Azure DevOps itself links to the pull request.</summary>
+    /// <summary>
+    /// LRN-12: re-fetches one PR (current state, reviewers and votes) for a webhook event and enriches it like the
+    /// sync does. The repository and its project come from ADO's answer, never from the event.
+    /// </summary>
+    public async Task<(PullRequestRecord PullRequest, RepositoryRecord Repository)?> GetPullRequestAsync(
+        string project, string repositoryId, int id, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryId);
+        RepositoryRecord? repository;
+        PullRequestRecord? parsed;
+        using (var response = await client.GetAsync(client.BuildUri(project,
+            "_apis/git/repositories/" + Uri.EscapeDataString(repositoryId) + "/pullrequests/" + id.ToString(CultureInfo.InvariantCulture)),
+            cancellationToken).ConfigureAwait(false))
+        {
+            var root = response.Root;
+            repository = JsonRead.Child(root, "repository") is { } repo &&
+                JsonRead.Child(repo, "project") is { } repoProject && JsonRead.String(repoProject, "name") is { } projectName
+                ? ParseRepository(repo, projectName)
+                : null;
+            parsed = repository is null ? null : ParsePullRequest(root, repository.Project, repository);
+        }
+
+        if (repository is null || parsed is null)
+        {
+            return null;
+        }
+
+        return (await EnrichAsync(repository.Project, repository, parsed, cancellationToken).ConfigureAwait(false), repository);
+    }
+
     public async Task<PullRequestRecord> EnrichAsync(string project, RepositoryRecord repository, PullRequestRecord pullRequest, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(repository);
@@ -153,6 +244,15 @@ public sealed class AdoRepositorySource
             TargetBranch = JsonRead.String(element, "targetRefName"),
             CreatedById = JsonRead.Child(element, "createdBy") is { } author ? JsonRead.String(author, "id") : null,
             MergeCommitId = mergeCommit,
+            IsDraft = JsonRead.Bool(element, "isDraft"),
+            Reviewers = JsonRead.Items(element, "reviewers")
+                .Select(reviewer => JsonRead.String(reviewer, "id") is { } reviewerId
+                    ? new PullRequestReviewer(reviewerId, JsonRead.Int(reviewer, "vote") ?? 0,
+                        JsonRead.Bool(reviewer, "isRequired"), JsonRead.Bool(reviewer, "hasDeclined"))
+                    : null)
+                .OfType<PullRequestReviewer>()
+                .OrderBy(reviewer => reviewer.Id, StringComparer.Ordinal) // stable order: same votes, same content
+                .ToList(),
         };
     }
 }
