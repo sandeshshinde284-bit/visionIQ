@@ -47,8 +47,27 @@ All services write structured JSON logs (one object per line) that Google Cloud 
 | `Webhook event {EventId} {Kind} {Project}/{WorkItemId} rev {Revision}: {Outcome}, HTTP {StatusCode}` | Information | Every processed event |
 | `Webhook event ... ignored` / `Webhook request rejected: {Reason}` | Information / Warning | Never the presented credentials |
 
+## Code scanner events (Python, `ingest_cli`)
+
+Every line carries `scan_id`, `project_id` and `repository_id`. `LOG_LEVEL` and `LOG_FORMAT=text` work as for
+the ingestor.
+
+| Event | Level | Content |
+|---|---|---|
+| `scan.started` | info | |
+| `scan.grammar_gap` | warning | File path and the first problem line (N-16); never the code |
+| `scan.completed` | info | Status, commit, files, parsed, file-level only, failed, symbols, grammar gaps, duration |
+| `scan.partial` | warning | Reasons (path, parser, error type); the last good scan is kept |
+| `scan.previous_commit` | debug | For rename detection (M-16) |
+| `evidence.stored` | info | State, item key, revision, whether access is verified (N-17) |
+| `graph.persisted` | info | Edges and declared dependency links |
+| `scan.finished` / `scan.failed` | info / error | Duration / error type only (never the message) |
+
 ## Never logged
 
 Tokens, PATs, passwords, `Authorization` headers, webhook secrets, connection strings, query strings, request
 bodies, evidence content (titles, descriptions, page text, code, raw payloads), exception messages from sources,
-and user identities in clear. Tests feed secrets into each component and fail if any appears in the log.
+and user identities in clear. Tests feed secrets into the graph API, the ingestor (ADO PAT, Confluence
+token, webhook secret, work-item titles) and the code scanner (database password, bucket name, a secret planted
+in source code, an exception message containing the password) and fail if any appears in the log; a deliberate
+leak was used to confirm the tests catch it.

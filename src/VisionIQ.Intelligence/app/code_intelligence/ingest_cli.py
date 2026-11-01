@@ -7,10 +7,13 @@ read .env secrets into logs, or expose an unauthenticated HTTP endpoint.
 import argparse
 import os
 import subprocess
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import structlog
 from psycopg.conninfo import make_conninfo
 
 from app.code_intelligence.canonical import (
@@ -19,10 +22,10 @@ from app.code_intelligence.canonical import (
     ScanEvidenceIdentity,
     ingest_complete_scan,
 )
-from app.code_intelligence.graph import persist_code_graph
 from app.code_intelligence.parsers import default_parser_registry
 from app.code_intelligence.relationships import ApprovedRepository, resolve_dependencies
 from app.code_intelligence.snapshots import scan_with_recovery
+from app.logging_config import configure_from_environment
 
 
 def _required_env(key: str) -> str:
@@ -82,6 +85,27 @@ def main(args: list[str] | None = None) -> int:
     )
     arguments = parser.parse_args(args)
 
+    configure_from_environment()
+    # Every line of this scan carries scan_id, project and repository. Never logged:
+    # connection strings, passwords, environment values, bucket names or source content.
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(
+        scan_id=uuid.uuid4().hex,
+        project_id=arguments.project_id,
+        repository_id=arguments.repository_id,
+    )
+    log = structlog.get_logger("visioniq.scanner")
+    try:
+        return _run(arguments, log)
+    except Exception as error:
+        log.error("scan.failed", error_type=type(error).__name__)  # never the message
+        raise
+    finally:
+        structlog.contextvars.clear_contextvars()
+
+
+def _run(arguments: argparse.Namespace, log) -> int:
+    started = time.monotonic()
     url = _source_url(arguments.source_url)
     identity = ScanEvidenceIdentity(
         source_instance=url,
@@ -90,15 +114,26 @@ def main(args: list[str] | None = None) -> int:
     )
     identity.item_key()
     repository = Path(arguments.repo).resolve()
+    log.info("scan.started")
     scan = scan_with_recovery(repository, arguments.cache, default_parser_registry())
     gaps = [a for a in scan.analyses if any("could not fully parse" in d for d in a.diagnostics)]
-    if gaps:
-        # N-16: visible, never silent.
-        print(f"LRN-06 grammar gaps (file-level evidence only): {len(gaps)} file(s)")
-        for analysis in gaps[:20]:
-            print(f"  - {analysis.path}: {analysis.diagnostics[0]}")
+    for analysis in gaps:
+        # N-16: visible, never silent. The diagnostic names the line, never the code.
+        log.warning("scan.grammar_gap", path=analysis.path, diagnostic=analysis.diagnostics[0])
+    log.info(
+        "scan.completed",
+        status=scan.status,
+        commit=scan.commit_sha,
+        files=len(scan.files),
+        parsed=sum(a.symbol_analysis == "AVAILABLE" for a in scan.analyses),
+        file_level_only=sum(a.symbol_analysis == "UNAVAILABLE" for a in scan.analyses),
+        failed=sum(a.symbol_analysis == "FAILED" for a in scan.analyses),
+        symbols=sum(len(a.symbols) for a in scan.analyses),
+        grammar_gaps=len(gaps),
+        duration_ms=round((time.monotonic() - started) * 1000),
+    )
     if scan.status != "COMPLETE":
-        print("LRN-06 scan PARTIAL; durable last-good evidence remains unchanged")
+        log.warning("scan.partial", reasons=list(scan.errors[:20]), last_good_kept=True)
         return 2
 
     db = make_conninfo(
@@ -125,9 +160,10 @@ def main(args: list[str] | None = None) -> int:
         scan, identity, url, committed_at, ado_organization=ado_organization
     )
     # M-16: remember the previously scanned commit BEFORE storing this scan (which becomes latest).
-    from app.code_intelligence.graph import latest_scanned_commit
+    from app.code_intelligence import graph
 
-    previous_commit = latest_scanned_commit(db, archived.item_key)
+    previous_commit = graph.latest_scanned_commit(db, archived.item_key)
+    log.debug("scan.previous_commit", previous_commit=previous_commit)
     state = ingest_complete_scan(
         scan,
         identity,
@@ -136,6 +172,13 @@ def main(args: list[str] | None = None) -> int:
         GcsScanArchive(_required_env("GCS_EVIDENCE_BUCKET")),
         PostgresScanEvidenceStore(db),
         evidence=archived,
+    )
+    log.info(
+        "evidence.stored",
+        state=state,
+        item_key=archived.item_key,
+        revision=archived.revision,
+        access_verified=archived.acl_verified,
     )
     # Source evidence has committed before graph projection begins. A failed
     # projection exits nonzero and a repeat is safe (both stores are idempotent).
@@ -158,20 +201,16 @@ def main(args: list[str] | None = None) -> int:
             ApprovedRepository(identity.repository_id, url, scan),
             read_blob=read_committed_manifest,
         )
-        edges = persist_code_graph(
+        edges = graph.persist_code_graph(
             scan,
             archived,
             db,
-            approved_ado_instance=(
-                _source_url(arguments.ado_source_instance).rstrip("/")
-                if arguments.ado_source_instance
-                else None
-            ),
+            approved_ado_instance=ado_organization,
             previous_commit=previous_commit,
             declared_dependencies=links,
         )
-        print(f"LRN-07 structural graph edges processed: {edges}")
-    print(f"LRN-06 canonical scan result: {state}")
+        log.info("graph.persisted", edges=edges, dependency_links=len(links))
+    log.info("scan.finished", state=state, duration_ms=round((time.monotonic() - started) * 1000))
     return 0
 
 
