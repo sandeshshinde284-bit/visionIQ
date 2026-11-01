@@ -80,8 +80,11 @@ public sealed class DenyUnknownSourcePermissionVerifier : IProviderAccessVerifie
 /// </summary>
 public sealed class EvidenceQueryService(
     ICanonicalEvidenceReader reader,
-    IProviderAccessVerifier providerAccess)
+    IProviderAccessVerifier providerAccess,
+    ILogger<EvidenceQueryService>? logger = null)
 {
+    private readonly ILogger log = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
     /// <summary>
     /// Returns safe metadata only if the revision's stored ACL is verified,
     /// the authenticated caller belongs to an allowed principal, and the
@@ -101,6 +104,7 @@ public sealed class EvidenceQueryService(
         var principalIds = requester.PrincipalIds();
         if (principalIds.Count == 0)
         {
+            VisionIQ.Api.Logging.AccessLog.Hidden(log, itemKey, "requester has no identities");
             return null;
         }
 
@@ -109,12 +113,17 @@ public sealed class EvidenceQueryService(
         if (candidate is null || !candidate.AclVerified ||
             !candidate.PrincipalIds.Any(principalIds.Contains))
         {
+            VisionIQ.Api.Logging.AccessLog.Hidden(log, itemKey,
+                candidate is null ? "not stored or deleted in source"
+                : !candidate.AclVerified ? "access list not verified"
+                : "requester holds none of the item's access scopes");
             return null;
         }
 
         if (!await providerAccess.CanReadNowAsync(
             candidate.Identity, requester, cancellationToken).ConfigureAwait(false))
         {
+            VisionIQ.Api.Logging.AccessLog.Hidden(log, itemKey, "source denied current access");
             return null;
         }
 

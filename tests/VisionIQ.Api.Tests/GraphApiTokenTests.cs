@@ -126,6 +126,7 @@ public sealed class GraphApiTokenTests(WebApplicationFactory<Program> factory) :
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.True(response.Headers.Contains("X-Request-Id"), "every response carries its request ID for support");
     }
 
     [Fact]

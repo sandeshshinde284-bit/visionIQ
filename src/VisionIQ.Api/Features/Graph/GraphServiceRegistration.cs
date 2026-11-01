@@ -47,24 +47,25 @@ public static class GraphServiceRegistration
 
         services.AddSingleton<IProviderAccessVerifier>(provider =>
         {
+            var logs = provider.GetService<ILoggerFactory>() ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
             var verifiers = new Dictionary<string, IProviderAccessVerifier>(StringComparer.Ordinal)
             {
                 ["azure_devops"] = new AdoProjectAccessVerifier(
                     provider.GetRequiredService<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(),
-                    organization.AbsoluteUri.TrimEnd('/'), projects),
+                    organization.AbsoluteUri.TrimEnd('/'), projects, logs.CreateLogger<AdoProjectAccessVerifier>()),
                 // N-17: code-scan evidence is readable by live members of the project it was scanned for.
                 ["git"] = new CodeScanAccessVerifier(
-                    provider.GetRequiredService<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(), projects),
+                    provider.GetRequiredService<VisionIQ.Ingestor.Ado.IAdoProjectMembership>(), projects, logs.CreateLogger<CodeScanAccessVerifier>()),
             };
             if (confluence is not null)
             {
                 // LRN-02: Confluence pages are readable only if Confluence's live permission check says so.
                 verifiers["confluence"] = new ConfluencePageAccessVerifier(
                     provider.GetRequiredService<VisionIQ.Ingestor.Confluence.ConfluenceHttp>(),
-                    provider.GetRequiredService<IConfluenceIdentityResolver>());
+                    provider.GetRequiredService<IConfluenceIdentityResolver>(), logs.CreateLogger<ConfluencePageAccessVerifier>());
             }
 
-            return new ProviderRoutingAccessVerifier(verifiers);
+            return new ProviderRoutingAccessVerifier(verifiers, logs.CreateLogger<ProviderRoutingAccessVerifier>());
         });
         return services;
     }

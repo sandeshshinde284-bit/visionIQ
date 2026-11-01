@@ -66,8 +66,9 @@ public sealed class MappedConfluenceIdentityResolver : IConfluenceIdentityResolv
 /// restrictions, so VisionIQ never re-implements them. Data Center has no such check, so its pages stay hidden.
 /// ACL snapshots and unapproved spaces are never readable; any error denies.
 /// </summary>
-public sealed class ConfluencePageAccessVerifier(ConfluenceHttp confluence, IConfluenceIdentityResolver identities) : IProviderAccessVerifier
+public sealed class ConfluencePageAccessVerifier(ConfluenceHttp confluence, IConfluenceIdentityResolver identities, ILogger? logger = null) : IProviderAccessVerifier
 {
+    private readonly ILogger log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     private readonly string site = ConfluenceAccessPrincipals.Origin(confluence.Options.BaseUrl.AbsoluteUri);
     private readonly HashSet<string> spaces = new(confluence.Options.SpaceKeys, StringComparer.OrdinalIgnoreCase);
 
@@ -82,6 +83,10 @@ public sealed class ConfluencePageAccessVerifier(ConfluenceHttp confluence, ICon
             identity.ExternalId is not { Length: > 0 } pageId || !pageId.All(char.IsAsciiDigit) ||
             string.IsNullOrWhiteSpace(requester.PrincipalId))
         {
+            VisionIQ.Api.Logging.AccessLog.Denied(log, identity.Provider, identity.Kind,
+                confluence.Options.Deployment != ConfluenceDeployment.Cloud
+                    ? "Data Center pages are not readable (no permission-check endpoint)"
+                    : "not a page of the approved Confluence site/spaces, or no user identity");
             return false;
         }
 
@@ -89,6 +94,7 @@ public sealed class ConfluencePageAccessVerifier(ConfluenceHttp confluence, ICon
         {
             if (await identities.ResolveAccountIdAsync(requester.PrincipalId, cancellationToken).ConfigureAwait(false) is not { Length: > 0 } account)
             {
+                VisionIQ.Api.Logging.AccessLog.Denied(log, identity.Provider, identity.Kind, "requester is not in the Confluence identity map");
                 return false;
             }
 
@@ -96,14 +102,21 @@ public sealed class ConfluencePageAccessVerifier(ConfluenceHttp confluence, ICon
                 confluence.Api("rest/api/content/" + pageId + "/permission/check"),
                 new { subject = new { type = "user", identifier = account }, operation = "read" },
                 cancellationToken).ConfigureAwait(false);
-            return answer.RootElement.TryGetProperty("hasPermission", out var allowed) && allowed.ValueKind == JsonValueKind.True;
+            var granted = answer.RootElement.TryGetProperty("hasPermission", out var allowed) && allowed.ValueKind == JsonValueKind.True;
+            if (!granted)
+            {
+                VisionIQ.Api.Logging.AccessLog.Denied(log, identity.Provider, identity.Kind, "Confluence says the requester cannot read this page");
+            }
+
+            return granted;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception error)
         {
+            VisionIQ.Api.Logging.AccessLog.CheckFailed(log, "confluence", error.GetType().Name);
             return false;
         }
     }

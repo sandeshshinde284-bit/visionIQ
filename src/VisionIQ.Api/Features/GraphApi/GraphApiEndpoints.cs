@@ -48,7 +48,19 @@ public static class GraphApiEndpoints
         services.AddAuthorization(authorization => authorization.AddPolicy(Policy, policy => policy
             .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
             .RequireAuthenticatedUser()
-            .RequireAssertion(context => authorizer.Authorize(context.User).Allowed)));
+            .RequireAssertion(context =>
+            {
+                var decision = authorizer.Authorize(context.User);
+                if (!decision.Allowed && context.Resource is HttpContext http)
+                {
+                    // Why a caller was refused: reason code and calling app ID only (never the token).
+                    var caller = context.User.FindFirst("azp")?.Value ?? context.User.FindFirst("appid")?.Value ?? "unknown";
+                    VisionIQ.Api.Logging.AccessLog.CallerDenied(
+                        http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("VisionIQ.Api.GraphApi"), decision.Reason, caller);
+                }
+
+                return decision.Allowed;
+            })));
         return true;
     }
 
@@ -56,8 +68,10 @@ public static class GraphApiEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
         app.MapGet(Route, async (string project, string workItemId, int? hops, HttpContext http,
-            GraphCallerAuthorizer authorizer, IGraphQueryService query, CancellationToken cancellationToken) =>
+            GraphCallerAuthorizer authorizer, IGraphQueryService query, VisionIQ.Api.Logging.IdentityPseudonymizer pseudonyms,
+            ILoggerFactory logs, CancellationToken cancellationToken) =>
         {
+            var log = logs.CreateLogger("VisionIQ.Api.GraphApi");
             http.Response.Headers.CacheControl = "no-store"; // authorized engineering evidence
             if (authorizer.Authorize(http.User) is not { Allowed: true, Requester: { } requester })
             {
@@ -69,7 +83,12 @@ public static class GraphApiEndpoints
                 return Results.BadRequest(new { error = "hops must be 1-3" });
             }
 
+            var user = pseudonyms.For(requester.PrincipalId);
+            using var scope = log.BeginScope(new Dictionary<string, object> { ["user"] = user });
             var result = await query.QueryWorkItemAsync(project, workItemId, requester, hops ?? 2, cancellationToken);
+            // Audit: who (pseudonymous) asked for what, and what came back (counts only, never content).
+            VisionIQ.Api.Logging.AccessLog.GraphQuery(log, project, workItemId, hops ?? 2, user,
+                result is null ? "not found or not allowed" : "answered", result?.Nodes.Count ?? 0, result?.Edges.Count ?? 0);
             return result is null ? Results.NotFound() : Results.Ok(result);
         }).RequireAuthorization(Policy);
     }

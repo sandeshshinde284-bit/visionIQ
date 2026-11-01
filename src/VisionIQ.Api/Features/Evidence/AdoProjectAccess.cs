@@ -22,8 +22,10 @@ public static class AdoAccessPrincipals
 public sealed class AdoProjectAccessVerifier(
     IAdoProjectMembership membership,
     string sourceInstance,
-    IReadOnlyCollection<string> approvedProjects) : IProviderAccessVerifier
+    IReadOnlyCollection<string> approvedProjects,
+    ILogger? logger = null) : IProviderAccessVerifier
 {
+    private readonly ILogger log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     private readonly string instance = sourceInstance.TrimEnd('/');
     private readonly HashSet<string> projects = new(approvedProjects, StringComparer.OrdinalIgnoreCase);
 
@@ -36,34 +38,48 @@ public sealed class AdoProjectAccessVerifier(
             !projects.Contains(identity.ProjectId) ||
             string.IsNullOrWhiteSpace(requester.PrincipalId))
         {
+            VisionIQ.Api.Logging.AccessLog.Denied(log, identity.Provider, identity.Kind, "not an item of the approved ADO organization/projects, or no user identity");
             return false;
         }
 
         try
         {
-            return await membership.IsMemberAsync(identity.ProjectId, requester.PrincipalId, cancellationToken).ConfigureAwait(false);
+            var member = await membership.IsMemberAsync(identity.ProjectId, requester.PrincipalId, cancellationToken).ConfigureAwait(false);
+            if (!member)
+            {
+                VisionIQ.Api.Logging.AccessLog.Denied(log, identity.Provider, identity.Kind, "requester is not a current member of project " + identity.ProjectId);
+            }
+
+            return member;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception error)
         {
             // A source outage or unreadable membership never grants access.
+            VisionIQ.Api.Logging.AccessLog.CheckFailed(log, "azure_devops", error.GetType().Name);
             return false;
         }
     }
 }
 
 /// <summary>Sends each evidence item to its provider's verifier; unknown providers are denied.</summary>
-public sealed class ProviderRoutingAccessVerifier(IReadOnlyDictionary<string, IProviderAccessVerifier> verifiers)
+public sealed class ProviderRoutingAccessVerifier(IReadOnlyDictionary<string, IProviderAccessVerifier> verifiers, ILogger? logger = null)
     : IProviderAccessVerifier
 {
+    private readonly ILogger log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
     public Task<bool> CanReadNowAsync(EvidenceIdentity identity, EvidenceRequester requester, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        return verifiers.TryGetValue(identity.Provider, out var verifier)
-            ? verifier.CanReadNowAsync(identity, requester, cancellationToken)
-            : Task.FromResult(false);
+        if (verifiers.TryGetValue(identity.Provider, out var verifier))
+        {
+            return verifier.CanReadNowAsync(identity, requester, cancellationToken);
+        }
+
+        VisionIQ.Api.Logging.AccessLog.Denied(log, identity.Provider, identity.Kind, "no access verifier is configured for this provider");
+        return Task.FromResult(false);
     }
 }

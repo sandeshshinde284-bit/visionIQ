@@ -27,6 +27,10 @@ builder.Logging.AddJsonConsole(options =>
     options.UseUtcTimestamp = true;
     options.TimestampFormat = "O";
 });
+// LOG_LEVEL: Information by default; Debug adds per-item detail such as each access-denial reason.
+builder.Logging.SetMinimumLevel(Enum.TryParse<LogLevel>(builder.Configuration["LOG_LEVEL"], true, out var level) ? level : LogLevel.Information);
+var pseudonymizer = new IdentityPseudonymizer(builder.Configuration["LOG_PSEUDONYM_KEY"]);
+builder.Services.AddSingleton(pseudonymizer);
 
 builder.Services
     .AddOptions<ServiceOptions>()
@@ -51,6 +55,7 @@ var graphApi = VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.AddGraphApi(buil
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
+app.UseMiddleware<RequestLoggingMiddleware>();
 
 // Validate runtime database credentials during startup, after test-host configuration is applied.
 _ = app.Services.GetRequiredService<DatabaseOptions>();
@@ -67,6 +72,10 @@ if (graphApi)
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStarted.Register(() => LifecycleLog.Started(logger));
+if (!pseudonymizer.IsKeyed)
+{
+    LifecycleLog.UnkeyedPseudonyms(logger);
+}
 lifetime.ApplicationStopping.Register(() => LifecycleLog.Stopping(logger));
 
 app.Run();
