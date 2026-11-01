@@ -32,9 +32,14 @@ public sealed partial class RequestLoggingMiddleware(RequestDelegate next, ILogg
         }
         finally
         {
-            var route = (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? context.Request.Path.Value ?? "/";
-            Log.Completed(logger, context.Request.Method, route, context.Response.StatusCode,
-                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                var route = (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? context.Request.Path.Value ?? "/";
+                var method = context.Request.Method;
+                var status = context.Response.StatusCode;
+                var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                Log.Completed(logger, method, route, status, elapsed);
+            }
         }
     }
 

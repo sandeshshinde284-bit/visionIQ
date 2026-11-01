@@ -132,8 +132,13 @@ public sealed class ConfluenceHttp
 
             using (response)
             {
-                Logging.IngestionLog.Call(log, "Confluence", method, path, (int)response.StatusCode,
-                    System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, attempt + 1);
+                if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
+                {
+                    var status = (int)response.StatusCode;
+                    var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    var attemptNumber = attempt + 1;
+                    Logging.IngestionLog.Call(log, "Confluence", method, path, status, elapsed, attemptNumber);
+                }
                 if (response.IsSuccessStatusCode)
                 {
                     var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);

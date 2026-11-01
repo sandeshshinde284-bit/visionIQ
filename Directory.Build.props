@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Production code (under src/) must stay warning-free: analyzer warnings crept in twice unnoticed. -->
+    <TreatWarningsAsErrors Condition="$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\','/').Contains('/src/'))">true</TreatWarningsAsErrors>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 </Project>

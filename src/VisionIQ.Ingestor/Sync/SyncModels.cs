@@ -132,20 +132,28 @@ public static class SyncRunLogging
     {
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(report);
+        if (!log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Information))
+        {
+            return; // Warnings for degraded streams are Information-or-above too; nothing to build when disabled
+        }
+
         foreach (var stream in report.Streams)
         {
+            var kind = stream.Stream.ToString();
+            var status = stream.Status.ToString();
             if (stream.Status == StreamStatus.Synced)
             {
-                Logging.IngestionLog.StreamSynced(log, stream.Stream.ToString(), stream.Scope, stream.Status.ToString(), stream.Records, stream.NotStored, stream.Quarantined, stream.Links);
+                Logging.IngestionLog.StreamSynced(log, kind, stream.Scope, status, stream.Records, stream.NotStored, stream.Quarantined, stream.Links);
             }
             else
             {
-                Logging.IngestionLog.StreamDegraded(log, stream.Stream.ToString(), stream.Scope, stream.Status.ToString(), stream.Records, stream.NotStored, stream.Quarantined, stream.Reason ?? "no reason recorded");
+                var reason = stream.Reason ?? "no reason recorded";
+                Logging.IngestionLog.StreamDegraded(log, kind, stream.Scope, status, stream.Records, stream.NotStored, stream.Quarantined, reason);
             }
 
             foreach (var note in stream.Notes)
             {
-                Logging.IngestionLog.StreamNote(log, stream.Stream.ToString(), stream.Scope, note);
+                Logging.IngestionLog.StreamNote(log, kind, stream.Scope, note);
             }
         }
 
@@ -156,9 +164,13 @@ public static class SyncRunLogging
     {
         ArgumentNullException.ThrowIfNull(request);
         var scope = log.BeginScope(new Dictionary<string, object> { ["runId"] = request.RunId, ["source"] = source });
-        Logging.IngestionLog.RunStarted(log, request.RunId, string.Join(",", request.Kinds.Order()),
-            request.Reconcile ? "reconcile" : request.IgnoreCheckpoints ? "full" : "delta",
-            request.Since?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "checkpoint");
+        if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Information))
+        {
+            var kinds = string.Join(",", request.Kinds.Order());
+            var mode = request.Reconcile ? "reconcile" : request.IgnoreCheckpoints ? "full" : "delta";
+            var since = request.Since?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "checkpoint";
+            Logging.IngestionLog.RunStarted(log, request.RunId, kinds, mode, since);
+        }
         return scope;
     }
 }

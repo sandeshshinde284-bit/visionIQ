@@ -400,7 +400,11 @@ public sealed class SyncRunner
     {
         if (request.IgnoreCheckpoints)
         {
-            Logging.IngestionLog.Checkpoint(log, scope, "ignored for this run", request.Since?.ToString("O", CultureInfo.InvariantCulture) ?? "all history");
+            if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
+            {
+                var from = request.Since?.ToString("O", CultureInfo.InvariantCulture) ?? "all history";
+                Logging.IngestionLog.Checkpoint(log, scope, "ignored for this run", from);
+            }
             return null;
         }
 
@@ -432,7 +436,11 @@ public sealed class SyncRunner
         try
         {
             await checkpoints.SaveAsync(new SyncCheckpoint(SourceId, scope, cursor.Format(), time.GetUtcNow()), cancellationToken).ConfigureAwait(false);
-            Logging.IngestionLog.Checkpoint(log, scope, "saved", cursor.Format());
+            if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
+            {
+                var saved = cursor.Format();
+                Logging.IngestionLog.Checkpoint(log, scope, "saved", saved);
+            }
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {

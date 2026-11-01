@@ -332,7 +332,11 @@ if (settings.Database is { } auditDatabase)
 }
 
 await File.WriteAllTextAsync(Path.Combine(runDirectory, "report.json"), JsonSerializer.Serialize(report, json));
-IngestorLogging.ReportWritten(log, Path.Combine(runDirectory, "report.json"));
+if (log.IsEnabled(LogLevel.Information))
+{
+    var reportPath = Path.Combine(runDirectory, "report.json");
+    IngestorLogging.ReportWritten(log, reportPath);
+}
 foreach (var stream in report.Streams)
 {
     var reason = stream.Reason is null ? string.Empty : " - " + stream.Reason;
