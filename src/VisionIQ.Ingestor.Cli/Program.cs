@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Api.Features.Backfill;
@@ -85,8 +86,10 @@ var json = new JsonSerializerOptions
     Converters = { new JsonStringEnumConverter() },
 };
 
+using var loggerFactory = IngestorLogging.Create(configuration);
+var log = loggerFactory.CreateLogger("VisionIQ.Ingestor");
 using var http = new HttpClient { Timeout = settings.RequestTimeout };
-var client = new AdoClient(http, settings.Ado);
+var client = new AdoClient(http, settings.Ado, logger: loggerFactory.CreateLogger<AdoClient>());
 var runDirectory = Path.Combine(settings.OutputDirectory, DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
 Directory.CreateDirectory(runDirectory);
 if (!OperatingSystem.IsWindows())
@@ -96,7 +99,9 @@ if (!OperatingSystem.IsWindows())
 }
 Console.WriteLine($"Azure DevOps: {settings.Ado}");
 Console.WriteLine(settings.Confluence is { } confluenceSettings ? $"Confluence: {confluenceSettings}" : "Confluence: not configured");
-var confluenceSource = settings.Confluence is { } configured ? ConfluenceSources.Create(http, configured) : null;
+var confluenceSource = settings.Confluence is { } configured
+    ? ConfluenceSources.Create(http, configured, logger: loggerFactory.CreateLogger("VisionIQ.Ingestor.Confluence"))
+    : null;
 
 if (options.Command == CliCommand.Inventory)
 {
@@ -219,12 +224,12 @@ using (var localSink = new JsonLinesSink(runDirectory))
         : "Evidence destination: local JSONL (restricted/unverified Confluence bodies withheld)");
     if (kinds.Overlaps([SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds]))
     {
-        reports.Add(await new SyncRunner(client, checkpoints, sink, registry, environments: settings.Environments, quarantine: quarantineStore).RunAsync(request));
+        reports.Add(await new SyncRunner(client, checkpoints, sink, registry, environments: settings.Environments, quarantine: quarantineStore, logger: loggerFactory.CreateLogger<SyncRunner>()).RunAsync(request));
     }
 
     if (confluenceSource is not null && kinds.Contains(SyncKind.Confluence))
     {
-        reports.Add(await new ConfluenceSyncRunner(confluenceSource, checkpoints, sink, registry).RunAsync(request));
+        reports.Add(await new ConfluenceSyncRunner(confluenceSource, checkpoints, sink, registry, logger: loggerFactory.CreateLogger<ConfluenceSyncRunner>()).RunAsync(request));
     }
 }
 
@@ -244,6 +249,11 @@ if (canonicalMode && dbOptions is not null)
         var edges = await graphMaterializer.ReconcileAsync(
             settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
         Console.WriteLine($"Relationship graph assertions processed: {edges}");
+        IngestorLogging.Projected(log, "ticket-fix", edges);
+        foreach (var failure in graphMaterializer.FailedAssociations)
+        {
+            IngestorLogging.ProjectionFailed(log, "ticket-fix", failure);
+        }
         if (graphMaterializer.FailedAssociations.Count > 0)
         {
             // M-1: failed associations are reported and the run exits non-zero; the rest were processed.
@@ -259,6 +269,16 @@ if (canonicalMode && dbOptions is not null)
         await using var testLinks = new VisionIQ.Api.Features.Graph.TestLinkGraphMaterializer(dbOptions, graphStore);
         var testEdges = await testLinks.ReconcileAsync(settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
         Console.WriteLine($"Test link assertions processed: {testEdges}");
+        IngestorLogging.Projected(log, "test-links", testEdges);
+        foreach (var gap in testLinks.Unresolved)
+        {
+            IngestorLogging.TestUnresolved(log, gap);
+        }
+
+        foreach (var failure in testLinks.Failed)
+        {
+            IngestorLogging.ProjectionFailed(log, "test-links", failure);
+        }
         foreach (var gap in testLinks.Unresolved.Take(20))
         {
             Console.WriteLine("  unresolved automated test: " + gap);
@@ -266,7 +286,13 @@ if (canonicalMode && dbOptions is not null)
 
         // LRN-07: CI builds -> the commit they built and the pull request that triggered them.
         await using var buildLinks = new VisionIQ.Api.Features.Graph.BuildLinkGraphMaterializer(dbOptions, graphStore);
-        Console.WriteLine($"Build link assertions processed: {await buildLinks.ReconcileAsync(settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'))}");
+        var buildEdges = await buildLinks.ReconcileAsync(settings.Ado.OrganizationUrl.AbsoluteUri.TrimEnd('/'));
+        Console.WriteLine($"Build link assertions processed: {buildEdges}");
+        IngestorLogging.Projected(log, "build-links", buildEdges);
+        foreach (var failure in buildLinks.Failed)
+        {
+            IngestorLogging.ProjectionFailed(log, "build-links", failure);
+        }
         if (buildLinks.Failed.Count > 0)
         {
             graphFailed = true;
@@ -289,6 +315,7 @@ if (canonicalMode && dbOptions is not null)
     {
         graphFailed = true;
         Console.Error.WriteLine($"Relationship graph projection failed ({error.GetType().Name}): {error.Message}");
+        IngestorLogging.ProjectionStopped(log, error.GetType().Name);
     }
 }
 
@@ -305,6 +332,7 @@ if (settings.Database is { } auditDatabase)
 }
 
 await File.WriteAllTextAsync(Path.Combine(runDirectory, "report.json"), JsonSerializer.Serialize(report, json));
+IngestorLogging.ReportWritten(log, Path.Combine(runDirectory, "report.json"));
 foreach (var stream in report.Streams)
 {
     var reason = stream.Reason is null ? string.Empty : " - " + stream.Reason;

@@ -64,9 +64,11 @@ public sealed class AdoClient
     private readonly HttpClient http;
     private readonly Func<TimeSpan, CancellationToken, Task> delay;
     private readonly string authorization;
+    private readonly Microsoft.Extensions.Logging.ILogger log;
 
-    public AdoClient(HttpClient http, AdoOptions options, Func<TimeSpan, CancellationToken, Task>? delay = null)
+    public AdoClient(HttpClient http, AdoOptions options, Func<TimeSpan, CancellationToken, Task>? delay = null, Microsoft.Extensions.Logging.ILogger? logger = null)
     {
+        log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(options);
 
@@ -113,6 +115,9 @@ public sealed class AdoClient
             using var request = createRequest();
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", authorization);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            var method = request.Method.Method;
+            var path = request.RequestUri?.AbsolutePath ?? "?"; // never the query string (continuation tokens)
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
 
             HttpResponseMessage response;
             try
@@ -123,27 +128,37 @@ public sealed class AdoClient
             {
                 // HttpClient.Timeout surfaces as TaskCanceledException, not HttpRequestException (B-2/B-3).
                 // Only the caller's own token means "stop"; a timeout is a transient source failure.
-                await delay(Backoff(attempt, null), cancellationToken).ConfigureAwait(false);
+                var wait = Backoff(attempt, null);
+                Logging.IngestionLog.Retry(log, "ADO", method, path, attempt + 1, "timeout", wait.TotalMilliseconds);
+                await delay(wait, cancellationToken).ConfigureAwait(false);
                 continue;
             }
             catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
             {
+                Logging.IngestionLog.CallFailed(log, "ADO", method, path, attempt + 1, "timeout");
                 throw new AdoSourceException(null, "Azure DevOps did not respond in time (request timed out after retries).", error);
             }
             catch (HttpRequestException) when (attempt < Options.MaxRetries)
             {
-                await delay(Backoff(attempt, null), cancellationToken).ConfigureAwait(false);
+                var wait = Backoff(attempt, null);
+                Logging.IngestionLog.Retry(log, "ADO", method, path, attempt + 1, "network error", wait.TotalMilliseconds);
+                await delay(wait, cancellationToken).ConfigureAwait(false);
                 continue;
             }
             catch (HttpRequestException error)
             {
+                Logging.IngestionLog.CallFailed(log, "ADO", method, path, attempt + 1, "network error");
                 throw new AdoSourceException(null, "Network error while calling Azure DevOps: " + error.Message, error);
             }
 
             using (response)
             {
+                var status = (int)response.StatusCode;
+                Logging.IngestionLog.Call(log, "ADO", method, path, status,
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, attempt + 1);
                 if (response.StatusCode == HttpStatusCode.NonAuthoritativeInformation)
                 {
+                    Logging.IngestionLog.CallFailed(log, "ADO", method, path, attempt + 1, "203 (usually an expired or wrong PAT)");
                     throw new AdoSourceException(response.StatusCode, Describe(response.StatusCode));
                 }
 
@@ -154,10 +169,13 @@ public sealed class AdoClient
 
                 if (IsTransient(response.StatusCode) && attempt < Options.MaxRetries)
                 {
-                    await delay(Backoff(attempt, response.Headers.RetryAfter), cancellationToken).ConfigureAwait(false);
+                    var wait = Backoff(attempt, response.Headers.RetryAfter);
+                    Logging.IngestionLog.Retry(log, "ADO", method, path, attempt + 1, "HTTP " + status, wait.TotalMilliseconds);
+                    await delay(wait, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
+                Logging.IngestionLog.CallFailed(log, "ADO", method, path, attempt + 1, "HTTP " + status);
                 throw new AdoSourceException(response.StatusCode, Describe(response.StatusCode));
             }
         }

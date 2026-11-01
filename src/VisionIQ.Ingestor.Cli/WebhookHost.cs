@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Http;
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Backfill;
@@ -34,8 +35,9 @@ public static class WebhookHost
             return 1;
         }
 
+        using var loggerFactory = IngestorLogging.Create(configuration);
         var http = new HttpClient { Timeout = settings.RequestTimeout };
-        var client = new AdoClient(http, settings.Ado);
+        var client = new AdoClient(http, settings.Ado, logger: loggerFactory.CreateLogger<AdoClient>());
         await using var evidenceStore = new PostgresEvidenceStore(database);
         await using var linkStore = new PostgresTicketFixLinkStore(database);
         await using var testLinkStore = new PostgresTestLinkStore(database);
@@ -52,9 +54,10 @@ public static class WebhookHost
         var handler = new AdoWorkItemChangeHandler(settings.Ado,
             new AdoChangedWorkItemReader(new AdoWorkItemSource(client, settings.Environments)), evidence);
         var endpoint = new AdoWebhookEndpoint(credentials, new SourceChangeProcessor(inbox, handler),
-            settings.Ado.OrganizationUrl, settings.Ado.Projects, settings.Ado.Tenant);
+            settings.Ado.OrganizationUrl, settings.Ado.Projects, settings.Ado.Tenant, loggerFactory.CreateLogger<AdoWebhookEndpoint>());
 
         var builder = WebApplication.CreateSlimBuilder();
+        IngestorLogging.Configure(builder.Logging, configuration);
         builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = 1024 * 1024);
         var port = int.TryParse(configuration.GetValueOrDefault("PORT"), out var configured) ? configured : 8080;
         builder.WebHost.UseUrls($"http://0.0.0.0:{port}");

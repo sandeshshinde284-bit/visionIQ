@@ -38,9 +38,11 @@ public sealed class ConfluenceHttp
     private readonly HttpClient http;
     private readonly Func<TimeSpan, CancellationToken, Task> delay;
     private readonly AuthenticationHeaderValue authorization;
+    private readonly Microsoft.Extensions.Logging.ILogger log;
 
-    public ConfluenceHttp(HttpClient http, ConfluenceOptions options, Func<TimeSpan, CancellationToken, Task>? delay = null)
+    public ConfluenceHttp(HttpClient http, ConfluenceOptions options, Func<TimeSpan, CancellationToken, Task>? delay = null, Microsoft.Extensions.Logging.ILogger? logger = null)
     {
+        log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(options);
         this.http = http;
@@ -92,6 +94,9 @@ public sealed class ConfluenceHttp
             using var request = createRequest();
             request.Headers.Authorization = authorization;
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            var method = request.Method.Method;
+            var path = request.RequestUri?.AbsolutePath ?? "?"; // never the query string (cursors)
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
 
             HttpResponseMessage response;
             try
@@ -102,25 +107,33 @@ public sealed class ConfluenceHttp
             {
                 // HttpClient.Timeout surfaces as TaskCanceledException, not HttpRequestException (B-2/B-3).
                 // Only the caller's own token means "stop"; a timeout is a transient source failure.
-                await delay(TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, attempt))), cancellationToken).ConfigureAwait(false);
+                var wait = TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, attempt)));
+                Logging.IngestionLog.Retry(log, "Confluence", method, path, attempt + 1, "timeout", wait.TotalMilliseconds);
+                await delay(wait, cancellationToken).ConfigureAwait(false);
                 continue;
             }
             catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
             {
+                Logging.IngestionLog.CallFailed(log, "Confluence", method, path, attempt + 1, "timeout");
                 throw new ConfluenceSourceException(null, "Confluence did not respond in time (request timed out after retries).", error);
             }
             catch (HttpRequestException) when (attempt < Options.MaxRetries)
             {
-                await delay(TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, attempt))), cancellationToken).ConfigureAwait(false);
+                var wait = TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, attempt)));
+                Logging.IngestionLog.Retry(log, "Confluence", method, path, attempt + 1, "network error", wait.TotalMilliseconds);
+                await delay(wait, cancellationToken).ConfigureAwait(false);
                 continue;
             }
             catch (HttpRequestException error)
             {
+                Logging.IngestionLog.CallFailed(log, "Confluence", method, path, attempt + 1, "network error");
                 throw new ConfluenceSourceException(null, "Network error while calling Confluence: " + error.Message, error);
             }
 
             using (response)
             {
+                Logging.IngestionLog.Call(log, "Confluence", method, path, (int)response.StatusCode,
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, attempt + 1);
                 if (response.IsSuccessStatusCode)
                 {
                     var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -141,10 +154,13 @@ public sealed class ConfluenceHttp
                     && attempt < Options.MaxRetries)
                 {
                     var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(Math.Pow(2, attempt));
-                    await delay(wait > TimeSpan.FromSeconds(60) ? TimeSpan.FromSeconds(60) : wait, cancellationToken).ConfigureAwait(false);
+                    wait = wait > TimeSpan.FromSeconds(60) ? TimeSpan.FromSeconds(60) : wait;
+                    Logging.IngestionLog.Retry(log, "Confluence", method, path, attempt + 1, "HTTP " + (int)response.StatusCode, wait.TotalMilliseconds);
+                    await delay(wait, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
+                Logging.IngestionLog.CallFailed(log, "Confluence", method, path, attempt + 1, "HTTP " + (int)response.StatusCode);
                 throw new ConfluenceSourceException(response.StatusCode, Describe(response.StatusCode));
             }
         }

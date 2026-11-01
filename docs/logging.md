@@ -28,6 +28,25 @@ All services write structured JSON logs (one object per line) that Google Cloud 
 | `Evidence {ItemKey} hidden: {Reason}` / `{Provider} {Kind} access denied: {Reason}` | Debug | Why an item was not shown (opaque item key) |
 | `{Provider} access check failed ({ErrorType})` | Warning | A source outage hid evidence from everyone; error type only |
 
+## Ingestor events (sync CLI and webhook host)
+
+`LOG_FORMAT=text` gives single-line readable logs for local runs (default: JSON). Every line of a sync carries
+`runId` (also written to `report.json` as `runId`); webhook lines carry `eventId`.
+
+| Event | Level | Content |
+|---|---|---|
+| `{Source} {Method} {Path} responded {StatusCode} in {ElapsedMs} ms (attempt {Attempt})` | Debug | Every ADO/Confluence call; path only |
+| `{Source} {Method} {Path} attempt {Attempt} failed ({Cause}); retrying in {DelayMs} ms` | Warning | Timeout, network error or HTTP status |
+| `{Source} {Method} {Path} failed after {Attempts} attempt(s): {Cause}` | Error | The call gave up |
+| `Sync run {RunId} started / finished` | Information | Sources, mode (delta/full/reconcile), since; duration, all synced |
+| `Stream {Stream} {Scope}: {Status}, ... stored, ... not stored, ... quarantined` | Information / Warning | One line per stream; Warning (with reason) when not fully synced; notes follow |
+| `Checkpoint {Scope}: loaded / saved / ignored for this run` | Debug | Cursor value |
+| `Quarantined {Kind} {NativeId} in {Scope}: {ReasonCode}` / `Quarantine resolved ...` | Warning / Information | G-1 quarantine list |
+| `Recycle Bin for {Project}: {Count} deleted work item(s) recorded` | Information | N-2 |
+| `Graph projection {Kind}: {Count} assertion(s) processed` / `... failed for {Item}` / `Automated test unresolved` | Information / Warning | Ticket-fix, test-link and build-link projections |
+| `Webhook event {EventId} {Kind} {Project}/{WorkItemId} rev {Revision}: {Outcome}, HTTP {StatusCode}` | Information | Every processed event |
+| `Webhook event ... ignored` / `Webhook request rejected: {Reason}` | Information / Warning | Never the presented credentials |
+
 ## Never logged
 
 Tokens, PATs, passwords, `Authorization` headers, webhook secrets, connection strings, query strings, request

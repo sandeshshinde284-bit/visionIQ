@@ -11,21 +11,26 @@ namespace VisionIQ.Ingestor.Cli;
 /// </summary>
 public sealed class AdoWebhookEndpoint(
     WebhookCredentials credentials, SourceChangeProcessor processor, Uri organization,
-    IReadOnlyCollection<string> approvedProjects, string tenant)
+    IReadOnlyCollection<string> approvedProjects, string tenant, Microsoft.Extensions.Logging.ILogger? logger = null)
 {
+    private readonly Microsoft.Extensions.Logging.ILogger log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
     public const string Route = "/webhooks/ado/work-items";
     private const long MaxBody = 1024 * 1024;
 
     public async Task<IResult> HandleAsync(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         if (!credentials.IsValid(context.Request.Headers.Authorization.ToString()))
         {
+            IngestorLogging.WebhookRejected(log, "invalid or missing credentials"); // never the presented value
             return Results.Unauthorized();
         }
 
         if (context.Request.ContentLength is > MaxBody)
         {
+            IngestorLogging.WebhookRejected(log, "body larger than 1 MiB");
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
         }
 
@@ -36,21 +41,38 @@ public sealed class AdoWebhookEndpoint(
         }
         catch (JsonException)
         {
+            IngestorLogging.WebhookRejected(log, "body is not valid JSON");
             return Results.BadRequest(new { status = "invalid" });
         }
 
         using (document)
         {
-            switch (AdoServiceHook.Parse(document.RootElement, organization, approvedProjects, tenant, out var change))
+            var root = document.RootElement;
+            string Field(string name) => root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString() ?? "?"
+                : "?";
+            switch (AdoServiceHook.Parse(root, organization, approvedProjects, tenant, out var change))
             {
                 case ServiceHookOutcome.Invalid:
+                    IngestorLogging.WebhookRejected(log, "not a recognizable work-item event");
                     return Results.BadRequest(new { status = "invalid" });
                 case ServiceHookOutcome.Ignored:
+                    IngestorLogging.WebhookIgnored(log, Field("id"), Field("eventType"));
                     return Results.Ok(new { status = "ignored" });
             }
 
-            var status = await processor.ProcessAsync(change!, context.RequestAborted);
-            return status switch
+            using var scope = log.BeginScope(new Dictionary<string, object> { ["eventId"] = change!.EventId });
+            var status = await processor.ProcessAsync(change, context.RequestAborted);
+            var result = Respond(status);
+            IngestorLogging.WebhookProcessed(log, change.EventId, change.ProviderKind, change.SourceId[(change.SourceId.LastIndexOf('/') + 1)..],
+                change.NativeId, change.SourceRevision, status.ToString(), (result as IStatusCodeHttpResult)?.StatusCode ?? 200,
+                System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            return result;
+        }
+    }
+
+    private static IResult Respond(ChangeProcessingStatus status) =>
+            status switch
             {
                 ChangeProcessingStatus.Completed or ChangeProcessingStatus.AlreadyCompleted => Results.Ok(new { status = "processed" }),
                 // Dead-lettered: stop retries; the scheduled reconciliation sweep will pick the item up.
@@ -59,6 +81,4 @@ public sealed class AdoWebhookEndpoint(
                 ChangeProcessingStatus.IdentityConflict => Results.Conflict(new { status = "conflict" }),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError),
             };
-        }
-    }
 }

@@ -17,8 +17,11 @@ public sealed class ConfluenceSyncRunner
     private readonly SourceCapabilityRegistry registry;
     private readonly TimeProvider time;
 
-    public ConfluenceSyncRunner(IConfluenceSource source, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null)
+    private readonly Microsoft.Extensions.Logging.ILogger log;
+
+    public ConfluenceSyncRunner(IConfluenceSource source, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Microsoft.Extensions.Logging.ILogger? logger = null)
     {
+        log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(checkpoints);
         ArgumentNullException.ThrowIfNull(sink);
@@ -35,6 +38,16 @@ public sealed class ConfluenceSyncRunner
     public async Task<SyncReport> RunAsync(SyncRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        using var scope = SyncRunLogging.BeginRun(log, request, "confluence");
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var report = await RunCoreAsync(request, cancellationToken).ConfigureAwait(false);
+        report.RunId = request.RunId;
+        SyncRunLogging.LogOutcome(log, report, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        return report;
+    }
+
+    private async Task<SyncReport> RunCoreAsync(SyncRequest request, CancellationToken cancellationToken)
+    {
         var report = new SyncReport { Tenant = source.Tenant, StartedAt = time.GetUtcNow() };
         if (!request.Kinds.Contains(SyncKind.Confluence))
         {
@@ -187,10 +200,10 @@ public sealed class ConfluenceSyncRunner
 /// <summary>Creates the right source for the configured deployment.</summary>
 public static class ConfluenceSources
 {
-    public static IConfluenceSource Create(HttpClient http, ConfluenceOptions options, Func<TimeSpan, CancellationToken, Task>? delay = null)
+    public static IConfluenceSource Create(HttpClient http, ConfluenceOptions options, Func<TimeSpan, CancellationToken, Task>? delay = null, Microsoft.Extensions.Logging.ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var client = new ConfluenceHttp(http, options, delay);
+        var client = new ConfluenceHttp(http, options, delay, logger);
         return options.Deployment == ConfluenceDeployment.Cloud
             ? new ConfluenceCloudSource(client)
             : new ConfluenceDataCenterSource(client);

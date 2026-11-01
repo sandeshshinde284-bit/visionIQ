@@ -23,7 +23,7 @@ public sealed class SyncRunner
     private readonly AdoCommitSource commits;
     private readonly AdoBuildSource builds;
 
-    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null, ISyncQuarantine? quarantine = null)
+    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null, ISyncQuarantine? quarantine = null, Microsoft.Extensions.Logging.ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(checkpoints);
@@ -37,6 +37,7 @@ public sealed class SyncRunner
         this.time = time ?? TimeProvider.System;
         workItems = new AdoWorkItemSource(client, environments);
         this.quarantine = quarantine ?? new InMemorySyncQuarantine();
+        log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         repositories = new AdoRepositorySource(client);
         commits = new AdoCommitSource(client);
         builds = new AdoBuildSource(client);
@@ -47,6 +48,16 @@ public sealed class SyncRunner
     public async Task<SyncReport> RunAsync(SyncRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        using var scope = SyncRunLogging.BeginRun(log, request, "ado");
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var report = await RunCoreAsync(request, cancellationToken).ConfigureAwait(false);
+        report.RunId = request.RunId;
+        SyncRunLogging.LogOutcome(log, report, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        return report;
+    }
+
+    private async Task<SyncReport> RunCoreAsync(SyncRequest request, CancellationToken cancellationToken)
+    {
         reconciling = request.Reconcile;
         var report = new SyncReport { Tenant = client.Options.Tenant, StartedAt = time.GetUtcNow() };
 
@@ -162,6 +173,7 @@ public sealed class SyncRunner
                 if (outcome.Record is not null && open.Contains(nativeId))
                 {
                     await quarantine.ResolveAsync(SourceId, scope, "work_item", nativeId, time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+                    Logging.IngestionLog.QuarantineResolved(log, "work_item", nativeId, scope);
                 }
 
                 if (outcome.Record is null)
@@ -171,6 +183,7 @@ public sealed class SyncRunner
                     var failed = new QuarantinedItem(SourceId, scope, "work_item", nativeId, "not_readable",
                         outcome.NotSyncedReason ?? "A work item could not be read.", time.GetUtcNow());
                     await quarantine.AddAsync(failed, cancellationToken).ConfigureAwait(false);
+                    Logging.IngestionLog.Quarantined(log, "work_item", nativeId, scope, failed.ReasonCode);
                     await sink.WriteAsync("sync-quarantine", $"{SourceId}/{scope}/work_item/{nativeId}", failed, cancellationToken).ConfigureAwait(false);
                     result.Quarantined++;
                     Partial(result, outcome.NotSyncedReason ?? "A work item could not be read.");
@@ -236,7 +249,9 @@ public sealed class SyncRunner
         try
         {
             var observed = time.GetUtcNow();
-            foreach (var id in await workItems.GetRecycleBinIdsAsync(project, cancellationToken).ConfigureAwait(false))
+            var deleted = await workItems.GetRecycleBinIdsAsync(project, cancellationToken).ConfigureAwait(false);
+            Logging.IngestionLog.DeletionsFound(log, project, deleted.Count);
+            foreach (var id in deleted)
             {
                 await sink.WriteAsync("work-item-deletions",
                     $"{client.Options.Tenant}/ado/{project}/work-item/{id.ToString(CultureInfo.InvariantCulture)}/deleted",
@@ -385,12 +400,14 @@ public sealed class SyncRunner
     {
         if (request.IgnoreCheckpoints)
         {
+            Logging.IngestionLog.Checkpoint(log, scope, "ignored for this run", request.Since?.ToString("O", CultureInfo.InvariantCulture) ?? "all history");
             return null;
         }
 
         try
         {
             var checkpoint = await checkpoints.GetAsync(SourceId, scope, cancellationToken).ConfigureAwait(false);
+            Logging.IngestionLog.Checkpoint(log, scope, "loaded", checkpoint?.Cursor ?? "none (first run)");
             return TimeCursor.Parse(checkpoint?.Cursor);
         }
         catch (Exception error) when (error is not OperationCanceledException)
@@ -403,6 +420,7 @@ public sealed class SyncRunner
 
     private bool reconciling;
     private readonly ISyncQuarantine quarantine;
+    private readonly Microsoft.Extensions.Logging.ILogger log;
 
     private async Task SaveCursorAsync(string scope, TimeCursor? cursor, StreamResult result, CancellationToken cancellationToken)
     {
@@ -414,6 +432,7 @@ public sealed class SyncRunner
         try
         {
             await checkpoints.SaveAsync(new SyncCheckpoint(SourceId, scope, cursor.Format(), time.GetUtcNow()), cancellationToken).ConfigureAwait(false);
+            Logging.IngestionLog.Checkpoint(log, scope, "saved", cursor.Format());
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {

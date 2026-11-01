@@ -25,6 +25,9 @@ public sealed record SyncRequest(IReadOnlySet<SyncKind> Kinds, DateTimeOffset? S
     /// </summary>
     public bool Reconcile { get; init; }
 
+    /// <summary>Correlates every log line of one sync (ADO and Confluence) with its report.</summary>
+    public Guid RunId { get; init; } = Guid.NewGuid();
+
     public static IReadOnlySet<SyncKind> AllKinds { get; } =
         new HashSet<SyncKind> { SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds, SyncKind.Confluence };
 }
@@ -63,6 +66,9 @@ public sealed class StreamResult
 /// <summary>The outcome of one sync run: counts per stream, and a reason for anything not synced.</summary>
 public sealed class SyncReport
 {
+    /// <summary>The sync run this report belongs to (also on every log line of the run).</summary>
+    public Guid RunId { get; set; }
+
     private readonly List<StreamResult> streams = [];
 
     public required string Tenant { get; init; }
@@ -116,5 +122,43 @@ public sealed class CheckpointStoreException : Exception
     public CheckpointStoreException(string message, Exception innerException)
         : base(message, innerException)
     {
+    }
+}
+
+/// <summary>Logs the outcome of a sync run: one line per stream, then the run summary.</summary>
+public static class SyncRunLogging
+{
+    public static void LogOutcome(Microsoft.Extensions.Logging.ILogger log, SyncReport report, double elapsedMs)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(report);
+        foreach (var stream in report.Streams)
+        {
+            if (stream.Status == StreamStatus.Synced)
+            {
+                Logging.IngestionLog.StreamSynced(log, stream.Stream.ToString(), stream.Scope, stream.Status.ToString(), stream.Records, stream.NotStored, stream.Quarantined, stream.Links);
+            }
+            else
+            {
+                Logging.IngestionLog.StreamDegraded(log, stream.Stream.ToString(), stream.Scope, stream.Status.ToString(), stream.Records, stream.NotStored, stream.Quarantined, stream.Reason ?? "no reason recorded");
+            }
+
+            foreach (var note in stream.Notes)
+            {
+                Logging.IngestionLog.StreamNote(log, stream.Stream.ToString(), stream.Scope, note);
+            }
+        }
+
+        Logging.IngestionLog.RunFinished(log, report.RunId, elapsedMs, report.Streams.Count, report.AllSynced);
+    }
+
+    public static IDisposable? BeginRun(Microsoft.Extensions.Logging.ILogger log, SyncRequest request, string source)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var scope = log.BeginScope(new Dictionary<string, object> { ["runId"] = request.RunId, ["source"] = source });
+        Logging.IngestionLog.RunStarted(log, request.RunId, string.Join(",", request.Kinds.Order()),
+            request.Reconcile ? "reconcile" : request.IgnoreCheckpoints ? "full" : "delta",
+            request.Since?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "checkpoint");
+        return scope;
     }
 }
