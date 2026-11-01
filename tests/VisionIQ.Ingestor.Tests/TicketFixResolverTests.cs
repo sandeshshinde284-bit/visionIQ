@@ -63,14 +63,14 @@ public sealed class TicketFixResolverTests
     }
 
     [Fact]
-    public void A_commit_message_mention_is_explicit_but_not_proof_of_a_fix()
+    public void A_commit_message_mention_is_inferred_and_not_proof_of_a_fix()
     {
         var output = TicketFixResolver.Resolve("Project-A", [], [
             Commit(new string('a', 40), "Investigate AB#1234; may be unrelated"),
         ]);
         var link = Assert.Single(output);
         Assert.Equal("1234", link.TicketId);
-        Assert.Equal(FixEvidenceStatus.Explicit, link.Status);
+        Assert.Equal(FixEvidenceStatus.Inferred, link.Status); // M-7
         Assert.False(link.IsVerifiedFix);
         Assert.Equal("commit_mention", Assert.Single(link.EvidenceTypes));
     }

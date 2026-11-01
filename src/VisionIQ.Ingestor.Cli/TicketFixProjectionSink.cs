@@ -132,9 +132,12 @@ public sealed class TicketFixProjectionSink(
         {
             if (link.LinkType == "commit_mention" && link.ToKind == EntityKind.WorkItem)
             {
+                // M-7: a "#1234" mention may mean "related to" or "partial work", so it is stored as
+                // INFERRED (reviewable, not traversed as proof). ADO development links stay explicit,
+                // and the store never downgrades an explicit association to inferred.
                 var claim = new TicketFixClaim(
                     sourceInstance, commit.Project, link.ToId, commit.RepositoryId,
-                    null, commit.CommitId, TicketFixSourceClassification.Explicit,
+                    null, commit.CommitId, TicketFixSourceClassification.Inferred,
                     [reference], []);
                 await links.UpsertSourceAsync(claim, cancellationToken).ConfigureAwait(false);
             }

@@ -90,7 +90,7 @@ public sealed class TicketFixProjectionSinkTests
     }
 
     [Fact]
-    public async Task A_ticket_mentioned_in_a_commit_is_only_an_explicit_reference()
+    public async Task A_ticket_mentioned_in_a_commit_is_only_an_inferred_reference()
     {
         var links = new RecordingLinkStore();
         var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
@@ -101,7 +101,7 @@ public sealed class TicketFixProjectionSinkTests
         var claim = Assert.Single(links.Claims);
         Assert.Equal("321", claim.TicketId);
         Assert.Null(claim.PullRequestId);
-        Assert.Equal(TicketFixSourceClassification.Explicit, claim.Classification);
+        Assert.Equal(TicketFixSourceClassification.Inferred, claim.Classification); // M-7
     }
 
     [Fact]

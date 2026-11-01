@@ -105,8 +105,9 @@ public static class TicketFixResolver
                 .Where(link => link.ToKind == EntityKind.WorkItem && link.LinkType == "commit_mention"))
             {
                 // A commit message explicitly mentioning a ticket is NOT proof that it fixed it.
+                // M-7: inferred, not explicit; an existing explicit candidate is never replaced (TryAdd).
                 var candidate = new TicketFixCandidate(projectId, link.ToId, commit.RepositoryId,
-                    null, commit.CommitId, FixEvidenceStatus.Explicit,
+                    null, commit.CommitId, FixEvidenceStatus.Inferred,
                     ["commit_mention"], FindRevertShas(commit.CommitId, reverts), false);
                 candidates.TryAdd(candidate.AssociationKey, candidate);
             }
