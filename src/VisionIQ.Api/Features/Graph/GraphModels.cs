@@ -167,11 +167,11 @@ public static class GraphHashes
     public static string Hash(params string[] values)
     {
         using var stream = new MemoryStream();
+        Span<byte> prefix = stackalloc byte[4]; // N-18: allocated once, not per loop iteration
         foreach (var value in values)
         {
             ArgumentNullException.ThrowIfNull(value);
             var bytes = Encoding.UTF8.GetBytes(value);
-            Span<byte> prefix = stackalloc byte[4];
             BinaryPrimitives.WriteInt32LittleEndian(prefix, bytes.Length);
             stream.Write(prefix);
             stream.Write(bytes);

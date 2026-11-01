@@ -27,3 +27,12 @@ public sealed class SyncAuditCountTests
         Assert.Equal(SourceSyncState.Partial, audit.Status);
     }
 }
+
+/// <summary>N-18: the audit source ID is a stored key; its bytes must never change.</summary>
+public sealed class StableAuditIdTests
+{
+    [Fact]
+    public void Audit_source_id_matches_the_independent_reference() =>
+        Assert.Equal("sha256:d9c3102de28bd18b6815a0eb651deb2df2b96a73f58947618d0dbe2160f7e5f9",
+            VisionIQ.Ingestor.Cli.SourceSyncAuditProjector.StableSourceId("contoso", "WorkItems", "Payments"));
+}

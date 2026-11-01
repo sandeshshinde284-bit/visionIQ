@@ -43,12 +43,12 @@ public sealed record TicketFixClaim(
     {
         Validate();
         using var buffer = new MemoryStream();
+        Span<byte> length = stackalloc byte[4]; // N-18: allocated once, not per loop iteration
         foreach (var field in new[]
             {
                 SourceInstance, ProjectId, TicketId, RepositoryId, PullRequestId, CommitSha,
             })
         {
-            Span<byte> length = stackalloc byte[4];
             if (field is null)
             {
                 BinaryPrimitives.WriteInt32LittleEndian(length, -1);

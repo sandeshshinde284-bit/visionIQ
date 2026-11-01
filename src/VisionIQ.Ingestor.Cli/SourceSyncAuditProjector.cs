@@ -56,10 +56,10 @@ public static class SourceSyncAuditProjector
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
 
         using var bytes = new MemoryStream();
+        Span<byte> length = stackalloc byte[4]; // N-18: allocated once, not per loop iteration
         foreach (var value in new[] { tenant, stream, scope })
         {
             var encoded = Encoding.UTF8.GetBytes(value);
-            Span<byte> length = stackalloc byte[4];
             BinaryPrimitives.WriteInt32LittleEndian(length, encoded.Length);
             bytes.Write(length);
             bytes.Write(encoded);
