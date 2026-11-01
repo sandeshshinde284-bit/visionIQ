@@ -48,6 +48,9 @@ public sealed class StreamResult
     /// <summary>M-12: items the source returned that were not written (e.g. omitted work items).</summary>
     public int NotStored { get; set; }
 
+    /// <summary>G-1: items placed on the quarantine list in this run.</summary>
+    public int Quarantined { get; set; }
+
     public int Links { get; set; }
 
     /// <summary>Why the stream is partial or not synced. Never contains credentials.</summary>

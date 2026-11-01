@@ -23,7 +23,7 @@ public sealed class SyncRunner
     private readonly AdoCommitSource commits;
     private readonly AdoBuildSource builds;
 
-    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null)
+    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null, ISyncQuarantine? quarantine = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(checkpoints);
@@ -36,6 +36,7 @@ public sealed class SyncRunner
         this.registry = registry;
         this.time = time ?? TimeProvider.System;
         workItems = new AdoWorkItemSource(client, environments);
+        this.quarantine = quarantine ?? new InMemorySyncQuarantine();
         repositories = new AdoRepositorySource(client);
         commits = new AdoCommitSource(client);
         builds = new AdoBuildSource(client);
@@ -150,13 +151,28 @@ public sealed class SyncRunner
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
             var ids = await workItems.QueryIdsAsync(project, cursor?.At ?? request.Since, cancellationToken).ConfigureAwait(false);
             var outcomes = await workItems.GetWorkItemsAsync(project, ids, cancellationToken).ConfigureAwait(false);
+            var open = await quarantine.OpenAsync(SourceId, scope, "work_item", cancellationToken).ConfigureAwait(false);
 
             var fresh = new List<WorkItemRecord>();
-            foreach (var outcome in outcomes)
+            for (var index = 0; index < outcomes.Count; index++)
             {
+                var outcome = outcomes[index];
+                // Outcomes are returned one per requested ID, in the requested order.
+                var nativeId = ids[index].ToString(CultureInfo.InvariantCulture);
+                if (outcome.Record is not null && open.Contains(nativeId))
+                {
+                    await quarantine.ResolveAsync(SourceId, scope, "work_item", nativeId, time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+                }
+
                 if (outcome.Record is null)
                 {
                     result.NotStored++;
+                    // G-1: list the failed item instead of stopping; the held checkpoint retries it next run.
+                    var failed = new QuarantinedItem(SourceId, scope, "work_item", nativeId, "not_readable",
+                        outcome.NotSyncedReason ?? "A work item could not be read.", time.GetUtcNow());
+                    await quarantine.AddAsync(failed, cancellationToken).ConfigureAwait(false);
+                    await sink.WriteAsync("sync-quarantine", $"{SourceId}/{scope}/work_item/{nativeId}", failed, cancellationToken).ConfigureAwait(false);
+                    result.Quarantined++;
                     Partial(result, outcome.NotSyncedReason ?? "A work item could not be read.");
                     continue;
                 }
@@ -386,6 +402,7 @@ public sealed class SyncRunner
     }
 
     private bool reconciling;
+    private readonly ISyncQuarantine quarantine;
 
     private async Task SaveCursorAsync(string scope, TimeCursor? cursor, StreamResult result, CancellationToken cancellationToken)
     {

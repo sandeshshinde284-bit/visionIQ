@@ -194,6 +194,8 @@ await using var testLinkStore = canonicalMode
 await using var buildLinkStore = canonicalMode
     ? new VisionIQ.Api.Features.BuildLinks.PostgresBuildLinkStore(dbOptions!)
     : null;
+// G-1: per-item quarantine list (PostgreSQL in canonical mode; local mode lists items in sync-quarantine.jsonl).
+await using var quarantineStore = canonicalMode ? new PostgresSyncQuarantine(dbOptions!) : null;
 using (var localSink = new JsonLinesSink(runDirectory))
 {
     IRecordSink sink = localSink;
@@ -217,7 +219,7 @@ using (var localSink = new JsonLinesSink(runDirectory))
         : "Evidence destination: local JSONL (restricted/unverified Confluence bodies withheld)");
     if (kinds.Overlaps([SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds]))
     {
-        reports.Add(await new SyncRunner(client, checkpoints, sink, registry, environments: settings.Environments).RunAsync(request));
+        reports.Add(await new SyncRunner(client, checkpoints, sink, registry, environments: settings.Environments, quarantine: quarantineStore).RunAsync(request));
     }
 
     if (confluenceSource is not null && kinds.Contains(SyncKind.Confluence))

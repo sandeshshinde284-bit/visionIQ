@@ -37,7 +37,7 @@ public static class SourceSyncAuditProjector
                 // unstored items are retried because the stream's checkpoint does not advance.
                 stream.Records + stream.NotStored,
                 stream.Records,
-                0,
+                stream.Quarantined, // G-1: items placed on the quarantine list in this run
                 null,
                 null,
                 report.StartedAt,

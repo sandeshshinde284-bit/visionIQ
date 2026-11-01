@@ -29,4 +29,8 @@ real environment) and the basic-authentication username and password to the two 
 | Delta sync (e.g. every 15 minutes) | `sync` | Reads changes since the saved checkpoints |
 | Reconciliation sweep (e.g. nightly) | `sync --reconcile-days 7` | Re-reads the last N days (1-90) to catch anything a webhook missed; never moves checkpoints; audited as `reconcile` |
 
+Failed items never stop a run: each one is listed in `evidence.sync_quarantine` (canonical mode) or
+`sync-quarantine.jsonl` (local mode) with its reason and attempt count, retried on the next run, and marked
+resolved once read. The audit row records how many items were quarantined.
+
 Running these on a schedule (Cloud Run Jobs + Cloud Scheduler, or Pub/Sub delivery) is FND-06 infrastructure.

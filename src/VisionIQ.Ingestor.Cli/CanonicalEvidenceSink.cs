@@ -51,6 +51,11 @@ public sealed class CanonicalEvidenceSink(
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(record);
 
+        if (stream == "sync-quarantine")
+        {
+            return; // G-1: operational record, persisted by the quarantine store; not source evidence
+        }
+
         if (stream == "work-item-deletions" && record is WorkItemDeletion deletion)
         {
             // N-2: hide both the current item and its revision history.

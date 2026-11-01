@@ -57,10 +57,9 @@ Completion evidence required: *five known ticket → fix links reviewed by the t
 |---|---|---|---|---|
 | Initial backfill for all approved projects, counts per source | `sync` with audit rows per stream | `SyncRunnerTests`, `SourceSyncRunDatabaseIntegrationTests` (CI) | Backfill report on the sandbox | Automated + Manual |
 | New/changed items arrive through events plus periodic reconciliation | `serve-webhooks` (ADO Service Hooks, re-fetch, idempotent inbox, status codes verified over real HTTP); `sync --reconcile-days N` never moves checkpoints | `WebhookAndReconcileTests`, `WebhookHttpTests`, `DeletionTests` | A changed ticket appears within one cycle; real Service Hook subscription | Automated + Manual |
-| Failed items go to a quarantine list instead of stopping the run | Events: inbox quarantine and dead-lettering after 5 attempts (M-11). Sync: failed items are counted, reported and retried (checkpoint held) | `SourceChangeProcessorTests`, `SyncAuditCountTests` | — | **Gap G-1** (sync path) |
+| Failed items go to a quarantine list instead of stopping the run | Events: inbox quarantine and dead-lettering after 5 attempts (M-11). Sync: each unreadable item is listed in `evidence.sync_quarantine` (reason, attempts, first/last failure; local mode: `sync-quarantine.jsonl`), the run continues, the item is retried and marked resolved once read (G-1) | `SourceChangeProcessorTests`, `SyncQuarantineTests`, `test_sync_quarantine_db.py` (exact .NET SQL) | Make one item unreadable and check the list | Automated + Manual |
 
-**G-1:** the scheduled sync does not keep a per-item quarantine *list* of which items failed; it counts them,
-reports them and retries them. Scheduling infrastructure (Cloud Run Jobs, Scheduler, Pub/Sub) is FND-06.
+Scheduling infrastructure (Cloud Run Jobs, Scheduler, Pub/Sub) is FND-06.
 
 ## LRN-06 — Understand the code
 
@@ -97,7 +96,6 @@ declared ADO "Tested By", mapped automated test; test results are not ingested a
 |---|---|---|
 | N-1 | Independent review of every commit since `283dde9` by the reviewing AI | Reviewing AI |
 | N-4 | Protect `main` (PR, approvals, required CI checks) | Product owner |
-| G-1 | Per-item quarantine list for the scheduled sync (LRN-05) | Implementation |
 | N-5 | ADO membership cache: revocation can lag 5 minutes | Decision |
 | N-6 | Project members not in any ADO team are denied | Manual test |
 | N-9 | More than 20,000 work items with one timestamp can stall | Implementation |
