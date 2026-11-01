@@ -96,7 +96,10 @@ jobs:
       - name: Assert expected revision and schemas
         run: |
           revision=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT version_num FROM public.alembic_version")
-          test "$revision" = "20261031_0006"
+          # Expected head = newest migration revision in the repository (never hardcoded).
+          expected=$(grep -h '^revision = ' db/migrations/versions/*.py | sed -E 's/revision = "([^"]+)"/\1/' | sort | tail -1)
+          echo "database: $revision, expected: $expected"
+          test -n "$expected" && test "$revision" = "$expected"
           schemas=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('workflow','evidence','knowledge')")
           test "$schemas" = "3"
           extension=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT extname FROM pg_extension WHERE extname='vector'")
@@ -189,6 +192,8 @@ jobs:
           tests/intelligence/test_database_foundation.py
           tests/intelligence/test_latest_revision_tiebreak_db.py
           tests/intelligence/test_code_scan_role_isolation_db.py
+          tests/intelligence/test_file_rename_edges.py
+          tests/intelligence/test_test_case_nodes.py
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
