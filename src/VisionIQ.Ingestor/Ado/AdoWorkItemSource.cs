@@ -110,6 +110,14 @@ public sealed class AdoWorkItemSource
             (item.AreaPath ?? string.Empty).Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
+    /// <summary>N-2: IDs of work items currently in the project's ADO Recycle Bin (deleted, restorable).</summary>
+    public async Task<IReadOnlyList<int>> GetRecycleBinIdsAsync(string project, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(project);
+        using var response = await client.GetAsync(client.BuildUri(project, "_apis/wit/recyclebin"), cancellationToken).ConfigureAwait(false);
+        return JsonRead.Items(response.Root, "value").Select(item => JsonRead.Int(item, "id")).OfType<int>().Distinct().ToList();
+    }
+
     /// <summary>Every revision of one work item, oldest first.</summary>
     public async Task<IReadOnlyList<WorkItemRevisionRecord>> GetRevisionsAsync(string project, int id, CancellationToken cancellationToken = default)
     {
@@ -132,3 +140,6 @@ public sealed class AdoWorkItemSource
         }
     }
 }
+
+/// <summary>N-2: a work item VisionIQ must stop serving; Reason is deleted_in_source or missing_in_source.</summary>
+public sealed record WorkItemDeletion(int Id, string Project, DateTimeOffset ObservedAt, string Reason);

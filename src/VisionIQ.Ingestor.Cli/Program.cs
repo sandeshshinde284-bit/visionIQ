@@ -202,7 +202,10 @@ using (var localSink = new JsonLinesSink(runDirectory))
         var canonicalSink = new CanonicalEvidenceSink(
             new EvidenceIngestionService(
                 new CloudStorageEvidenceArchive(archiveBucket), evidenceStore!),
-            settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl);
+            settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl)
+        {
+            Tombstones = evidenceStore, // N-2
+        };
         sink = new BuildLinkProjectionSink(
             new TestLinkProjectionSink(
                 new TicketFixProjectionSink(canonicalSink, linkStore!, settings.Ado.OrganizationUrl),

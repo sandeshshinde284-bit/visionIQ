@@ -38,6 +38,9 @@ public sealed class CanonicalEvidenceSink(
     }
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
 
+    /// <summary>N-2: where deletions are recorded; without it deletion records are ignored.</summary>
+    public IEvidenceTombstones? Tombstones { get; init; }
+
     public async Task WriteAsync(
         string stream,
         string key,
@@ -47,6 +50,23 @@ public sealed class CanonicalEvidenceSink(
         ArgumentException.ThrowIfNullOrWhiteSpace(stream);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(record);
+
+        if (stream == "work-item-deletions" && record is WorkItemDeletion deletion)
+        {
+            // N-2: hide both the current item and its revision history.
+            if (Tombstones is { } tombstones)
+            {
+                var id = deletion.Id.ToString(CultureInfo.InvariantCulture);
+                foreach (var kind in new[] { "work_item_current", "work_item" })
+                {
+                    await tombstones.TombstoneAsync(
+                        new EvidenceIdentity("azure_devops", organizationUrl.AbsoluteUri.TrimEnd('/'), deletion.Project, null, kind, id).ItemKey(),
+                        deletion.ObservedAt, deletion.Reason, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            return;
+        }
 
         var observed = time.GetUtcNow();
         var datum = Describe(stream, key, record, observed);

@@ -72,7 +72,8 @@ public sealed class AdoWorkItemChangeHandler : ISourceChangeHandler
     {
         ArgumentNullException.ThrowIfNull(change);
         change.Validate();
-        if (!string.Equals(change.ProviderKind, "work_item", StringComparison.Ordinal))
+        var deletion = string.Equals(change.ProviderKind, "work_item_deleted", StringComparison.Ordinal);
+        if (!deletion && !string.Equals(change.ProviderKind, "work_item", StringComparison.Ordinal))
         {
             throw new NotSupportedException("Unsupported event kind; do not acknowledge it.");
         }
@@ -98,6 +99,20 @@ public sealed class AdoWorkItemChangeHandler : ISourceChangeHandler
         }
 
         var outcome = await reader.ReadAsync(project, id, cancellationToken).ConfigureAwait(false);
+        if (deletion)
+        {
+            // N-2: never trust the event. Hide the item only if ADO no longer returns it (deleted, or no longer
+            // readable by VisionIQ: either way it must not be served). If it is still there, do nothing.
+            if (outcome.Record is null)
+            {
+                await evidence.WriteAsync("work-item-deletions",
+                    tenant + "/ado/" + project + "/work-item/" + id.ToString(CultureInfo.InvariantCulture) + "/deleted",
+                    new WorkItemDeletion(id, project, DateTimeOffset.UtcNow, "deleted_in_source"), cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         if (outcome.Record is not { } record ||
             record.Id != id || record.Revision < revision)
         {

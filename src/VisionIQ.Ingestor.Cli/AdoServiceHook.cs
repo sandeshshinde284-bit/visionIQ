@@ -24,7 +24,7 @@ public enum ServiceHookOutcome
 /// </summary>
 public static class AdoServiceHook
 {
-    private static readonly string[] Supported = ["workitem.created", "workitem.updated", "workitem.restored"];
+    private static readonly string[] Supported = ["workitem.created", "workitem.updated", "workitem.restored", "workitem.deleted"];
 
     public static ServiceHookOutcome Parse(
         JsonElement root, Uri organization, IReadOnlyCollection<string> approvedProjects, string tenant,
@@ -67,7 +67,9 @@ public static class AdoServiceHook
             return ServiceHookOutcome.Ignored;
         }
 
-        change = new SourceChangeNotification(tenant + "/ado/" + project, eventId, "work_item",
+        // N-2: a deletion is a different kind of change; the handler confirms it with ADO before hiding anything.
+        var kind = eventType == "workitem.deleted" ? "work_item_deleted" : "work_item";
+        change = new SourceChangeNotification(tenant + "/ado/" + project, eventId, kind,
             id.Value.ToString(CultureInfo.InvariantCulture), rev.Value.ToString(CultureInfo.InvariantCulture));
         return ServiceHookOutcome.Accepted;
     }

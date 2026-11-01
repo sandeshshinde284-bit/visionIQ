@@ -15,7 +15,14 @@ public interface IVersionedEvidenceStore
 /// Runtime API identity writes only to the evidence schema; migrations are
 /// performed separately using the established FND-03 Alembic chain.
 /// </summary>
-public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IAsyncDisposable
+/// <summary>N-2: hides source items that were deleted in, or are no longer readable from, their source.</summary>
+public interface IEvidenceTombstones
+{
+    /// <summary>False when nothing changed (unknown item, already tombstoned, or a newer revision exists).</summary>
+    Task<bool> TombstoneAsync(string itemKey, DateTimeOffset observedAt, string reason, CancellationToken cancellationToken = default);
+}
+
+public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTombstones, IAsyncDisposable
 {
     private readonly NpgsqlDataSource source;
 
@@ -32,6 +39,54 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IAsyncDispo
         };
         builder["SSL Mode"] = options.SslMode;
         source = NpgsqlDataSource.Create(builder.ConnectionString);
+    }
+
+    /// <summary>N-7: re-observed content becomes latest again when it ties the latest on source time.</summary>
+    public const string PromoteReobservedSql = """
+        UPDATE evidence.source_items AS item
+        SET latest_revision_id = @revision, latest_observed_at = @observed
+        WHERE item.item_key = @key
+          AND item.latest_revision_id <> @revision
+          AND NOT (item.latest_revision_id ~ '^[0-9]+$' AND @revision ~ '^[0-9]+$')
+          AND item.latest_source_updated_at = (
+              SELECT seen.source_updated_at FROM evidence.source_revisions AS seen
+              WHERE seen.item_key = @key AND seen.provider_revision_id = @revision)
+          -- Newer than the last time the CURRENT latest was confirmed, so a stale observation never wins.
+          AND (item.latest_observed_at IS NULL OR item.latest_observed_at < @observed)
+        """;
+
+    /// <summary>N-2: a newer source revision than the tombstone clears it (e.g. the item was restored).</summary>
+    public const string ClearTombstoneSql = """
+        UPDATE evidence.source_items
+        SET deleted_at = NULL, deletion_reason = NULL
+        WHERE item_key = @key AND deleted_at IS NOT NULL AND deleted_at < @source_updated
+        """;
+
+    /// <summary>
+    /// N-2: tombstone an item; never one that already has a source revision newer than the deletion
+    /// observation (it was restored in between).
+    /// </summary>
+    public const string TombstoneSql = """
+        UPDATE evidence.source_items
+        SET deleted_at = @at, deletion_reason = @reason
+        WHERE item_key = @key AND deleted_at IS NULL
+          AND (latest_source_updated_at IS NULL OR latest_source_updated_at <= @at)
+        """;
+
+    public async Task<bool> TombstoneAsync(string itemKey, DateTimeOffset observedAt, string reason, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemKey);
+        if (reason is not ("deleted_in_source" or "missing_in_source"))
+        {
+            throw new ArgumentOutOfRangeException(nameof(reason));
+        }
+
+        await using var connection = await source.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(TombstoneSql, connection);
+        command.Parameters.AddWithValue("key", itemKey);
+        command.Parameters.AddWithValue("at", observedAt);
+        command.Parameters.AddWithValue("reason", reason);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     public async Task<EvidenceImportResult> SaveAsync(
@@ -79,6 +134,17 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IAsyncDispo
         var oldHash = (string?)await lookup.ExecuteScalarAsync(cancellationToken);
         if (oldHash is not null)
         {
+            if (oldHash.TrimEnd() == evidence.ContentSha256)
+            {
+                // N-7: content that changed A -> B -> back to A (same source time) is seen again now, so the
+                // source currently states A: promote it back to latest. Numeric ADO revisions never tie.
+                await using var promote = new NpgsqlCommand(PromoteReobservedSql, connection, transaction);
+                promote.Parameters.AddWithValue("key", evidence.ItemKey);
+                promote.Parameters.AddWithValue("revision", input.ProviderRevisionId);
+                promote.Parameters.AddWithValue("observed", input.ObservedAt);
+                await promote.ExecuteNonQueryAsync(cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
             return new EvidenceImportResult(
                 evidence.ItemKey,
@@ -123,10 +189,19 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IAsyncDispo
         insert.Parameters.AddWithValue("archive", evidence.RawSnapshotUri);
         await insert.ExecuteNonQueryAsync(cancellationToken);
 
+        // N-2: a revision stated after the item was tombstoned (e.g. restored in ADO) clears the tombstone.
+        await using (var restore = new NpgsqlCommand(ClearTombstoneSql, connection, transaction))
+        {
+            restore.Parameters.AddWithValue("key", evidence.ItemKey);
+            restore.Parameters.AddWithValue("source_updated", input.SourceUpdatedAt);
+            await restore.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         const string latestSql = """
             UPDATE evidence.source_items
             SET latest_revision_id = @revision,
-                latest_source_updated_at = @source_updated
+                latest_source_updated_at = @source_updated,
+                latest_observed_at = @observed
             WHERE item_key = @key AND (
                 latest_revision_id IS NULL OR
                 latest_source_updated_at < @source_updated OR

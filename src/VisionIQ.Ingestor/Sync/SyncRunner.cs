@@ -215,6 +215,22 @@ public sealed class SyncRunner
         {
             await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
         }
+
+        // N-2: deleted items never appear in change queries, so read the Recycle Bin explicitly.
+        try
+        {
+            var observed = time.GetUtcNow();
+            foreach (var id in await workItems.GetRecycleBinIdsAsync(project, cancellationToken).ConfigureAwait(false))
+            {
+                await sink.WriteAsync("work-item-deletions",
+                    $"{client.Options.Tenant}/ado/{project}/work-item/{id.ToString(CultureInfo.InvariantCulture)}/deleted",
+                    new WorkItemDeletion(id, project, observed, "deleted_in_source"), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (AdoSourceException error)
+        {
+            result.Notes.Add("Recycle Bin could not be read; deletions not checked this run: " + error.Message);
+        }
     }
 
     private async Task SyncPullRequestsAsync(string project, RepositoryRecord repository, SyncRequest request, SyncReport report, CancellationToken cancellationToken)

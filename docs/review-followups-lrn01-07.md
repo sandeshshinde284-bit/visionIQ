@@ -75,6 +75,19 @@ problem line: file-level evidence only, and the rest of the repository updates. 
 still `FAILED` and mark the scan PARTIAL (last good scan kept). Safety: grammar gaps in at least 3 files and
 more than 20% of parsed files mark the scan PARTIAL. The scanner CLI lists every downgraded file.
 
+## N-2 and N-7 (fixed)
+
+N-2: a work item deleted in ADO is tombstoned (`deleted_at`, `deletion_reason`) and never served again, so it
+also disappears from the graph. Found by reading each project's Recycle Bin on every work-item sync, and by
+`workitem.deleted` webhooks that are confirmed by re-fetching (if ADO still returns the item, nothing is hidden).
+An item ADO no longer returns is hidden even if the cause is lost access. A newer revision (e.g. a restore)
+clears the tombstone; a deletion observed after a newer revision is refused. Raw archives are retained for
+audit: purging them is a retention-policy decision.
+
+N-7: content that changes A -> B -> back to A under the same source time becomes latest again when A is
+re-observed later than the current latest was last confirmed (`latest_observed_at`); a stale observation never
+wins, and numeric ADO revisions are unaffected.
+
 ## Accepted as is (documented, not changed)
 
 | Item | Reason |

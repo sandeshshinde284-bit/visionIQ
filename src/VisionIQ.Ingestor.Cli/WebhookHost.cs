@@ -43,7 +43,10 @@ public static class WebhookHost
         var evidence = new TestLinkProjectionSink(
             new TicketFixProjectionSink(
                 new CanonicalEvidenceSink(new EvidenceIngestionService(new CloudStorageEvidenceArchive(archiveBucket), evidenceStore),
-                    settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl),
+                    settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl)
+                {
+                    Tombstones = evidenceStore, // N-2
+                },
                 linkStore, settings.Ado.OrganizationUrl),
             testLinkStore, settings.Ado.OrganizationUrl);
         var handler = new AdoWorkItemChangeHandler(settings.Ado,

@@ -162,6 +162,7 @@ public sealed class PostgresCanonicalEvidenceReader : ICanonicalEvidenceReader, 
             INNER JOIN evidence.source_revisions AS r
               ON r.item_key = i.item_key AND r.provider_revision_id = i.latest_revision_id
             WHERE i.item_key = @item
+              AND i.deleted_at IS NULL -- N-2: tombstoned items are never served
             """;
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
