@@ -47,6 +47,51 @@ public sealed class StreamIsolationTests
         Assert.Null(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
     }
 
+    /// <summary>Injects one failure after the first work item was durably written.</summary>
+    private sealed class FailOnceAfterFirstWorkItemSink : IRecordSink
+    {
+        private bool failed;
+        public MemorySink Inner { get; } = new();
+
+        public Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default)
+        {
+            if (!failed && stream == "work-items" && Inner.Count("work-items") == 1)
+            {
+                failed = true;
+                throw new InvalidOperationException("injected mid-stream sink failure");
+            }
+
+            return Inner.WriteAsync(stream, key, record, cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task Mid_stream_sink_failure_does_not_advance_checkpoint_and_retry_recovers_without_duplicate_keys()
+    {
+        var sink = new FailOnceAfterFirstWorkItemSink();
+        var checkpoints = new InMemoryCheckpointStore();
+        var request = new SyncRequest(new HashSet<SyncKind> { SyncKind.WorkItems }, null, IncludeRevisions: false);
+
+        var interrupted = await new SyncRunner(DemoAdo.Client(DemoAdo.Server()), checkpoints, sink, new SourceCapabilityRegistry())
+            .RunAsync(request);
+
+        Assert.False(interrupted.AllSynced);
+        var first = Assert.Single(interrupted.Streams);
+        Assert.NotEqual(StreamStatus.Synced, first.Status);
+        Assert.Contains("injected mid-stream sink failure", first.Reason, StringComparison.Ordinal);
+        Assert.Equal(1, sink.Inner.Count("work-items"));
+        Assert.Null(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
+
+        var recovered = await new SyncRunner(DemoAdo.Client(DemoAdo.Server()), checkpoints, sink, new SourceCapabilityRegistry())
+            .RunAsync(request);
+
+        Assert.True(recovered.AllSynced);
+        Assert.Equal(2, Assert.Single(recovered.Streams).Records);
+        Assert.Equal(2, sink.Inner.Count("work-items"));
+        Assert.Equal(2, sink.Inner.Items.Where(item => item.Stream == "work-items").Select(item => item.Key).Distinct(StringComparer.Ordinal).Count());
+        Assert.NotNull(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
+    }
+
     [Fact]
     public async Task A_confluence_sink_failure_is_reported_instead_of_crashing()
     {
