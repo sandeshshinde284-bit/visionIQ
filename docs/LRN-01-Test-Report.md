@@ -99,6 +99,18 @@ A read-only Azure DevOps REST comparison against the local `work-item-revisions.
 
 The seven newly added type/history regression cases completed with exit code 0 in local tests; the full test-count summary was not supplied for that execution.
 
+## Isolated PostgreSQL integration — PASSED
+
+On 2026-11-01, a separate Docker Compose project `visioniq-lrn01-test` was initialized with PostgreSQL 16 + pgvector, a dedicated volume `visioniq-lrn01-test_pgdata`, and host binding `127.0.0.1:15543`. The isolated migration logs reported: `Database roles and schema permissions configured.` and `pgvector, full-text search and role isolation verified.`
+
+An initial database test run reported **9 succeeded / 1 failed** because the database readiness test hardcoded `5432` rather than the isolated port. Commit `bb365fd` changed the readiness test to honor `DB_PORT` and `DB_NAME`. After correction, the user reran the filtered .NET API database integration tests with the test environment and reported:
+
+- **10 total; 10 passed; 0 failed; 0 skipped.**
+- Test duration 5.4 seconds; build succeeded in 9.0 seconds; process exit code **0**.
+- Command: `dotnet test .\\tests\\VisionIQ.Api.Tests\\VisionIQ.Api.Tests.csproj --configuration Release --filter "FullyQualifiedName~DatabaseIntegrationTests|FullyQualifiedName~DatabaseReadiness"`.
+
+This verifies the selected database integration tests against the isolated PostgreSQL instance. It does **not** establish that canonical LRN-01 ingestion into PostgreSQL + GCS was exercised end-to-end, nor that every earlier solution-wide skipped test was necessarily selected by this filter. Keep those as separately scoped checks if required.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
@@ -106,11 +118,15 @@ The seven newly added type/history regression cases completed with exit code 0 i
 - Solution test logs warn that `LOG_PSEUDONYM_KEY` was unset during API testing; require a strong secret for non-test operation. API logs separately contain dictionary-type scope names; treat as distinct follow-up, not an unfixed ingestor regression.
 - No claim that all authorization/revocation or database access-control scenarios have been exercised live.
 
+## Defect-only search classification scope assessment
+
+Code review of `src/VisionIQ.Ingestor/Ado/AdoWorkItemReader.cs`, `src/VisionIQ.Api/Features/GraphApi/GraphQueryService.cs` and `tests/VisionIQ.Api.Tests/GraphQueryServiceTests.cs` confirms that the source work-item type is preserved during ingestion. Graph query currently traverses authorized work-item relationships and exposes general source evidence metadata, **not** a dedicated defect-only similar-issues search. Therefore the previous "defect-only search regression" gate is **not executable against an implemented defect search feature**. Do not mark it passed, and do not filter out Task/Test Case/User Story data at the ingestion layer. When a defect-specific retrieval feature is implemented, its acceptance must explicitly require Bug-first matching with other types used only as supporting context; test mixed-type data and authorization. Track this as a downstream feature gate, not as an LRN-01 ingestion defect.
+
 ## Open gates before LRN-01 final acceptance
 
 1. **Azure Repos access:** restore authorized Basic/repo read rights; verify repository inventory, commits and pull requests, pagination and independent checkpoint behavior. Do not treat 0 repositories as a completed repo test.
-2. **Source fidelity:** sampled latest fields and five earlier historical revisions have now been matched against ADO; **dedicated downstream defect-only classification/search** validation is still open. The sample does not prove exhaustive history correctness.
-3. **Canonical persistence where required by the approved story acceptance criteria:** use disposable PostgreSQL/GCS test resources, check tombstone behavior, atomicity/idempotency and applicable skipped integration tests. Coordinate cross-story ownership with LRN-03/05/07.
+2. **Source fidelity:** sampled latest fields and five earlier historical revisions have now been matched against ADO; **dedicated downstream defect-only classification/search** validation remains a downstream feature gate, because no dedicated defect search implementation exists in the reviewed code. The sample does not prove exhaustive history correctness.
+3. **Canonical persistence where required by approved story acceptance criteria:** selected disposable PostgreSQL integration tests now pass (10/10); end-to-end canonical PostgreSQL + GCS ingestion, tombstones and checkpoint atomicity still require explicit verification if within story scope. Coordinate cross-story ownership with LRN-03/05/07.
 4. **Final code review and evidence signoff:** evaluate any additional review blockers or CI gates at the final branch head. Do not merge on the basis of this report alone.
 
 ## PR policy

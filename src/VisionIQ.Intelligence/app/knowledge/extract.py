@@ -41,6 +41,11 @@ def extract(kind: str, record: dict) -> Document:
                 Section("Repro steps", _text(record, "reproSteps")),
                 Section("System info", _text(record, "systemInfo")),
                 Section("Acceptance criteria", _text(record, "acceptanceCriteria")),
+                # Discussion comments (6.6 stage 2); unavailable comments (null) add nothing.
+                *(
+                    Section("Discussion", html_to_text(c.get("text", "")))
+                    for c in record.get("comments") or []
+                ),
                 Section("Context", context),
             ],
         )

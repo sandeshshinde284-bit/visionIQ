@@ -244,3 +244,30 @@ def test_empty_settings_copied_from_the_template_fall_back_to_defaults(monkeypat
         "dimension": 768,
         "batch_size": 1,
     }
+
+
+def test_work_item_discussion_comments_are_indexed_as_their_own_sections():
+    from app.knowledge.extract import extract
+
+    record = {
+        "id": 7,
+        "workItemType": "Bug",
+        "title": "Barcode print fails",
+        "comments": [
+            {"id": 5, "text": "<p>Seen again after the retry patch.</p>"},
+            {"id": 9, "text": "Workaround: restart the kiosk."},
+        ],
+    }
+
+    sections = {s.name: s.text for s in extract("work_item_current", record).sections if s.text}
+    discussion = [
+        s.text for s in extract("work_item_current", record).sections if s.name == "Discussion"
+    ]
+
+    assert discussion == ["Seen again after the retry patch.", "Workaround: restart the kiosk."]
+    assert "Discussion" in sections
+    assert not [
+        s
+        for s in extract("work_item_current", {**record, "comments": None}).sections
+        if s.name == "Discussion"
+    ]  # unavailable comments add nothing

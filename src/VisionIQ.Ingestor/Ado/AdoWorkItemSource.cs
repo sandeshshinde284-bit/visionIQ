@@ -72,6 +72,11 @@ public sealed class AdoWorkItemSource
                     received[parsed.Id] = parsed.WithEnvironment(environments.Classify(ToDefectEvidence(project, parsed, fields)));
                 }
             }
+            foreach (var id in received.Keys.ToList())
+            {
+                received[id] = await WithCommentsAsync(project, received[id], cancellationToken).ConfigureAwait(false);
+            }
+
             foreach (var id in batch)
             {
                 outcomes.Add(received.TryGetValue(id, out var record)
@@ -81,6 +86,73 @@ public sealed class AdoWorkItemSource
         }
 
         return outcomes;
+    }
+
+    private const int CommentPageSize = 200;
+    private const int MaxCommentPages = 10;
+
+    /// <summary>
+    /// Discussion comments (master design 6.6 stage 2). Skipped when ADO reports none; a failure records the
+    /// comments as unavailable with a reason instead of failing the work item.
+    /// </summary>
+    private async Task<WorkItemRecord> WithCommentsAsync(string project, WorkItemRecord record, CancellationToken cancellationToken)
+    {
+        switch (record.CommentCount)
+        {
+            case 0:
+                return record with { Comments = [] }; // known to have none: no call
+            case null:
+                // ADO always reports System.CommentCount; without it nothing is assumed (not "none").
+                return record with { Comments = null, CommentsGap = "comments: count not reported" };
+        }
+
+        var comments = new List<WorkItemComment>();
+        string? continuation = null;
+        try
+        {
+            for (var page = 0; page < MaxCommentPages; page++)
+            {
+                var query = new List<KeyValuePair<string, string>> { new("$top", CommentPageSize.ToString(CultureInfo.InvariantCulture)) };
+                if (continuation is not null)
+                {
+                    query.Add(new("continuationToken", continuation));
+                }
+
+                var uri = client.BuildUri(project, "_apis/wit/workItems/" + record.Id.ToString(CultureInfo.InvariantCulture) + "/comments",
+                    query, apiVersion: "7.1-preview.4");
+                using var response = await client.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+                foreach (var comment in JsonRead.Items(response.Root, "comments"))
+                {
+                    if (JsonRead.Bool(comment, "isDeleted") || JsonRead.Int(comment, "id") is not { } commentId ||
+                        JsonRead.String(comment, "text") is not { } text)
+                    {
+                        continue;
+                    }
+
+                    comments.Add(new WorkItemComment(commentId,
+                        JsonRead.Child(comment, "createdBy") is { } author ? JsonRead.String(author, "id") : null,
+                        JsonRead.Date(comment, "createdDate"), JsonRead.Date(comment, "modifiedDate"), text));
+                }
+
+                continuation = JsonRead.String(response.Root, "continuationToken");
+                if (string.IsNullOrEmpty(continuation))
+                {
+                    return record with { Comments = comments.OrderBy(c => c.Id).ToList() };
+                }
+            }
+
+            return record with { Comments = comments.OrderBy(c => c.Id).ToList(), CommentsTruncated = true };
+        }
+        catch (AdoSourceException error)
+        {
+            return record with
+            {
+                Comments = null,
+                CommentsGap = "comments: " + (error.StatusCode is { } status
+                    ? "HTTP " + ((int)status).ToString(CultureInfo.InvariantCulture)
+                    : "unavailable"),
+            };
+        }
     }
 
     /// <summary>Maps an ADO work item into the provider-neutral defect evidence used for classification.</summary>
