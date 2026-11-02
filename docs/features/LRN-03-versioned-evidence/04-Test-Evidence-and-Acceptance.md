@@ -14,13 +14,13 @@
 | `db.manage roles` | User reports completed; exact stdout/exit code not supplied | REPORTED COMPLETE | Runtime role/bootstrap verification |
 | Two revisions + identical replay | User-run targeted xUnit: 1 succeeded, 0 failed, 0 skipped; exit 0; build succeeded with 63 warnings | **PASS — targeted integration** | Test asserts 1 logical item, 2 revisions, correct latest revision, replay statuses; no actual GCS |
 | Existing revision ID + altered content | Included in same successful targeted xUnit integration test | **PASS — targeted integration** | `Conflict` return asserted; database revision count remains 2 |
-| GCS raw snapshot integrity/immutability | Real test attempted on 2026-11-02; 0/1 passed, exit 1; ADC `invalid_grant` / `invalid_rapt` before upload | BLOCKED — ADC REAUTH | Upload/replay/integrity not established; reauthenticate ADC and rerun |
+| GCS raw snapshot integrity/immutability | Retried 2026-11-02 after ADC reauthentication; 1/1 passed, 0 failed, 0 skipped, exit 0 (14.6s); 65 warnings | **PASS — real isolated GCS** | One synthetic object: exact bytes, SHA-256, unchanged generation on replay; broader IAM/indexing not tested |
 | End-user Confluence ACL retrieval | Not executed | OUTSIDE STORAGE GATE / OPEN DEPENDENCY | LRN-02 authorization handoff |
 
 ## Acceptance criteria (original Trello wording)
 
 - [ ] Each record keeps its source ID, revision, timestamps and access list. **Schema/code located; actual stored row test pending.**
-- [ ] A raw copy is kept in Cloud Storage; sensitive fields are redacted before indexing. **Service code and fake-backed tests passed; live archive and indexing checks pending.**
+- [ ] A raw copy is kept in Cloud Storage; sensitive fields are redacted before indexing. **Live GCS upload/download/checksum/replay PASSED**, while downstream indexing safety remains to be verified independently.
 - [x] Re-importing the same item updates it instead of creating a duplicate. **Targeted opt-in PostgreSQL integration test passed (1/1); synthetic source item and two revisions, replay and conflict asserted.**
 
 **Completion evidence:** the same item imported twice leaves **one logical record with two source revisions** (after introducing the second distinct revision and replaying records). Do not mark complete before verifying counts and latest pointer in the disposable PostgreSQL database.
@@ -73,3 +73,7 @@ finally {
 User executed `Lrn03GcsArchiveIntegrationTests.Real_cloud_storage_archive_is_immutable_idempotent_and_exact` against newly created isolated test bucket `visioniq-lrn03-test-1`. **Actual:** total 1, failed 1, passed 0, skipped 0; exit 1; 65 build warnings. Stack trace originates in `Google.Apis.Auth.OAuth2.UserCredential.RefreshTokenAsync` and `Google.Cloud.Storage.V1.StorageClientImpl.UploadHelper.ExecuteAsync`, before successful object upload, with OAuth `invalid_grant` / `reauth related error (invalid_rapt)`.
 
 **Diagnosis:** ADC reauthentication required; no evidence of an archive logic defect or a stored test object. **Next:** run `gcloud auth application-default login`, then `gcloud auth application-default print-access-token *> $null` and check exit 0. Rerun the same isolated-bucket GCS integration test; do not mark acceptance PASS without output. Do not paste access tokens or credentials.
+
+## Successful live GCS retry — 2 November 2026
+
+After reauthentication of Application Default Credentials, user reran `Lrn03GcsArchiveIntegrationTests.Real_cloud_storage_archive_is_immutable_idempotent_and_exact` against isolated bucket `visioniq-lrn03-test-1`. Observed: `total: 1, failed: 0, succeeded: 1, skipped: 0`, duration 14.6 s, **exit code 0**. Build succeeded with **65 warnings**. The test source checks byte-for-byte download, SHA-256 hash, same GCS URI and unchanged object generation for the replay. The test deletes its uniquely named object on success. This resolves the earlier `invalid_rapt` authentication blocker. **Not validated by this single test:** bucket-wide retention and IAM; independent indexing pipeline safety; every production source/ACL mapping.
