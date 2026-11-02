@@ -13,10 +13,11 @@ import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 
 import psycopg
 
-from app.knowledge import search
+from app.knowledge import search, snapshots
 from app.knowledge.embeddings import Embedder
 from app.knowledge.redaction import redact
 
@@ -133,6 +134,9 @@ class EvidenceBundle:
     lessons: list[Lesson]
     model_id: str
     elapsed_ms: float
+    # LRN-15: the published snapshot this answer was built from, and how old it was.
+    snapshot_id: str | None = None
+    snapshot_age_seconds: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -219,6 +223,8 @@ BEST_CHUNKS_SQL = """
 SELECT DISTINCT ON (c.item_key) c.item_key, c.chunk_key, c.kind, c.section, c.content,
        c.provider_revision_id, c.source_url
 FROM knowledge.index_chunks AS c
+JOIN knowledge.snapshot_entries AS se
+  ON se.entry_key = c.entry_key AND se.snapshot_id = %(snapshot)s
 WHERE c.item_key = ANY(%(keys)s) AND c.acl_principals ?| %(scopes)s
 ORDER BY c.item_key, ts_rank_cd(c.tsv, websearch_to_tsquery('english', %(q)s)) DESC, c.chunk_index
 """
@@ -301,6 +307,20 @@ def retrieve(
             embedder.model_id,
             0.0,
         )
+    with connect() as conn:  # one snapshot for every lane: a consistent view (LRN-15)
+        served = snapshots.current(conn)
+    if served is None:
+        return EvidenceBundle(
+            "weak_evidence",
+            ["No knowledge snapshot has been published yet; nothing can be searched."],
+            [],
+            [],
+            [],
+            embedder.model_id,
+            0.0,
+        )
+    snapshot_id, published_at = served
+    age = round((datetime.now(UTC) - published_at).total_seconds(), 1)
     files = [f.lower() for f in signals.files]
     terms = " ".join(signals.terms + signals.symbols + signals.files) or clean
 
@@ -308,14 +328,20 @@ def retrieve(
         with connect() as conn:
             return [
                 h.item_key
-                for h in _per_item(search.keyword(conn, terms, scopes, LANE_LIMIT, match="any"))
+                for h in _per_item(
+                    search.keyword(
+                        conn, terms, scopes, LANE_LIMIT, match="any", snapshot=snapshot_id
+                    )
+                )
             ]
 
     def vector_lane():
         with connect() as conn:
             return [
                 h.item_key
-                for h in _per_item(search.vector(conn, embedder, clean, scopes, LANE_LIMIT))
+                for h in _per_item(
+                    search.vector(conn, embedder, clean, scopes, LANE_LIMIT, snapshot=snapshot_id)
+                )
             ]
 
     def code_path_lane():
@@ -379,7 +405,8 @@ def retrieve(
         chunks = {
             row[0]: row
             for row in conn.execute(
-                BEST_CHUNKS_SQL, {"keys": list(readable), "scopes": scopes, "q": terms}
+                BEST_CHUNKS_SQL,
+                {"keys": list(readable), "scopes": scopes, "q": terms, "snapshot": snapshot_id},
             )
         }
     results: list[Result] = []
@@ -436,6 +463,8 @@ def retrieve(
         lessons,
         embedder.model_id,
         round((time.perf_counter() - started) * 1000, 1),
+        snapshot_id=snapshot_id,
+        snapshot_age_seconds=age,
     )
 
 

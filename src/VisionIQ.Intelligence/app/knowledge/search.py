@@ -37,12 +37,26 @@ _COLUMNS = (
 )
 
 
+# LRN-15: only the published snapshot is searched (never entries still waiting to be checked).
+_IN_SNAPSHOT = (
+    "JOIN knowledge.snapshot_entries AS se ON se.entry_key = c.entry_key AND se.snapshot_id = %s"
+)
+
+
+def _served(conn: psycopg.Connection, snapshot: str | None) -> str | None:
+    if snapshot is not None:
+        return snapshot
+    row = conn.execute("SELECT snapshot_id FROM knowledge.snapshot_pointer").fetchone()
+    return row[0] if row else None
+
+
 def keyword(
     conn: psycopg.Connection,
     query: str,
     scopes: Sequence[str],
     limit: int = 20,
     match: str = "all",
+    snapshot: str | None = None,
 ) -> list[Hit]:
     """PostgreSQL full-text search, best matches first.
 
@@ -50,7 +64,8 @@ def keyword(
     the words and ranks chunks containing more of them higher: needed for long defect descriptions,
     where no past ticket contains every word.
     """
-    if not scopes or not query.strip():
+    snapshot = _served(conn, snapshot)
+    if snapshot is None or not scopes or not query.strip():
         return []
     if match == "any":
         # Each word goes through plainto_tsquery (never parsed as operators); capped so a pasted
@@ -61,27 +76,36 @@ def keyword(
         any_word = " || ".join(["plainto_tsquery('english', %s)"] * len(words))
         rows = conn.execute(
             f"SELECT {_COLUMNS}, ts_rank_cd(c.tsv, t.q) AS score "
-            f"FROM knowledge.index_chunks AS c, (SELECT {any_word} AS q) AS t "
+            f"FROM knowledge.index_chunks AS c {_IN_SNAPSHOT}, (SELECT {any_word} AS q) AS t "
             "WHERE c.tsv @@ t.q AND c.acl_principals ?| %s "
             "ORDER BY score DESC, c.chunk_key LIMIT %s",
-            [*words, list(scopes), limit],
+            [snapshot, *words, list(scopes), limit],
         ).fetchall()
         return [Hit(*row[:7], float(row[7])) for row in rows]
     rows = conn.execute(
         f"SELECT {_COLUMNS}, ts_rank_cd(c.tsv, q) AS score "
-        "FROM knowledge.index_chunks AS c, websearch_to_tsquery('english', %(q)s) AS q "
+        "FROM knowledge.index_chunks AS c "
+        "JOIN knowledge.snapshot_entries AS se "
+        "  ON se.entry_key = c.entry_key AND se.snapshot_id = %(snapshot)s, "
+        "websearch_to_tsquery('english', %(q)s) AS q "
         "WHERE c.tsv @@ q AND c.acl_principals ?| %(scopes)s "
         "ORDER BY score DESC, c.chunk_key LIMIT %(limit)s",
-        {"q": query, "scopes": list(scopes), "limit": limit},
+        {"q": query, "scopes": list(scopes), "limit": limit, "snapshot": snapshot},
     ).fetchall()
     return [Hit(*row[:7], float(row[7])) for row in rows]
 
 
 def vector(
-    conn: psycopg.Connection, embedder: Embedder, query: str, scopes: Sequence[str], limit: int = 20
+    conn: psycopg.Connection,
+    embedder: Embedder,
+    query: str,
+    scopes: Sequence[str],
+    limit: int = 20,
+    snapshot: str | None = None,
 ) -> list[Hit]:
     """Nearest chunks by cosine similarity, only from the embedder's own model (never mixed)."""
-    if not scopes or not query.strip():
+    snapshot = _served(conn, snapshot)
+    if snapshot is None or not scopes or not query.strip():
         return []
     embedding = _vector(embedder.embed_query(redact(query).text))
     with conn.transaction():
@@ -97,8 +121,16 @@ def vector(
             f"SELECT {_COLUMNS}, 1 - (e.embedding <=> %(v)s::vector) AS score "
             "FROM knowledge.chunk_embeddings AS e "
             "JOIN knowledge.index_chunks AS c USING (chunk_key) "
+            "JOIN knowledge.snapshot_entries AS se "
+            "  ON se.entry_key = c.entry_key AND se.snapshot_id = %(snapshot)s "
             "WHERE e.model_id = %(model)s AND c.acl_principals ?| %(scopes)s "
             "ORDER BY e.embedding <=> %(v)s::vector, c.chunk_key LIMIT %(limit)s",
-            {"v": embedding, "model": embedder.model_id, "scopes": list(scopes), "limit": limit},
+            {
+                "v": embedding,
+                "model": embedder.model_id,
+                "scopes": list(scopes),
+                "limit": limit,
+                "snapshot": snapshot,
+            },
         ).fetchall()
     return [Hit(*row[:7], float(row[7])) for row in rows]

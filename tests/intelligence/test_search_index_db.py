@@ -13,7 +13,7 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 from psycopg.conninfo import make_conninfo  # noqa: E402
 
-from app.knowledge import indexer, search  # noqa: E402
+from app.knowledge import search, snapshots  # noqa: E402
 from app.knowledge.embeddings import HashingEmbedder  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
@@ -107,15 +107,23 @@ class Corpus:
     def read(self, uri: str) -> bytes:
         return self.archive[uri]  # unknown URIs (other tests' rows) fail in isolation
 
-    def index(self, embedder=None):
-        return indexer.run(_conninfo("INTELLIGENCE"), self.read, embedder or HashingEmbedder())
+    def index(self, embedder=None, force=False):
+        """Index and publish a snapshot (LRN-15); returns the indexing report."""
+        report, self.published = snapshots.refresh(
+            _conninfo("INTELLIGENCE"), self.read, embedder or HashingEmbedder(), force=force
+        )
+        return report
 
     def chunks(self, item):
+        """What the published snapshot serves for this item."""
         with psycopg.connect(_conninfo("API")) as conn:
             return conn.execute(
                 "SELECT c.chunk_key, c.provider_revision_id, c.acl_principals, c.content, "
                 "e.model_id, e.dimension FROM knowledge.index_chunks c "
-                "JOIN knowledge.chunk_embeddings e USING (chunk_key) WHERE c.item_key = %s",
+                "JOIN knowledge.chunk_embeddings e USING (chunk_key) "
+                "JOIN knowledge.snapshot_entries se ON se.entry_key = c.entry_key "
+                "JOIN knowledge.snapshot_pointer p ON p.snapshot_id = se.snapshot_id "
+                "WHERE c.item_key = %s",
                 (item,),
             ).fetchall()
 
@@ -193,7 +201,7 @@ def test_a_corrupt_item_fails_alone_and_a_model_change_re_embeds() -> None:
     class NewModel(HashingEmbedder):
         model_id = "test-hashing-768-v2"
 
-    corpus.index(NewModel())
+    corpus.index(NewModel(), force=True)  # deliberate model change in a shared test DB
     assert {r[4] for r in corpus.chunks(bug)} == {"test-hashing-768-v2"}  # never mixed
 
 

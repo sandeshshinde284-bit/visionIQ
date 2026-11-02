@@ -11,7 +11,7 @@ psycopg = pytest.importorskip("psycopg")
 
 from corpus_support import Corpus, conninfo  # noqa: E402
 
-from app.knowledge import indexer, lesson_history, lessons_cli  # noqa: E402
+from app.knowledge import indexer, lesson_history, lessons_cli, snapshots  # noqa: E402
 from app.knowledge.embeddings import HashingEmbedder  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
@@ -54,7 +54,7 @@ def events(corpus_keys: list[str]) -> list[tuple]:
 def indexed_at(item: str):
     with psycopg.connect(conninfo("API")) as conn:
         return conn.execute(
-            "SELECT indexed_at FROM knowledge.index_items WHERE item_key = %s", (item,)
+            "SELECT max(indexed_at) FROM knowledge.index_entries WHERE item_key = %s", (item,)
         ).fetchone()
 
 
@@ -64,7 +64,7 @@ def test_a_pr_event_re_indexes_only_that_pr_and_only_its_changed_chunks() -> Non
         "work_item_current", {"id": 101, "workItemType": "Bug", "title": "Barcode fails"}
     )
     pr = corpus.add("pull_request", pull_request("Retry-only patches were reverted."))
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     bug_before = indexed_at(bug)
 
     corpus.add("pull_request", pull_request("Use an idempotency key, not a retry."), revision="2")
@@ -82,7 +82,7 @@ def test_a_pr_event_re_indexes_only_that_pr_and_only_its_changed_chunks() -> Non
 def test_a_removed_item_emits_an_event() -> None:
     corpus = Corpus()
     bug = corpus.add("work_item_current", {"id": 7, "workItemType": "Bug", "title": "Gone soon"})
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     corpus.add(
         "work_item_current",
         {"id": 7, "workItemType": "Bug", "title": "x"},
@@ -90,7 +90,7 @@ def test_a_removed_item_emits_an_event() -> None:
         deleted=True,
     )
 
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
 
     assert ("index.item_removed", bug) in [(e[0], e[1]) for e in events([bug])]
 

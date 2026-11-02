@@ -54,3 +54,26 @@ def test_results_from_a_single_fuzzy_lane_are_weak_evidence():
     assert judge(signals, [_result(vector=1)])[0] == "weak_evidence"
     assert judge(signals, [_result(vector=1, keyword=3)])[0] == "answered"
     assert judge(signals, [_result(code_path=1)])[0] == "answered"
+
+
+def test_without_a_published_snapshot_nothing_is_searched():
+    from app.knowledge.embeddings import HashingEmbedder
+    from app.knowledge.retrieval import retrieve
+
+    class NoSnapshot:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return self
+
+        def fetchone(self):
+            return None
+
+    bundle = retrieve(NoSnapshot, HashingEmbedder(), "barcode print fails", ["scope"])
+
+    assert bundle.status == "weak_evidence" and bundle.results == []
+    assert "No knowledge snapshot" in bundle.reasons[0]

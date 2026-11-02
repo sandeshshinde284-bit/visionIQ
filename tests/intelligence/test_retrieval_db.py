@@ -15,7 +15,7 @@ psycopg = pytest.importorskip("psycopg")
 
 from corpus_support import Corpus, conninfo  # noqa: E402
 
-from app.knowledge import indexer, lessons_cli  # noqa: E402
+from app.knowledge import lessons_cli, snapshots  # noqa: E402
 from app.knowledge.embeddings import HashingEmbedder  # noqa: E402
 from app.knowledge.retrieval import READABLE_NOW_SQL, retrieve  # noqa: E402
 
@@ -70,7 +70,7 @@ def demo_history(corpus: Corpus) -> dict[str, str]:
     corpus.fix("102", "202", RETRY_FIX, reverted=True)
     corpus.fix("103", "203", ["/web/login.css"])
     corpus.fix("104", "204", ["/src/Network/Gateway.cs"])
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     lessons_cli.run(conninfo("INTELLIGENCE"))
     return keys
 

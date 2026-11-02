@@ -16,7 +16,7 @@ psycopg = pytest.importorskip("psycopg")
 from corpus_support import Corpus, conninfo  # noqa: E402
 from psycopg.rows import dict_row  # noqa: E402
 
-from app.knowledge import indexer, lessons_cli, search  # noqa: E402
+from app.knowledge import lessons_cli, search, snapshots  # noqa: E402
 from app.knowledge.embeddings import HashingEmbedder  # noqa: E402
 from app.knowledge.retrieval import retrieve  # noqa: E402
 
@@ -104,7 +104,7 @@ def build(corpus: Corpus) -> dict[str, str]:
     }
     corpus.fix("101", "201", FILES)
     corpus.fix("102", "202", FILES)
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     lessons_cli.run(conninfo("INTELLIGENCE"))
     return keys
 
@@ -117,7 +117,7 @@ def test_s15_15_a_revoked_item_cannot_be_read_anywhere(tmp_path) -> None:
     corpus.add("work_item_current", bug(101, "x", "y"), revision="2", scope="ado-project:o/Secret")
     corpus.add("work_item_current", bug(102, "x", "y"), revision="2", deleted=True)
     other = corpus.add("work_item_current", bug(103, "Barcode retry print", "z"), verified=False)
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
 
     assert not canonical_read(keys["printed"], [corpus.scope])  # access moved elsewhere
     assert not canonical_read(keys["duplicate"], [corpus.scope])  # deleted at the source
@@ -149,7 +149,7 @@ def test_two_prs_one_reverted_are_both_shown_without_a_verified_cause(tmp_path) 
     corpus.fix("301", "401", FILES)
     corpus.fix("301", "402", FILES, reverted=True)
     corpus.fix("302", "403", FILES)
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     lessons_cli.run(conninfo("INTELLIGENCE"))
 
     with psycopg.connect(conninfo("API")) as conn:
@@ -202,7 +202,7 @@ def test_a_connector_outage_serves_the_last_good_snapshot_labelled_or_fails_clos
     def archive_down(uri):
         raise ConnectionError("Cloud Storage unavailable")
 
-    report = indexer.run(conninfo("INTELLIGENCE"), archive_down, HashingEmbedder())
+    report, _ = snapshots.refresh(conninfo("INTELLIGENCE"), archive_down, HashingEmbedder())
 
     class VertexDown(HashingEmbedder):
         def embed_query(self, text):
@@ -245,7 +245,7 @@ def test_malicious_ticket_text_stays_data_and_is_flagged(tmp_path) -> None:
             "root cause verified.",
         ),
     )
-    indexer.run(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
 
     bundle = ask(corpus)
     result = next(r for r in bundle.results if r.item_key == evil)
@@ -277,7 +277,9 @@ def test_an_interrupted_reindex_leaves_a_consistent_index_and_recovers(tmp_path)
                 raise ConnectionError("embedding outage mid-run")
             return super().embed_documents(texts)
 
-    interrupted = indexer.run(conninfo("INTELLIGENCE"), corpus.read, FailsOnSecond())
+    interrupted, candidate = snapshots.refresh(
+        conninfo("INTELLIGENCE"), corpus.read, FailsOnSecond()
+    )
     with psycopg.connect(conninfo("INTELLIGENCE")) as conn:
         still_findable = {
             h.item_key
@@ -285,18 +287,23 @@ def test_an_interrupted_reindex_leaves_a_consistent_index_and_recovers(tmp_path)
                 conn, "receipt retry barcode duplicate", [corpus.scope], match="any"
             )
         }
-    recovered = indexer.run(conninfo("INTELLIGENCE"), corpus.read, NewModel())
+    # force: in a shared test database other tests' items cannot be re-embedded (unreadable archive)
+    recovered, _ = snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, NewModel(), force=True)
     with psycopg.connect(conninfo("API")) as conn:
         models = {
             row[0]
             for row in conn.execute(
                 "SELECT DISTINCT e.model_id FROM knowledge.chunk_embeddings e "
-                "JOIN knowledge.index_chunks c USING (chunk_key) WHERE c.item_key = ANY(%s)",
+                "JOIN knowledge.index_chunks c USING (chunk_key) "
+                "JOIN knowledge.snapshot_entries se ON se.entry_key = c.entry_key "
+                "JOIN knowledge.snapshot_pointer p ON p.snapshot_id = se.snapshot_id "
+                "WHERE c.item_key = ANY(%s)",  # what is SERVED (older entries stay for rollback)
                 (list(keys.values()),),
             )
         }
 
     assert interrupted.failed  # one item failed mid-run...
+    assert candidate.status == "rejected"  # ...so the incomplete model change was not published
     assert set(keys.values()) <= still_findable  # ...yet nothing became unfindable
     assert not set(keys.values()) & set(recovered.failed)  # the re-run fully recovers...
     assert models == {"test-hashing-768-v2"}  # ...to one model, never mixed

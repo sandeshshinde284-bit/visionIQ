@@ -3,6 +3,9 @@
 `app.knowledge.retrieval.retrieve(connect, embedder, query, scopes, ...)` finds the history most like a
 defect and returns an **EvidenceBundle** (master design §7.1, §10.10).
 
+Every request reads one **published snapshot** for all lanes and records its ID and age in the
+EvidenceBundle; see [snapshots.md](snapshots.md) (LRN-15).
+
 ## Algorithm
 
 1. **Redact** the query (people paste logs; the query is sent to the embedding model).

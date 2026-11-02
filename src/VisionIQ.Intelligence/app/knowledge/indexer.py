@@ -1,13 +1,16 @@
-"""LRN-08 (S07-03..05): build and maintain the keyword + vector search index.
+"""LRN-08 (S07-03..05), LRN-15: build the keyword + vector search index as immutable entries.
 
 Only the latest revision of each current (not deleted) item with a VERIFIED access list is indexed.
-An item is re-indexed when its content, access list, redaction policy, chunker or embedding model
-changes; deleted or no-longer-verified items are removed (deletion propagates to the index, 6.10).
-Each item is replaced atomically; one failing item never stops the others.
+An entry is one item revision under one access list, redaction policy, chunker and embedding model;
+a change to any of them creates a new entry (old entries are never edited). What is SERVED is
+decided by publishing a snapshot (app.knowledge.snapshots), which also drops deleted or re-scoped
+items.
+Unchanged chunk text reuses its vector; one failing item never stops the others.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -30,31 +33,24 @@ SELECT i.item_key, i.provider, i.kind, i.project_id, i.repository_id, r.provider
 FROM evidence.source_items AS i
 JOIN evidence.source_revisions AS r
   ON r.item_key = i.item_key AND r.provider_revision_id = i.latest_revision_id
-LEFT JOIN knowledge.index_items AS x ON x.item_key = i.item_key
 WHERE i.deleted_at IS NULL AND r.acl_verified AND jsonb_array_length(r.acl_principals) > 0
   AND i.kind = ANY(%(kinds)s)
   AND (%(only)s::text[] IS NULL OR i.item_key = ANY(%(only)s::text[]))
-  AND (x.item_key IS NULL OR x.source_content_sha256 <> r.content_sha256
-       OR x.provider_revision_id <> r.provider_revision_id OR x.acl_principals <> r.acl_principals
-       OR x.chunker_version <> %(chunker)s OR x.redaction_version <> %(redaction)s
-       OR x.model_id <> %(model)s)
+  AND NOT EXISTS (
+      SELECT 1 FROM knowledge.index_entries AS x
+      WHERE x.item_key = i.item_key AND x.provider_revision_id = r.provider_revision_id
+        AND x.source_content_sha256 = r.content_sha256 AND x.acl_principals = r.acl_principals
+        AND x.chunker_version = %(chunker)s AND x.redaction_version = %(redaction)s
+        AND x.model_id = %(model)s
+        -- LRN-15: an incomplete entry (lost chunk or vector) counts as missing and is repaired
+        AND x.chunk_count = (SELECT count(*) FROM knowledge.index_chunks AS c
+                         WHERE c.entry_key = x.entry_key)
+        AND NOT EXISTS (SELECT 1 FROM knowledge.index_chunks AS c
+                        WHERE c.entry_key = x.entry_key AND NOT EXISTS (
+                            SELECT 1 FROM knowledge.chunk_embeddings AS ce
+                            WHERE ce.chunk_key = c.chunk_key AND ce.model_id = x.model_id)))
 ORDER BY i.item_key
 LIMIT %(limit)s
-"""
-
-STALE_SQL = """
-WITH gone AS (
-    DELETE FROM knowledge.index_items AS x
-    WHERE NOT EXISTS (
-        SELECT 1 FROM evidence.source_items AS i
-        JOIN evidence.source_revisions AS r
-          ON r.item_key = i.item_key AND r.provider_revision_id = i.latest_revision_id
-        WHERE i.item_key = x.item_key AND i.deleted_at IS NULL AND r.acl_verified
-    )
-    RETURNING x.item_key
-)
-INSERT INTO knowledge.change_events (event_type, subject, payload)
-SELECT 'index.item_removed', item_key, jsonb_build_object('item_key', item_key) FROM gone
 """
 
 
@@ -62,7 +58,7 @@ SELECT 'index.item_removed', item_key, jsonb_build_object('item_key', item_key) 
 class IndexReport:
     indexed: int = 0
     chunks: int = 0
-    removed: int = 0
+    removed: int = 0  # kept for compatibility; removal now happens when a snapshot is published
     embedded: int = 0  # chunks sent to the embedding model
     reused: int = 0  # unchanged chunks whose existing vector was kept (S12-11)
     failed: list[str] = field(default_factory=list)
@@ -88,7 +84,6 @@ def run(
     with psycopg.connect(conninfo, autocommit=True) as conn:
         conn.execute("SELECT pg_advisory_lock(%s)", (LOCK,))
         try:
-            report.removed = conn.execute(STALE_SQL).rowcount
             pending = conn.execute(
                 PENDING_SQL,
                 {
@@ -118,6 +113,11 @@ def run(
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (LOCK,))
     return report
+
+
+def _chunk_key(entry_key: str, chunk_key: str) -> str:
+    """Chunk keys are scoped to their entry, so entries of the same revision never collide."""
+    return hashlib.sha256(f"{entry_key}|{chunk_key}".encode()).hexdigest()
 
 
 def _parse_vector(text: str) -> list[float]:
@@ -166,13 +166,27 @@ def _index_item(
     vectors = [known.get(c.content_sha256) or new_vectors[c.content_sha256] for c in chunks]
     now = datetime.now(UTC)
     acl_json = json.dumps(acl)
-    with conn.transaction():  # replace the item atomically
-        conn.execute("DELETE FROM knowledge.index_items WHERE item_key = %s", (item_key,))
+    entry_key = hashlib.sha256(
+        "|".join(
+            [
+                item_key,
+                revision,
+                content_sha,
+                acl_json,
+                CHUNKER_VERSION,
+                REDACTION_VERSION,
+                embedder.model_id,
+            ]
+        ).encode()
+    ).hexdigest()
+    with conn.transaction():  # one immutable entry, written atomically
         conn.execute(
-            "INSERT INTO knowledge.index_items (item_key, provider_revision_id, "
+            "INSERT INTO knowledge.index_entries (entry_key, item_key, provider_revision_id, "
             "source_content_sha256, acl_principals, chunker_version, redaction_version, model_id, "
-            "chunk_count, indexed_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "chunk_count, indexed_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (entry_key) DO NOTHING",
             (
+                entry_key,
                 item_key,
                 revision,
                 content_sha,
@@ -184,15 +198,18 @@ def _index_item(
                 now,
             ),
         )
+        # Repairing an incomplete entry: its derived chunks are rebuilt (entry metadata unchanged).
+        conn.execute("DELETE FROM knowledge.index_chunks WHERE entry_key = %s", (entry_key,))
         for piece, vector in zip(chunks, vectors, strict=True):
             conn.execute(
-                "INSERT INTO knowledge.index_chunks (chunk_key, item_key, provider_revision_id, "
-                "chunk_index, section, content, content_sha256, provider, kind, project_id, "
-                "repository_id, source_url, source_updated_at, acl_principals, redaction_version, "
-                "chunker_version) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-                "%s, %s)",
+                "INSERT INTO knowledge.index_chunks (chunk_key, entry_key, item_key, "
+                "provider_revision_id, chunk_index, section, content, content_sha256, provider, "
+                "kind, project_id, repository_id, source_url, source_updated_at, acl_principals, "
+                "redaction_version, chunker_version) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, "
+                "%s, %s, %s, %s, %s, %s, %s, %s)",
                 (
-                    piece.chunk_key,
+                    _chunk_key(entry_key, piece.chunk_key),
+                    entry_key,
                     item_key,
                     revision,
                     piece.chunk_index,
@@ -213,7 +230,13 @@ def _index_item(
             conn.execute(
                 "INSERT INTO knowledge.chunk_embeddings (chunk_key, model_id, dimension, "
                 "embedding, embedded_at) VALUES (%s, %s, %s, %s::vector, %s)",
-                (piece.chunk_key, embedder.model_id, embedder.dimension, _vector(vector), now),
+                (
+                    _chunk_key(entry_key, piece.chunk_key),
+                    embedder.model_id,
+                    embedder.dimension,
+                    _vector(vector),
+                    now,
+                ),
             )
         conn.execute(  # knowledge.changed (S12-15), committed with the change itself
             "INSERT INTO knowledge.change_events (event_type, subject, payload) "
@@ -223,6 +246,7 @@ def _index_item(
                 json.dumps(
                     {
                         "item_key": item_key,
+                        "entry_key": entry_key,
                         "kind": kind,
                         "revision": revision,
                         "chunks": len(chunks),

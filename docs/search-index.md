@@ -22,6 +22,8 @@ Default Credentials for Vertex AI and the raw evidence bucket.
 When you connect Vertex AI, follow [vertex-ai-setup.md](vertex-ai-setup.md) and run
 `python -m app.knowledge.vertex_check` to confirm everything is ready.
 
+Searches read only the **published snapshot**; see [snapshots.md](snapshots.md) (LRN-15).
+
 ## What is indexed
 
 The latest revision of each work item (title, description, **repro steps, system info**, acceptance
