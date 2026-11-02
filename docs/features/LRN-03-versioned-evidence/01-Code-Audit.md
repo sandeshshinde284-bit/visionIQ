@@ -94,3 +94,7 @@ docker exec visioniq-lrn03-test-postgres psql -U visioniq_test -d visioniq_lrn03
 - **Status:** migration/schema-existence check **PASS**. This does **not** verify the schema's write permissions for the separate runtime API role, deduplication outcomes, raw GCS objects or Confluence requester authorization.
 
 **Next gate:** isolated API role bootstrap, then replay of two source revisions through the actual `PostgresEvidenceStore` with verified database row counts and metadata.
+
+## Bootstrap command correction and documentation coverage
+
+The user ran `python -m db.manage bootstrap` with the correct isolated environment, but `db/manage.py` accepts only `migrate`, `roles`, `verify`, and `all`. The result was **CLI usage exit 2**; this is not evidence of a failed database permission grant. The Python function `bootstrap(settings)` is reached through the `roles` action. New [operations](03-Setup-Commands-and-Troubleshooting.md) and [test evidence](04-Test-Evidence-and-Acceptance.md) documentation covers this incident plus prior Docker/PowerShell issues. Role verification is still pending.
