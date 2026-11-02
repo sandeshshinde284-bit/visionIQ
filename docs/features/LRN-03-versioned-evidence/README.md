@@ -52,6 +52,27 @@ flowchart LR
 | `src/VisionIQ.Api/Features/Evidence/` | Archive and evidence storage interfaces/implementations |
 | `tests/VisionIQ.Ingestor.Tests/` | Relevant ingestion/normalization and integration test code |
 
+## Initial test coverage added with the implementation
+
+New synthetic regression tests are in `tests/VisionIQ.Ingestor.Tests/Lrn03EvidenceBoundaryTests.cs`:
+
+- Raw evidence is archived before a database store call.
+- An archive failure prevents a database write.
+- Stable item identities differ across provider/repository boundaries.
+- Unknown record kinds do not leak unreviewed values into redacted metadata.
+
+Run from the repo root:
+
+```powershell
+dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj `
+  --configuration Release `
+  --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests" `
+  --verbosity normal
+if ($LASTEXITCODE -ne 0) { throw "LRN-03 focused tests failed" }
+```
+
+**Status:** test source committed; local execution and results **not yet observed**. This synthetic suite does not validate real PostgreSQL row constraints, GCS object contents, or GCP IAM. Those need separate integration testing.
+
 ## Source-of-truth acceptance checklist
 
 - [x] Original Trello acceptance criteria retrieved and documented.
