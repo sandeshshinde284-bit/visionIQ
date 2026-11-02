@@ -197,3 +197,16 @@ cloud guide evidence all pass.** GitHub PR/CI success means the manual scripts
 are ready to review—not that anything was deployed.
 
 **FND-AUTO (#11) may remain Open while FND-04 is accepted manually.**
+
+
+## LRN-01 integration update — 2026-11-02 (cloud boundary)
+
+The history connector is documented under [LRN-01 feature guide](features/LRN-01-history-connectors/README.md) and [LRN-01 acceptance results](features/LRN-01-history-connectors/acceptance.md).
+
+- **Verified outside the Cloud Run services:** approved Azure DevOps `Genoa Kiosk` / `KIOSK_TVM` ingestion was exercised from a local Windows .NET CLI. Work items, history/comments, commits, PRs, changed-file metadata and project-level CI builds have source-backed test evidence. The latest build test archived **86 runs and 149 links**, with **112 projected build-link assertions** and exit code **0**.
+- **Verified storage boundary:** local isolated PostgreSQL (`127.0.0.1:15543`) + real Cloud Storage evidence bucket were used in canonical tests; five sampled archived hashes matched; 402/402 full solution tests passed. This is **not evidence that the ingestor ran inside GCP or connected to managed Cloud SQL**.
+- **Not deployed/verified:** a dedicated container image/Cloud Run Job for the ingestor, Cloud Scheduler recurring trigger, source/webhook-to-job automation, and GCP-hosted end-to-end incremental processing. The manually deployed API and intelligence services **do not themselves schedule LRN-01 synchronization**.
+- **Proposed next cloud milestone:** package and manually push a reviewed ingestor image to the existing Artifact Registry; deploy a scoped Cloud Run Job with approved source credentials from Secret Manager, private Cloud SQL access, and GCS writer permissions. Validate read-only ADO access, least privilege, checkpoint persistence, no-change replay and safe job failure before adding Cloud Scheduler. No such deployment is authorized or claimed by this documentation update.
+- **Operational limitation:** project-level `builds` ingestion is not automatically narrowed by `ADO_REPOS=KIOSK_TVM`; approved pipeline filters must be reviewed. History backfills should be controlled, not automatically repeated on every invocation.
+
+**Documentation owner boundary:** keep the master `VisionIQ_Cloud_Structure` resource inventory/screenshots as the canonical cloud asset record; this section tracks the FND-04-to-LRN-01 dependency and does not replace that master document. PR #14 remains Draft.
