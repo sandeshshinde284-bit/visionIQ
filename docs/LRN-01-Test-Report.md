@@ -177,3 +177,7 @@ Live `KIOSK_TVM` incremental Git sync (`runId=908c1918-a7c9-43b8-bba6-e023c488d7
 ## LRN-07 graph identity live retest — no projection conflicts reported (2026-11-02)
 
 Following association-scoped assertion-key fix, user rebuilt and ran canonical `KIOSK_TVM` delta sync (`runId=586d47ce-1769-43fb-abd9-2060eb921ec0`). Both PR and commit streams reported `Synced`, **0 newly stored, 0 quarantined, 0 not stored**. Ticket-fix graph reconciliation processed **85 assertions** and displayed **no projection failure warnings**; test-link and build-link projections processed 0. Full terminal tail and exit code were not included in the shared output, so process exit 0 remains to be confirmed. This reconciled existing data without a database reset, but regression-test output and longer-term compatibility of legacy assertion rows still require validation.
+
+## LRN-07 regression confirmed — PASSED (2026-11-02)
+
+User ran `TicketFixAssertionIdentityTests` in `VisionIQ.Api.Tests`: **3 passed, 0 failed, 0 skipped, exit 0**, build successful. Post-fix KIOSK_TVM reconciliation reported 85 assertions processed and no conflicts; persisted graph assertions were **141**. The original 21 `immutable_graph_assertion_conflict` errors were no longer reported. The specific assertion-key collision defect is verified fixed, while broader LRN-07 story acceptance and LRN-01 comments/failure-recovery checks remain pending.
