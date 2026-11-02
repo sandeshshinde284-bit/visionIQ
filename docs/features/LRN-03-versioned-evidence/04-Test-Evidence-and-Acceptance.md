@@ -11,7 +11,7 @@
 | Alembic migration on isolated DB | `20261101_0012` | PASS | Migration applied in isolated database |
 | Evidence table inventory | **14** evidence tables; `source_items`, `source_revisions` present | PASS | Table existence, not row correctness |
 | First `db.manage bootstrap` command | CLI `invalid choice: 'bootstrap'`, exit **2** | COMMAND ERROR | Earlier command was wrong; correct CLI action is `roles`; not a database/bootstrap logic failure |
-| `db.manage roles` | User reports completed; exact stdout/exit code not supplied | REPORTED COMPLETE — NOT INDEPENDENTLY VERIFIED | Runtime role/bootstrap verification |
+| `db.manage roles` | User reports completed; exact stdout/exit code not supplied | REPORTED COMPLETE | Runtime role/bootstrap verification |
 | Two revisions + identical replay | Not executed in supplied transcript | PENDING | **Official LRN-03 completion evidence** |
 | Existing revision ID + altered content | Not executed in supplied transcript | PENDING | Conflict must be returned; no revision overwrite |
 | GCS raw snapshot integrity/immutability | No new LRN-03 run supplied | PENDING | Prior LRN-01 5/5 GCS hash sample is supporting context only |
@@ -32,6 +32,10 @@
 - Never include tokens, passwords, confidential pages, source descriptions or unrestricted company identifiers.
 - PR stays Draft; no cloud deployment or main-branch merge is authorized by these local checks.
 
+## Verified role isolation — 2 November 2026
+
+User executed `python -m db.manage verify` against the disposable local database, observing **`pgvector, full-text search and role isolation verified.`**, exit code **0**. **PASS:** capabilities and runtime schema isolation. This does not yet prove item/revision replay semantics.
+
 ## Next action
 
-Run `python -m db.manage verify` against the same isolated target, as documented in [setup/operations](03-Setup-Commands-and-Troubleshooting.md). This verification creates and drops temporary test tables. Record its real exit code and sanitized output; do not mark it passed before seeing them. Then test real revision/replay through `PostgresEvidenceStore`.
+Execute a synthetic item + two revisions through the real `PostgresEvidenceStore`, verify the database row counts, latest revision and conflict semantics. This integration test remains pending.
