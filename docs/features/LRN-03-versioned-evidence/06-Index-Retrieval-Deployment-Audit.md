@@ -42,3 +42,11 @@ If no real index writer/retrieval path exists, label this gate **NOT IMPLEMENTED
 ## Current conclusion
 
 LRN-03 raw storage, deduplication and metadata normalization have concrete local+GCS integration results. **A deployed indexing and retrieval flow has not been established or tested.** The 8/8 boundary test result cannot substitute for an authenticated deployed retrieval test.
+
+## User-run infrastructure inventory — 2 November 2026
+
+**Cloud Run listing:** observed `visioniq-api` and `visioniq-intelligence` services, and `visioniq-db-migrate` job in `gbr-mts-wgh-hkt-dev` / `europe-west3`. The listing also included unrelated project services; those are not part of the LRN-03 evidence trail. Listing proves resource existence, not service readiness, implemented retrieval routes, or up-to-date image revisions.
+
+**Isolated local PostgreSQL:** `\\dt knowledge.*` yielded `Did not find any relation named "knowledge.*".` The `pg_indexes` query returned **27 indexes under `evidence`**, with no `knowledge` index rows. These include B-tree identity/revision/graph indexes and GIN `source_revisions_acl_idx` for `acl_principals`. No vector/embedding search index was observed. The query does not establish whether another Cloud SQL database has any indexes.
+
+**Decision:** downstream deployed semantic indexing/retrieval remains **NOT IMPLEMENTED/NOT DEMONSTRATED in inspected environment**, rather than a failed LRN-03 storage criterion. Keep LRN-03 canonical evidence ingestion and secure redacted metadata handoff as a separate completed boundary. Track an independently scoped future story for an index writer, embedding/chunking safeguards, requester-level ACL validation and retrieval test before making any deployed search claims.
