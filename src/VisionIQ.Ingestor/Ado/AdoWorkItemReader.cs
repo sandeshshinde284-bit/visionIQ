@@ -21,6 +21,21 @@ public sealed record WorkItemRecord(
 
     public string? Description { get; init; }
 
+    /// <summary>System.CommentCount as reported by ADO (null when the field was absent).</summary>
+    public int? CommentCount { get; init; }
+
+    /// <summary>
+    /// Discussion comments, oldest first, deleted ones skipped, authors by ADO identity ID only (master design
+    /// 6.6 stage 2). Null when they could not be read; see <see cref="CommentsGap"/>. Never "none" by mistake.
+    /// </summary>
+    public IReadOnlyList<WorkItemComment>? Comments { get; init; }
+
+    /// <summary>Why the comments are unavailable (null when they were read).</summary>
+    public string? CommentsGap { get; init; }
+
+    /// <summary>More comments exist than were read (bounded paging).</summary>
+    public bool CommentsTruncated { get; init; }
+
     public string? AreaPath { get; init; }
 
     public DateTimeOffset? CreatedDate { get; init; }
@@ -193,6 +208,7 @@ public static class AdoWorkItemReader
             new WorkItemRecord(id, revision, type, state, title, tags, changedDate)
             {
                 Description = JsonRead.String(fields, "System.Description"),
+                CommentCount = JsonRead.Int(fields, "System.CommentCount"),
                 AreaPath = JsonRead.String(fields, "System.AreaPath"),
                 AutomatedTestName = JsonRead.String(fields, "Microsoft.VSTS.TCM.AutomatedTestName"),
                 AutomatedTestStorage = JsonRead.String(fields, "Microsoft.VSTS.TCM.AutomatedTestStorage"),
@@ -221,3 +237,6 @@ public static class AdoWorkItemReader
         };
     }
 }
+
+/// <summary>One work-item discussion comment (HTML text); the author is an ADO identity ID only.</summary>
+public sealed record WorkItemComment(int Id, string? AuthorId, DateTimeOffset? CreatedDate, DateTimeOffset? ModifiedDate, string Text);

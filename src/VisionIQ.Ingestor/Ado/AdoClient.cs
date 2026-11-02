@@ -81,7 +81,7 @@ public sealed class AdoClient
     public AdoOptions Options { get; }
 
     /// <summary>Builds {organization}/{project}/{path}?{query}&amp;api-version=... with every part escaped.</summary>
-    public Uri BuildUri(string? project, string path, IEnumerable<KeyValuePair<string, string>>? query = null)
+    public Uri BuildUri(string? project, string path, IEnumerable<KeyValuePair<string, string>>? query = null, string? apiVersion = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
@@ -96,7 +96,7 @@ public sealed class AdoClient
             }
         }
 
-        parameters.Add("api-version=" + Uri.EscapeDataString(Options.ApiVersion));
+        parameters.Add("api-version=" + Uri.EscapeDataString(apiVersion ?? Options.ApiVersion));
         return new Uri(prefix + "/" + path.TrimStart('/') + "?" + string.Join('&', parameters));
     }
 
