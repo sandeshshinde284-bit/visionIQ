@@ -5,7 +5,7 @@ using VisionIQ.Ingestor.Confluence;
 namespace VisionIQ.Ingestor.Cli;
 
 /// <summary>
-/// Read-only discovery of title-based decision candidates. Does not touch sync sinks, checkpoints,
+/// Read-only discovery of title- and label-based decision candidates. Does not touch sync sinks, checkpoints,
 /// canonical storage or body endpoints. Never reports page titles, IDs, links or user/group memberships.
 /// </summary>
 internal static class ConfluenceDecisionDiscovery
@@ -14,6 +14,11 @@ internal static class ConfluenceDecisionDiscovery
         @"^\s*(ADR[-\s]?\d+|Decision\b|Design decision\b|Architecture decision\b)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
         TimeSpan.FromSeconds(2));
+
+    private static readonly HashSet<string> DecisionLabels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "decision", "decisions", "decision-log", "adr", "design-decision", "architecture-decision",
+    };
 
     public static async Task<int> RunAsync()
     {
@@ -44,10 +49,32 @@ internal static class ConfluenceDecisionDiscovery
                 var pages = await source.GetPageMetadataAsync(space);
                 var acl = ConfluenceAccess.ComputeAcls(pages);
                 var eligible = pages.Where(p => acl[p.Id].Complete && !acl[p.Id].IsRestricted).ToList();
-                var candidates = eligible.Count(p => DecisionTitle.IsMatch(p.Title));
-                Console.WriteLine($"Confluence space {space}: pages={pages.Count}, eligible-complete-unrestricted={eligible.Count}, title-candidates={candidates}, withheld-or-unverified={pages.Count - eligible.Count}");
-                Console.WriteLine("Metadata-only title scan. Labels and decision-template properties not inspected; zero candidates is not proof of no decisions.");
+                var titleCandidates = eligible.Count(p => DecisionTitle.IsMatch(p.Title));
+                var labelCandidates = 0;
+                var labelFailures = 0;
+                foreach (var page in eligible)
+                {
+                    // Never retrieve labels for restricted or incomplete-ACL pages.
+                    try
+                    {
+                        var labels = await source.GetPageLabelsAsync(page.Id);
+                        if (labels.Any(DecisionLabels.Contains))
+                        {
+                            labelCandidates++;
+                        }
+                    }
+                    catch (ConfluenceSourceException)
+                    {
+                        labelFailures++;
+                    }
+                }
+                Console.WriteLine($"Confluence space {space}: pages={pages.Count}, eligible-complete-unrestricted={eligible.Count}, title-candidates={titleCandidates}, label-candidates={labelCandidates}, label-lookup-failures={labelFailures}, withheld-or-unverified={pages.Count - eligible.Count}");
+                Console.WriteLine("Title/label counts can overlap. Template properties not inspected; zero candidates does not prove no design decisions.");
                 Console.WriteLine("No titles, IDs, bodies, ACL members, checkpoint writes, or evidence exports.");
+                if (labelFailures > 0)
+                {
+                    anyFailed = true;
+                }
             }
             catch (ConfluenceSourceException error)
             {
