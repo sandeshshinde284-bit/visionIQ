@@ -15,7 +15,7 @@
 | Two revisions + identical replay | User-run targeted xUnit: 1 succeeded, 0 failed, 0 skipped; exit 0; build succeeded with 63 warnings | **PASS — targeted integration** | Test asserts 1 logical item, 2 revisions, correct latest revision, replay statuses; no actual GCS |
 | Existing revision ID + altered content | Included in same successful targeted xUnit integration test | **PASS — targeted integration** | `Conflict` return asserted; database revision count remains 2 |
 | GCS raw snapshot integrity/immutability | Retried 2026-11-02 after ADC reauthentication; 1/1 passed, 0 failed, 0 skipped, exit 0 (14.6s); 65 warnings | **PASS — real isolated GCS** | One synthetic object: exact bytes, SHA-256, unchanged generation on replay; broader IAM/indexing not tested |
-| Downstream indexable metadata safety | Source allowlist hardened, 4 new synthetic regressions added, test execution pending | CODE FIX COMMITTED — TEST PENDING | Actual deployed index writer not established |\n| End-user Confluence ACL retrieval | Not executed | OUTSIDE STORAGE GATE / OPEN DEPENDENCY | LRN-02 authorization handoff |
+| Downstream indexable metadata safety | User-run focused xUnit: 8 succeeded, 0 failed, 0 skipped, exit 0; build succeeded with 65 warnings | **PASS — normalization boundary** | Actual deployed index writer not established |\n| End-user Confluence ACL retrieval | Not executed | OUTSIDE STORAGE GATE / OPEN DEPENDENCY | LRN-02 authorization handoff |
 
 ## Acceptance criteria (original Trello wording)
 
@@ -92,3 +92,7 @@ Write-Host "LRN-03 redaction tests exit code: $LASTEXITCODE"
 ```
 
 **Important distinction:** tests prove the normalization/ingestion **boundary** excludes specified text and PostgreSQL stores its `redacted_payload`. They do **not** prove there is an actual deployed downstream vector/full-text index consuming only this JSON. A deployment-specific index writer or retrieval path must be located and tested independently before full indexing signoff. Existing stored rows may need a controlled backfill/reindex to pick up normalization changes; there is no automatic retroactive rewrite in this patch.
+
+## Verified redaction regression — 2 November 2026
+
+The user executed `dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Tests.csproj --configuration Release --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests" --verbosity minimal` after the allowlist hardening. Output: **8 tests succeeded, 0 failed, 0 skipped; exit code 0**; build succeeded with **65 warnings** in 22.8 seconds. Tests completed in 2.7 seconds. This verifies the metadata normalization boundary; it does not exercise a deployed search index or retrospectively clean previously stored projections. **Do not equate this with end-to-end indexing signoff.**
