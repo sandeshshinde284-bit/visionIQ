@@ -61,7 +61,7 @@ dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj `
 Write-Host "LRN-03 focused test exit code: $LASTEXITCODE"
 ```
 
-**Expected:** four tests discovered, four passed, zero failed, exit 0. **Observed:** not yet supplied.
+**Expected and observed (user-run, 2 November 2026):** four tests discovered, four passed, zero failed, zero skipped, build succeeded, exit 0. xUnit VSTest Adapter 2.8.2, net10.0. This validates the synthetic service boundaries only; it is not a PostgreSQL or GCS integration result.
 
 Then use an **isolated approved PostgreSQL test schema/database** to demonstrate exactly one source item with two revisions after replay. Do not run test imports into shared evidence tables or mutate production-like checkpoints. The exact executable integration command and SQL must be grounded in the existing test harness/schema before publishing it as copy-paste instruction.
 
