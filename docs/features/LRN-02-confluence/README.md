@@ -29,3 +29,7 @@ We can finish and freeze the LRN-02 **documentation baseline** now. We must **no
 
 ## Safety
 Keep credential values and Confluence contents out of source control. Read-only discovery is not proof of access for any particular engineer, and `--since` does not bypass full-space ACL evaluation. See the operations guide before new live runs.
+
+## Commands: what to run and what not to repeat
+
+See the [LRN-01 and LRN-02 command register](../LEARN-01-02-Command-Register.md) for routine commands, recorded test runs, expected outcomes, write-side safety checks, and operations that should **not** be repeated as everyday steps.
