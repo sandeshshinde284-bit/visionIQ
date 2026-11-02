@@ -181,3 +181,7 @@ Following association-scoped assertion-key fix, user rebuilt and ran canonical `
 ## LRN-07 regression confirmed — PASSED (2026-11-02)
 
 User ran `TicketFixAssertionIdentityTests` in `VisionIQ.Api.Tests`: **3 passed, 0 failed, 0 skipped, exit 0**, build successful. Post-fix KIOSK_TVM reconciliation reported 85 assertions processed and no conflicts; persisted graph assertions were **141**. The original 21 `immutable_graph_assertion_conflict` errors were no longer reported. The specific assertion-key collision defect is verified fixed, while broader LRN-07 story acceptance and LRN-01 comments/failure-recovery checks remain pending.
+
+## Live ADO comments ingestion — PASSED (2026-11-02)
+
+Full local JSONL work-item sync `3ccb5eba-59c1-48e9-b980-da646ccfada3` finished exit 0, 367 work items, 1002 links, zero not stored/quarantined. Verified `work-items.jsonl` via `JsonLinesSink` wrapper property `record`: work item 106675 had `CommentCount=9`, 9 `comments`; 107328 had `CommentCount=2`, 2 comments; 115804 had `CommentCount=0`, zero comments. All three had blank `CommentsGap` and `CommentsTruncated=false`. No source content printed. Earlier `WorkItemCommentTests` passed 4/4 including unavailable handling. This confirms comments in local JSONL but does not independently prove canonical storage of the comment fields. Remaining major LRN-01 gate: controlled canonical persistence failure and checkpoint recovery.
