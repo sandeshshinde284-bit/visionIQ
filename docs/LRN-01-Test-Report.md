@@ -143,6 +143,11 @@ Five archive URIs were selected from `evidence.source_revisions` in the isolated
 
 User executed the new `WorkItemCommentTests` suite: **4 passed, 0 failed, 0 skipped, exit code 0**. Build reported 63 warnings; evaluate warning types during final regression. Live `inventory` exited 0 and reported **Genoa Kiosk: 4,438 work items, 9 repositories, 22 pipelines**. The former missing Azure Repos permission is resolved at discovery/inventory level; actual live commit and PR ingestion plus real comment cases remain unverified. Confluence remains unconfigured.
 
+
+## Live KIOSK_TVM Git ingestion — streams passed; graph projection failed (2026-11-02)
+
+Only ADO repository `KIOSK_TVM` (project `Genoa Kiosk`) was selected. Sync run `31242d8b-ba97-44d0-9710-04868966423b` reported pull requests **12 stored, 42 links** and commits **64 stored, 11 links**; both streams `Synced`, zero not stored/quarantined. Post-sync ticket-fix graph materialization processed 43 assertions and reported **18 failed associations** with `InvalidOperationException`; code marks `graphFailed=true` and returns **exit code 2** even when ingestion streams pass. Actual process exit code and remaining output not yet supplied. Treat source sync and graph reconciliation as distinct acceptance conditions. Investigate details without reingesting the same large source unnecessarily; inspect the first safe exception/error detail and PostgreSQL graph endpoint state. PR #14 remains Draft.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
