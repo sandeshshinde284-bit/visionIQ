@@ -88,11 +88,11 @@ docker exec visioniq-lrn01-test-postgres psql -U visioniq -d visioniq -c "SELECT
 
 Never reset checkpoints or delete GCS objects to make a test pass.
 
-## 7. Full current-branch regression (pending)
+## 7. Full current-branch regression (completed on 2026-11-02)
 
 ```powershell
 dotnet test .\VisionIQ.sln --configuration Release
 Write-Host "Solution exit code: $LASTEXITCODE"
 ```
 
-Note any **skipped** integration tests; they are not passes. See [acceptance](acceptance.md) for exact unverified gates.
+Recorded result: **402 passed, 0 failed, 0 skipped, exit 0**, build successful with **66 warnings** to review. Re-run after changes and note any skipped integration tests separately. See [acceptance](acceptance.md) for exact gates.
