@@ -55,7 +55,7 @@ The checked migration defines `evidence.source_items` with `item_key CHAR(64) PR
 
 Preflight observed: Docker engine 29.5.3; existing `visioniq-postgres` running healthy on host port 5432; pgvector/pgvector:pg16 available; branch `feature/learn`. The pre-existing container appears published on **all interfaces** (0.0.0.0:5432); review its host firewall and replace with loopback-only binding during a separately approved maintenance change. **Do not restart or alter that container as part of this integration test.**
 
-**Observed user-run test container readiness (2 November 2026):** `visioniq-lrn03-test-postgres` running with isolated host bind `127.0.0.1:55433`; `pg_isready -U visioniq_test -d visioniq_lrn03_test` returned 0. **Migration and item/revision counts remain untested.** `db.manage.LocalConfig` reads local environment variables and `.env`, and migration selection requires local target; the next command must override host/port/db identity explicitly to prevent accidental writes to the usual database.
+**Observed user-run test container readiness (2 November 2026):** `visioniq-lrn03-test-postgres` running with isolated host bind `127.0.0.1:55433`; `pg_isready -U visioniq_test -d visioniq_lrn03_test` returned 0. **Migration now confirmed by user-run output:** Alembic head `20261101_0012`; `evidence.source_items` and `evidence.source_revisions` both listed among 14 `evidence` tables in isolated test database. **Revision import/replay counts remain untested.** `db.manage.LocalConfig` reads local environment variables and `.env`, and migration selection requires local target; the next command must override host/port/db identity explicitly to prevent accidental writes to the usual database.
 
 ## 5. Next actual validation
 
@@ -76,3 +76,21 @@ Then use an **isolated approved PostgreSQL test schema/database** to demonstrate
 ## 5. Documentation update rule
 
 Each reviewed task gets one of `CODE FOUND`, `TEST PASSED`, `BLOCKED`, `GAP`, or `NOT APPLICABLE`. Never upgrade to `TEST PASSED` based on reading code alone. Record sample counts and sanitized output; don't commit source page contents or credentials.
+
+## Migration verification evidence — 2 November 2026
+
+**Environment:** disposable container `visioniq-lrn03-test-postgres`; host `127.0.0.1:55433`; database `visioniq_lrn03_test` (not the existing VisionIQ database).
+
+**User-run verification:**
+
+```powershell
+docker exec visioniq-lrn03-test-postgres psql -U visioniq_test -d visioniq_lrn03_test -c "SELECT version_num FROM alembic_version;"
+docker exec visioniq-lrn03-test-postgres psql -U visioniq_test -d visioniq_lrn03_test -c "\dt evidence.*"
+```
+
+- Actual Alembic version: **20261101_0012** (migration chain applied successfully).
+- Actual evidence tables: **14**, including `source_items` and `source_revisions`.
+- The table owners in this isolated database are `visioniq_test`, as expected from this test migration identity.
+- **Status:** migration/schema-existence check **PASS**. This does **not** verify the schema's write permissions for the separate runtime API role, deduplication outcomes, raw GCS objects or Confluence requester authorization.
+
+**Next gate:** isolated API role bootstrap, then replay of two source revisions through the actual `PostgresEvidenceStore` with verified database row counts and metadata.
