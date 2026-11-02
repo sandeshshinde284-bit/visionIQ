@@ -22,11 +22,20 @@ public sealed class ConfluenceCloudSource : IConfluenceSource
 
     public IReadOnlyList<string> SpaceKeys => http.Options.SpaceKeys;
 
-    public async Task<IReadOnlyList<ConfluencePage>> GetPagesAsync(string spaceKey, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ConfluencePage>> GetPagesAsync(string spaceKey, CancellationToken cancellationToken = default) =>
+        GetPagesCoreAsync(spaceKey, includeBody: true, cancellationToken);
+
+    /// <summary>Read page identity, title, version, ancestry and restrictions, without requesting page bodies.</summary>
+    public Task<IReadOnlyList<ConfluencePage>> GetPageMetadataAsync(string spaceKey, CancellationToken cancellationToken = default) =>
+        GetPagesCoreAsync(spaceKey, includeBody: false, cancellationToken);
+
+    private async Task<IReadOnlyList<ConfluencePage>> GetPagesCoreAsync(string spaceKey, bool includeBody, CancellationToken cancellationToken)
     {
         var spaceId = await ResolveSpaceIdAsync(spaceKey, cancellationToken).ConfigureAwait(false);
         var pages = new List<ConfluencePage>();
-        Uri? next = http.Api("api/v2/spaces/" + spaceId + "/pages", [new("body-format", "storage"), new("status", "current"), new("limit", PageLimit)]);
+        Uri? next = includeBody
+            ? http.Api("api/v2/spaces/" + spaceId + "/pages", [new("body-format", "storage"), new("status", "current"), new("limit", PageLimit)])
+            : http.Api("api/v2/spaces/" + spaceId + "/pages", [new("status", "current"), new("limit", PageLimit)]);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         while (next is not null && seen.Add(next.AbsoluteUri))
         {

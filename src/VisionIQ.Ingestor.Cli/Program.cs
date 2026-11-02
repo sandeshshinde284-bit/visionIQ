@@ -20,6 +20,11 @@ using VisionIQ.Ingestor.Sync;
 // VisionIQ ingestor (LRN-01). Read-only: it never writes to Azure DevOps.
 // Exit codes: 0 everything synced, 2 something partial or not synced, 1 configuration or usage error.
 
+if (args.Length == 1 && string.Equals(args[0], "discover-confluence-decisions", StringComparison.OrdinalIgnoreCase))
+{
+    return await ConfluenceDecisionDiscovery.RunAsync();
+}
+
 var options = CommandLine.Parse(args);
 if (options.Error is not null)
 {
