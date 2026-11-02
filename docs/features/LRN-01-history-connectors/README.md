@@ -56,3 +56,7 @@ See [acceptance.md](acceptance.md) and the [detailed dated test report](../../LR
 6. [Acceptance checklist](acceptance.md) — proof, limitations and next actions.
 
 **Security:** Never commit PATs, raw work-item content, customer data or unrestricted evidence exports. Restrict ingestion to explicitly approved projects, repositories, spaces and buckets.
+
+## Commands: what to run and what not to repeat
+
+See the [LRN-01 and LRN-02 command register](../LEARN-01-02-Command-Register.md) for routine commands, recorded test runs, expected outcomes, write-side safety checks, and operations that should **not** be repeated as everyday steps.
