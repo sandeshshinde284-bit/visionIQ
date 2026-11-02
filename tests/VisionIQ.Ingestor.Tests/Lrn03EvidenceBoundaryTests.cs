@@ -81,6 +81,18 @@ public sealed class Lrn03EvidenceBoundaryTests
         Assert.NotEqual(original.ItemKey(), (original with { Provider = "confluence" }).ItemKey());
     }
 
+
+    [Theory]
+    [InlineData("commit", """{"commentTruncated":"SYNTHETIC-CREDENTIAL-NEVER-INDEX"}""")]
+    [InlineData("work_item_current", """{"state":"Active","environmentRaw":"SYNTHETIC-CREDENTIAL-NEVER-INDEX","environmentReason":"SYNTHETIC-CREDENTIAL-NEVER-INDEX","environment":"SYNTHETIC-CREDENTIAL-NEVER-INDEX"}""")]
+    [InlineData("work_item", """{"state":"Active","description":"SYNTHETIC-CREDENTIAL-NEVER-INDEX"}""")]
+    [InlineData("design_page", """{"status":"Published","text":"SYNTHETIC-CREDENTIAL-NEVER-INDEX"}""")]
+    public void Indexable_metadata_never_contains_synthetic_sensitive_source_text(string kind, string raw)
+    {
+        var indexed = EvidenceNormalizer.Redact(kind, Encoding.UTF8.GetBytes(raw));
+        Assert.DoesNotContain("SYNTHETIC-CREDENTIAL-NEVER-INDEX", indexed, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Unknown_kind_never_copies_unapproved_fields_into_redacted_metadata()
     {
