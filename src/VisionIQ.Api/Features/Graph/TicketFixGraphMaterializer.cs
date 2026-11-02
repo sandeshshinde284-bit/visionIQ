@@ -65,11 +65,27 @@ public sealed class TicketFixGraphMaterializer : IAsyncDisposable
             catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 // M-1: one bad association (e.g. an immutable-content conflict) must not stop the rest.
-                failedAssociations.Add($"{associationKey}: {error.GetType().Name}");
+                failedAssociations.Add($"{associationKey}: {SafeFailureCategory(error)}");
             }
         }
 
         return completed;
+    }
+
+    // Only stable diagnostic categories are recorded; exception text can contain source details.
+    private static string SafeFailureCategory(Exception error)
+    {
+        if (error is InvalidOperationException)
+        {
+            return error.Message switch
+            {
+                "Graph node identity collision." => "graph_node_identity_collision",
+                "Immutable graph assertion revision conflict." => "immutable_graph_assertion_conflict",
+                _ => "invalid_operation",
+            };
+        }
+
+        return error is PostgresException ? "postgres_error" : "projection_error";
     }
 
     private readonly List<string> failedAssociations = [];
