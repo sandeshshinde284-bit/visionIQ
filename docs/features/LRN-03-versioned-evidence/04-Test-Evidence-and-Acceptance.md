@@ -14,7 +14,7 @@
 | `db.manage roles` | User reports completed; exact stdout/exit code not supplied | REPORTED COMPLETE | Runtime role/bootstrap verification |
 | Two revisions + identical replay | User-run targeted xUnit: 1 succeeded, 0 failed, 0 skipped; exit 0; build succeeded with 63 warnings | **PASS — targeted integration** | Test asserts 1 logical item, 2 revisions, correct latest revision, replay statuses; no actual GCS |
 | Existing revision ID + altered content | Included in same successful targeted xUnit integration test | **PASS — targeted integration** | `Conflict` return asserted; database revision count remains 2 |
-| GCS raw snapshot integrity/immutability | No new LRN-03 run supplied | PENDING | Prior LRN-01 5/5 GCS hash sample is supporting context only |
+| GCS raw snapshot integrity/immutability | Concrete conditional-write archive reviewed; new opt-in real GCS test committed but not executed | PENDING LIVE VERIFICATION | Prior LRN-01 5/5 sampled hashes support integrity but do not prove replay generation invariant |
 | End-user Confluence ACL retrieval | Not executed | OUTSIDE STORAGE GATE / OPEN DEPENDENCY | LRN-02 authorization handoff |
 
 ## Acceptance criteria (original Trello wording)
@@ -67,3 +67,4 @@ finally {
 ```
 
 **Execution evidence, 2 November 2026:** user supplied the targeted xUnit log: `Test summary: total: 1, failed: 0, succeeded: 1, skipped: 0`, `Build succeeded with 63 warning(s) in 32.0s`, `Integration test exit code: 0`. Prior command set `LRN03_TEST_DB=1` before `dotnet test`. Test source verifies Created → NewRevision → Unchanged → Unchanged → Conflict, exact 1 item / 2 revisions, latest ID 2, ACL metadata, and redaction; it deletes its unique synthetic rows. **Qualification:** its early return when `LRN03_TEST_DB` is missing means the log alone does not independently show the opt-in environment state. For a future audit-grade rerun, make missing opt-in fail or use an explicit test trait/configuration gate. **No real GCS interaction was performed** and 63 build warnings remain to triage.
+\n## GCS implementation review — 2 November 2026\n\nConcrete class `CloudStorageEvidenceArchive` is in `src/VisionIQ.Api/Features/Evidence/RawEvidenceArchive.cs`. Its object key contains item identity, SHA-256 of native revision, and SHA-256 of raw payload. It uploads with `IfGenerationMatch = 0`, catching only HTTP 412 to treat the same content-addressed key as existing rather than overwriting it. This supports design-level immutability. A new optional real-bucket xUnit test checks downloaded raw bytes, SHA-256 and unchanged generation on replay, but **the user has not executed it yet**. See [GCS runbook](05-GCS-Archive-Verification.md).\n
