@@ -102,6 +102,14 @@ public sealed class Lrn03PostgresIntegrationTests
         }
         finally
         {
+            // Latest-revision composite FK references the revision rows.
+            // Clear ONLY this synthetic item's latest pointer before deleting its revisions.
+            await using (var clearLatest = new NpgsqlCommand(
+                "UPDATE evidence.source_items SET latest_revision_id = NULL WHERE item_key = @key", connection))
+            {
+                clearLatest.Parameters.AddWithValue("key", key);
+                await clearLatest.ExecuteNonQueryAsync();
+            }
             // Delete ONLY synthetic per-test rows; never modify other evidence.
             await using var removeRevisions = new NpgsqlCommand(
                 "DELETE FROM evidence.source_revisions WHERE item_key = @key", connection);
