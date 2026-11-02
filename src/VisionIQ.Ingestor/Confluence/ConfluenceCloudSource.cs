@@ -56,6 +56,14 @@ public sealed class ConfluenceCloudSource : IConfluenceSource
         return withRestrictions;
     }
 
+    /// <summary>Fetch label names only. Never request page bodies or version histories for discovery.</summary>
+    public async Task<IReadOnlyList<string>> GetPageLabelsAsync(string pageId, CancellationToken cancellationToken = default)
+    {
+        var labels = await ReadAllAsync(http.Api("api/v2/pages/" + Uri.EscapeDataString(pageId) + "/labels", [new("limit", PageLimit)]), cancellationToken).ConfigureAwait(false);
+        return labels.Select(item => JsonRead.String(item, "name")).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     public async Task<ConfluencePage> EnrichAsync(ConfluencePage page, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);

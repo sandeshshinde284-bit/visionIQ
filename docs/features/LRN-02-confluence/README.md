@@ -21,7 +21,7 @@ Write-Host "Discovery exit code: $LASTEXITCODE"
 
 The command queries **current metadata and view restrictions** for the approved Confluence Cloud spaces; **it does not request storage page bodies** and does not use ingestion sinks, write checkpoints or upload to PostgreSQL/GCS. It reports aggregate counts only, with no page titles, IDs, URLs or ACL members. It applies inherited restriction completeness and excludes restricted pages, **but this is not a verified per-engineer authorization check**.
 
-**Candidate coverage is deliberately limited to title patterns** (ADR-number, Decision, Design decision, Architecture decision). Label-only ADRs and decision-template properties are not inspected by this metadata-only command. Empty results are inconclusive. Metadata discovery may still perform numerous Confluence API requests; avoid frequent repeat runs.
+**Candidate coverage includes title patterns** (ADR-number, Decision, Design decision, Architecture decision) **and recognized labels** (decision, decisions, decision-log, adr, design-decision, architecture-decision). Labels are fetched only for complete, unrestricted ACL pages. A failed label lookup is counted, does not classify the page as a candidate, and produces exit code 2. Decision-template properties are not inspected, so empty results remain inconclusive. Counts for title and label matches may overlap. Empty results are inconclusive. Metadata discovery performs a separate label request for each eligible page (314 in the previously recorded ERK snapshot), in addition to restriction checks; expect a longer run and avoid frequent repeats. The build and new label path have not yet been validated in the user's local environment.
 
 ## Acceptance boundary
 
