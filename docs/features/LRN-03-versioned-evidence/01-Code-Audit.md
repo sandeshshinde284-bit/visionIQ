@@ -1,0 +1,70 @@
+# LRN-03 — Existing code audit (review increment 1)
+
+**Source of truth:** [Original LRN-03 Trello acceptance criteria](https://trello.com/c/aqRFYZ9G/9-learn-lrn-03-store-history-as-versioned-evidence). This file records observations from source on `feature/learn`, **not** a claim that today's build, database or GCS integration tests passed.
+
+## 1. How the existing pipeline works
+
+```mermaid
+sequenceDiagram
+    participant Connector
+    participant Sink as CanonicalEvidenceSink
+    participant Service as EvidenceIngestionService
+    participant GCS as Raw archive
+    participant DB as PostgresEvidenceStore
+    Connector->>Sink: Source record and native identity
+    Sink->>Service: EvidenceEnvelope, raw JSON, access metadata
+    Service->>Service: Validate HTTPS, revision, payload, UTC times
+    Service->>Service: Redact/allowlist metadata; SHA-256 of original bytes
+    Service->>GCS: StoreAsync(item key, revision, raw bytes, SHA)
+    GCS-->>Service: gs:// URI
+    Service->>DB: SaveAsync(item key + source revision + GCS URI)
+    DB->>DB: Upsert logical item; lookup revision and hash
+    alt identical revision exists
+       DB-->>Service: Unchanged
+    else native revision ID exists but hash differs
+       DB-->>Service: Conflict
+    else new revision
+       DB->>DB: Insert revision; update latest pointer; commit
+       DB-->>Service: Created/NewRevision
+    end
+```
+
+## 2. Code-to-Trello evidence
+
+| Task | Verified source observation | Remaining verification |
+| --- | --- | --- |
+| S05-01 schema | `PostgresEvidenceStore` references `evidence.source_items` and `evidence.source_revisions`, with revision, observed/source timestamps, raw URI, ACL and redacted JSON fields | Find/review corresponding migrations and unique/FK constraints; execute real PostgreSQL query |
+| S05-02 identity | `EvidenceIdentity.ItemKey()` hashes length-delimited UTF-8 identity fields; distinguishes null repository from an empty string, and provider, project and external ID | Real insert and collision/identity fixture checks |
+| S05-03 archive | `EvidenceIngestionService` hashes raw bytes and invokes archive before `SaveAsync`; accepts `gs://` return | Review concrete GCS implementation and verify immutability/object content and hash in real bucket |
+| S05-04 work items | `CanonicalEvidenceSink` maps `work-items` to current evidence and `work-item-revisions` to historical revisions | Check historical/replay fidelity and missing source fields |
+| S05-05 PR/commits/reviews | PR and commit cases are present; their native revision may be extended with a content hash | Confirm actual review artifact stream mapping; currently not shown in audited `Describe` switch |
+| S05-06 CI/deployment/incident | CI builds map to `ci_run`; `EvidenceNormalizer` defines metadata allowlist for CI/deployment/incident | Verify the source-to-canonical switch has mappings for deployment and incident; definitions in normalizer alone are not ingestion proof |
+| S05-11 dedupe/upsert | Store uses item upsert, existing (item, revision) hash check and transactional revision insert; returns Unchanged/Conflict/NewRevision | Live two-revision + replay + conflict DB test |
+
+## 3. Important distinctions found
+
+- `EvidenceNormalizer.Redact` is a **conservative allowlist**, not general-purpose PII detection. It copies only approved short scalar fields with restricted characters for supported record kinds, and nothing beyond `kind` for unknown kinds. Raw contents still exist in GCS by design and require storage security.
+- `CanonicalEvidenceSink` has explicit mappings for work item current/revisions, PR, commit, CI build, declared links, Confluence pages/decisions/ACL. **No standalone review, deployment or incident branch appeared in the audited switch.** This is a candidate scope gap to resolve against the accepted source streams; don't invent coverage just because the metadata normalizer recognizes those kinds.
+- `EvidenceIngestionService` archives before checking the database for an identical revision; replay therefore still invokes the archive abstraction. Whether replay creates any duplicate **GCS objects** depends on the concrete archive object-key/conditional-write implementation, which is not verified in this review.
+- For Confluence page/decision evidence, sink access metadata uses a space principal; **that alone does not implement inherited per-engineer page authorization**. LRN-02 retrieval acceptance remains open.
+- `PostgresEvidenceStore.SaveAsync` serializes concurrent item writes via upsert in a transaction, verifies existing revision hashes, and uses source-update time plus revision comparisons for latest-selection. These are code observations, not a proven physical database outcome.
+
+## 4. Next actual validation
+
+First run the committed focused synthetic boundary tests and capture discovered count and exit code:
+
+```powershell
+dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj `
+    --configuration Release `
+    --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests" `
+    --verbosity normal
+Write-Host "LRN-03 focused test exit code: $LASTEXITCODE"
+```
+
+**Expected:** four tests discovered, four passed, zero failed, exit 0. **Observed:** not yet supplied.
+
+Then use an **isolated approved PostgreSQL test schema/database** to demonstrate exactly one source item with two revisions after replay. Do not run test imports into shared evidence tables or mutate production-like checkpoints. The exact executable integration command and SQL must be grounded in the existing test harness/schema before publishing it as copy-paste instruction.
+
+## 5. Documentation update rule
+
+Each reviewed task gets one of `CODE FOUND`, `TEST PASSED`, `BLOCKED`, `GAP`, or `NOT APPLICABLE`. Never upgrade to `TEST PASSED` based on reading code alone. Record sample counts and sanitized output; don't commit source page contents or credentials.
