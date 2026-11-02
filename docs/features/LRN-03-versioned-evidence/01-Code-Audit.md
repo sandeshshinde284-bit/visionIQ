@@ -55,7 +55,7 @@ The checked migration defines `evidence.source_items` with `item_key CHAR(64) PR
 
 Preflight observed: Docker engine 29.5.3; existing `visioniq-postgres` running healthy on host port 5432; pgvector/pgvector:pg16 available; branch `feature/learn`. The pre-existing container appears published on **all interfaces** (0.0.0.0:5432); review its host firewall and replace with loopback-only binding during a separately approved maintenance change. **Do not restart or alter that container as part of this integration test.**
 
-**Next:** disposable separate container/database, dedicated schema migration, C# store integration and exact counts; results not yet collected.
+**Observed user-run test container readiness (2 November 2026):** `visioniq-lrn03-test-postgres` running with isolated host bind `127.0.0.1:55433`; `pg_isready -U visioniq_test -d visioniq_lrn03_test` returned 0. **Migration and item/revision counts remain untested.** `db.manage.LocalConfig` reads local environment variables and `.env`, and migration selection requires local target; the next command must override host/port/db identity explicitly to prevent accidental writes to the usual database.
 
 ## 5. Next actual validation
 
