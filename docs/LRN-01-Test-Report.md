@@ -1,13 +1,44 @@
 # LRN-01 — Azure DevOps historical ingestion acceptance report
 
 **Project:** VisionIQ · **Branch:** `feature/learn` · **Review PR:** #14 (DRAFT; covers LRN-01 through LRN-07)  
-**Evidence date:** 2026-11-01 · **Status:** Work-item ingestion tested; LRN-01 final acceptance **pending** Git/commit/PR live verification, expanded source fidelity and relevant database integration gates.
+**Evidence updated:** 2026-11-02 · **Status:** Core LRN-01 tests PASSED; final branch-wide regression and acceptance signoff PENDING. Git access, canonical ingestion, GCS sampled integrity, live comments and automated recovery are now verified. PR #14 must stay DRAFT through LRN-01–07 review.
+
+
+## Current acceptance decision — 2026-11-02
+
+**Decision: conditionally ready for LRN-01 signoff; do not mark fully accepted until final full regression and story-criteria comparison are reviewed.** Evidence below includes earlier chronological results which must not be read as current blockers.
+
+| Acceptance area | Latest evidence | State |
+|---|---|---|
+| ADO project, work-item, revision and link ingestion | 367 items / 1,002 links from Oct 1 full local run; 0 failures, 0 quarantined; 20/20 sampled historical revision field comparisons | PASS (sampled source fidelity) |
+| Source comments | Live ADO API 9 / 2 / 0 and corresponding local JSONL records for work items 106675 / 107328 / 115804; 4/4 comment regression tests | PASS (local output) |
+| ADO repository access | Inventory: 9 repos, 4,438 work items, 22 pipelines; approved Git test scope restricted to `KIOSK_TVM` | PASS for discovery |
+| Git commits and PRs | Live initial run: 64 commits / 12 PRs, no source failures; subsequent delta and zero-change replay | PASS for selected repo and tested window |
+| Canonical persistence | Real PostgreSQL + GCS writes; independent GCS object listing and 5/5 SHA-256 object comparisons | PASS (sampled integrity) |
+| Checkpoints & no-change idempotency | Three isolated PostgreSQL cursors present; ADO work-item canonical no-change delta with stable 208 identities / 524 revisions | PASS |
+| Synthetic failure recovery | 30/30 targeted tests, exit 0 (archive failure, stream isolation, retry, checkpoint preservation) | PASS (automated fault injection, not cloud outage) |
+| LRN-07 assertion-key regression encountered during Git testing | Collision fix applied; live reconciliation no longer reports failures, 141 persisted assertions, 3/3 identity regression tests pass | PASS for specific defect |
+| Full current-branch regression | Earlier solution tests 381 pass + 7 skipped; 10 isolated database integration tests later passed; not rerun as a full suite after latest code changes | **PENDING** |
+| Original LRN-01 story acceptance criteria / reviewer signoff | No authoritative LRN-01 acceptance-criteria text included in this report | **PENDING** |
+
+**Boundaries:** This evidence does not prove every ADO record or every GCS object was sampled, all nine repositories were ingested, work-item comments persisted in canonical storage, or that a real GCS outage was exercised. All source scopes must remain authorized. Source PAT rotation and organizational approval should be reconfirmed independently; do not include secrets in evidence.
+
+**Final local verification commands (not yet executed for this report):**
+
+```powershell
+# Run from repository root after pulling feature/learn.
+dotnet test .\\VisionIQ.sln --configuration Release
+Write-Host "Solution test exit code: $LASTEXITCODE"
+git status --short
+```
+
+Inspect skipped integration tests and warnings; report the actual summary rather than treating a zero exit code as proof that all integrations ran. Record any remaining unsupported scenarios in the LRN-02+ acceptance plans. Do not merge PR #14 until LRN-01–07 approval.
 
 ## Scope and environment
 
 - Source organization: `https://dev.azure.com/WLMTS`, project `Genoa Kiosk`.
-- Ingestion output: local JSONL; checkpoint store: local file. No claim of canonical PostgreSQL/GCS ingestion verification.
-- Azure DevOps access at test time: **Stakeholder**; project and work-item reads succeeded, repository access not available. Access restoration requested.
+- Ingestion modes tested: historical local JSONL/file-checkpoint testing and later canonical PostgreSQL/GCS testing using an isolated PostgreSQL instance at `127.0.0.1:15543` with bucket `visioniq-source-evidence-dev`.
+- **Historical access note:** initially Stakeholder-only, without repositories. **Current access:** ADO inventory reports nine accessible repositories and the `KIOSK_TVM` Git sync succeeded.
 - Run output under `artifacts/ingestion/lrn01-manual/`. Evidence files include per-run `report.json` and JSONL streams; checkpoint at `artifacts/ingestion/lrn01-manual/checkpoints.json`.
 - No PATs or work-item content included in this report.
 
@@ -159,16 +190,16 @@ Only ADO repository `KIOSK_TVM` (project `Genoa Kiosk`) was selected. Sync run `
 
 Code review of `src/VisionIQ.Ingestor/Ado/AdoWorkItemReader.cs`, `src/VisionIQ.Api/Features/GraphApi/GraphQueryService.cs` and `tests/VisionIQ.Api.Tests/GraphQueryServiceTests.cs` confirms that the source work-item type is preserved during ingestion. Graph query currently traverses authorized work-item relationships and exposes general source evidence metadata, **not** a dedicated defect-only similar-issues search. Therefore the previous "defect-only search regression" gate is **not executable against an implemented defect search feature**. Do not mark it passed, and do not filter out Task/Test Case/User Story data at the ingestion layer. When a defect-specific retrieval feature is implemented, its acceptance must explicitly require Bug-first matching with other types used only as supporting context; test mixed-type data and authorization. Track this as a downstream feature gate, not as an LRN-01 ingestion defect.
 
-## Open gates before LRN-01 final acceptance
+## Historical open gates (status superseded by Current acceptance decision above)
 
-1. **Azure Repos access:** restore authorized Basic/repo read rights; verify repository inventory, commits and pull requests, pagination and independent checkpoint behavior. Do not treat 0 repositories as a completed repo test.
+1. **Azure Repos access — RESOLVED:** nine repositories discovered; `KIOSK_TVM` commit/PR ingestion verified. Repository-wide completeness/pagination outside the selected scope not established.
 2. **Source fidelity:** sampled latest fields and five earlier historical revisions have now been matched against ADO; **dedicated downstream defect-only classification/search** validation remains a downstream feature gate, because no dedicated defect search implementation exists in the reviewed code. The sample does not prove exhaustive history correctness.
-3. **Canonical persistence:** first live ADO canonical sync returned exit 0 (33 work items, 123 links); independently verify PostgreSQL records, GCS objects, checkpoint/replay and failure recovery before acceptance. Coordinate cross-story ownership with LRN-03/05/07.
+3. **Canonical persistence — CORE TESTS PASSED:** PostgreSQL records and checkpoints, GCS object existence, five sampled SHA-256 matches, no-change replay and synthetic failure recovery verified. Exhaustive object validation not claimed.
 4. **Final code review and evidence signoff:** evaluate any additional review blockers or CI gates at the final branch head. Do not merge on the basis of this report alone.
 
 ## PR policy
 
-**PR #14 remains DRAFT** and must not be merged until LRN-01 through LRN-07 have each passed their story-specific acceptance and the combined pipeline has been reviewed and approved. Live Git verification is pending access restoration. No cloud deployment is authorized by this report.
+**PR #14 remains DRAFT** and must not be merged until LRN-01 through LRN-07 have each passed their story-specific acceptance and the combined pipeline has been reviewed and approved. Live Git verification for `KIOSK_TVM` completed; final full regression and acceptance signoff remain. No cloud deployment is authorized by this report.
 
 ## LRN-07 graph assertion identity fix — implementation awaiting local validation (2026-11-02)
 
