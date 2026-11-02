@@ -1,6 +1,6 @@
 # LRN-03 — Real GCS raw evidence integrity and immutability
 
-**Status:** concrete GCS implementation audited; live GCS integration **pending user execution**. No production evidence or buckets are modified by this documentation.
+**Status:** concrete GCS implementation audited; live GCS integration **PASSED on 2 November 2026** after ADC reauthentication, using isolated test bucket `visioniq-lrn03-test-1`. No production evidence or buckets are modified by this documentation.
 
 ## What existing code does
 
@@ -59,9 +59,13 @@ The xUnit assertions require exact raw bytes, a matching SHA-256 and unchanged o
 
 ## Remaining acceptance checks
 
-- Confirm real GCS test was run successfully against an approved isolated bucket; record actual date, count, exit code and sanitized proof.
+- **PASS:** real GCS test run against isolated bucket `visioniq-lrn03-test-1`: 1/1, exit 0, 14.6 seconds, build succeeded with 65 warnings.
 - Review GCS IAM and retention policy separately; the code prevents normal overwrites, but bucket-wide retention/governance is an infrastructure responsibility.
 - Validate that **downstream indexing** reads redacted metadata only. LRN-03 normalizer's allowlist and fake-backed tests cover service boundaries, not an independent deployed search index.
 - Keep LRN-02 per-requester Confluence ACL enforcement as a separate open integration gate.
 
 **Evidence log:** [04-Test-Evidence-and-Acceptance.md](04-Test-Evidence-and-Acceptance.md).
+
+## Recorded actual GCS result (2 November 2026)
+
+User-provided terminal result: `Test summary: total: 1, failed: 0, succeeded: 1, skipped: 0, duration: 14.6s`; `Build succeeded with 65 warning(s) in 28.2s`; `LRN-03 GCS test exit code: 0`. The earlier ADC `invalid_rapt` failure was resolved by reauthentication. This is the successful result of the live synthetic-object regression, not proof that a deployed search index has enforced redaction.
