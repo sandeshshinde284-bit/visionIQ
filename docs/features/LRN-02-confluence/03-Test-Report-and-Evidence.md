@@ -2,6 +2,10 @@
 
 Report date: **2 November 2026**. This is a consolidated evidence log based on user-run local commands, not a claim that GitHub CI or a cloud environment ran those commands. No confidential page bodies or tokens are included.
 
+## Reading this report
+
+**Observed** means the user ran the command and supplied its result. **Not verified** means there is no matching live test evidence. The report distinguishes three separate checks: synthetic permission logic, live Confluence ingestion/discovery, and user-specific protected retrieval. Passing the first two is not equivalent to passing the third.
+
 ## Automated test execution
 Command:
 ```powershell
@@ -34,6 +38,10 @@ These figures are internally consistent; 213 + 1 + 61 = 275 restricted or unveri
 ## Metadata discovery runs
 Title-only release: `pages=589; eligible-complete-unrestricted=314; title-candidates=0; withheld-or-unverified=275; exit=0`.
 Title+labels release: `pages=589; eligible-complete-unrestricted=314; title-candidates=0; label-candidates=0; label-lookup-failures=0; withheld-or-unverified=275`; user transcript states `Discovery exit code: 0c`, apparently a trailing character; command itself reported no lookup failures. Do **not** misstate this as a separate compiled integration test. Discovery results prove only the query behavior and eligibility counts, not the presence/absence of decision content in templates.
+
+## Why the 275 withheld pages matter
+
+The sum is **213 restricted pages with complete ACLs + 62 pages with incomplete ACLs = 275 excluded pages**. A permission check with incomplete data must deny access, not guess. The discovery result deliberately excludes even restricted pages that *some* legitimate users could access; therefore this discovery is **not** a personal authorized search.
 
 ## Missing acceptance evidence
 1. Real requester identity mapping to Confluence account and groups, including membership freshness.
