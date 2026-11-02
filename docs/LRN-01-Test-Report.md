@@ -131,6 +131,13 @@ Run `08b22273-4089-41b2-b40e-2b48eaa044d6` used canonical PostgreSQL checkpoints
 
 Archive location breakdown at the prior read: 503 rows referenced `visioniq-source-evidence-dev`, 15 `disposable-ci-only`, and 6 `test-evidence`; the latter 21 are test-related URI prefixes and should not be counted as actual GCS objects. PostgreSQL duplicate `(item_key, provider_revision_id)` query returned zero rows. **Still open:** validate selected current-bucket objects exist and their bytes match stored SHA-256; test a canonical persistence failure without advancing checkpoint. Live repository/commit/PR ingestion remains pending access.
 
+
+## Canonical GCS content integrity — PASSED (sampled)
+
+Five archive URIs were selected from `evidence.source_revisions` in the isolated PostgreSQL database, restricted to `gs://visioniq-source-evidence-dev/`. The user downloaded each object temporarily, computed its local SHA-256 hash and compared it with `content_sha256`. **5/5 matched; no missing objects or mismatches.** This is a five-object sample, not an exhaustive audit of all GCS objects. The check script included temporary-file cleanup.
+
+**Remaining canonical gate:** verify persistence failure does not advance the PostgreSQL checkpoint and successful recovery does not duplicate evidence. Execute this only with the isolated database, controlled fault injection and no destructive changes to shared infrastructure.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
