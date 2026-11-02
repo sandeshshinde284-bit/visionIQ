@@ -96,3 +96,7 @@ Write-Host "LRN-03 redaction tests exit code: $LASTEXITCODE"
 ## Verified redaction regression — 2 November 2026
 
 The user executed `dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Tests.csproj --configuration Release --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests" --verbosity minimal` after the allowlist hardening. Output: **8 tests succeeded, 0 failed, 0 skipped; exit code 0**; build succeeded with **65 warnings** in 22.8 seconds. Tests completed in 2.7 seconds. This verifies the metadata normalization boundary; it does not exercise a deployed search index or retrospectively clean previously stored projections. **Do not equate this with end-to-end indexing signoff.**
+
+## Deployed index/retrieval audit — 2 November 2026
+
+Checked source entry points `src/VisionIQ.Api/Program.cs`, `src/VisionIQ.Ingestor.Cli/Program.cs`, `PostgresEvidenceStore` and targeted repository search. Found canonical ingest to raw GCS and redacted PostgreSQL evidence; .NET API registers a permission-aware graph API, but no demonstrated downstream redacted-metadata index writer or deployed evidence-search endpoint. **Status: not verified**, not evidence of failure or success. The required read-only Cloud Run and PostgreSQL inventory commands, sentinel query test design and requester ACL gate are documented in [06-Index-Retrieval-Deployment-Audit.md](06-Index-Retrieval-Deployment-Audit.md). Do not treat previously passing 8/8 normalizer tests as a deployed retrieval PASS.
