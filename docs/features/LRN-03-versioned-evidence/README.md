@@ -8,6 +8,16 @@
 
 **Review progress:** [Detailed code audit and Trello task matrix](01-Code-Audit.md). This audit identifies existing implementation, specific unverified areas and executable tests; it is updated as the review proceeds.
 
+## Complete LRN-03 documentation index
+
+1. [Existing code audit and Trello task mapping](01-Code-Audit.md) — factual review findings and gaps.
+2. [Architecture and implementation explained](02-Architecture-and-Implementation.md) — visual design, code responsibility, identity, revisions, access and redaction.
+3. [Setup, executable commands and troubleshooting](03-Setup-Commands-and-Troubleshooting.md) — Windows PowerShell runbook, isolated PostgreSQL, CLI commands, failure resolutions.
+4. [Actual test evidence and acceptance](04-Test-Evidence-and-Acceptance.md) — every observed result, outstanding gates and original user-story acceptance.
+5. [Visual architecture image](images/lrn03-evidence-flow.svg) — end-to-end source → archive → versioned database.
+
+**Current correction:** The local CLI command is `python -m db.manage roles`, **not** `bootstrap`. The latter was a wrong recommendation and resulted in argument-parser exit 2. This is documented in the operations guide and test evidence.
+
 ## The problem, explained
 
 An Azure DevOps ticket can be revised many times. An engineer might change a description, attach a PR, and resolve the ticket. If VisionIQ saves only the latest text, it loses **what was known when**. If every sync inserts a new item, searches become full of duplicates. If it stores private text directly in an index, it can leak secrets.
