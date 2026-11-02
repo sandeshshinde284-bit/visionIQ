@@ -4,6 +4,10 @@
 
 **Story:** [LRN-01 on Trello](https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources) · **Status:** All original LRN-01 functional acceptance criteria have supporting evidence, including 8/8 changed-file fidelity and 402/402 final regression. Formal story signoff and review of 66 build warnings remain; PR #14 stays Draft. **Do not merge PR #14 yet.**
 
+![Visual overview: how LRN-01 connects history to evidence](images/lrn01-pipeline.svg)
+
+**New: [Illustrated step-by-step walkthrough](visual-guide.md)** — annotated architecture image, two Mermaid diagrams, example ticket-to-PR-to-build flow, checkpoints and output modes.
+
 ## Why we need this
 
 Suppose a ticket vending machine fails after a payment attempt. A similar bug may have been resolved months earlier, with an explanation in a work-item comment, a code change in a pull request and a build result. Unless VisionIQ reads those sources, it cannot reliably refer to that history.
