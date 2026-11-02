@@ -6,6 +6,8 @@
 
 ![Versioned evidence architecture](images/lrn03-evidence-flow.svg)
 
+**Review progress:** [Detailed code audit and Trello task matrix](01-Code-Audit.md). This audit identifies existing implementation, specific unverified areas and executable tests; it is updated as the review proceeds.
+
 ## The problem, explained
 
 An Azure DevOps ticket can be revised many times. An engineer might change a description, attach a PR, and resolve the ticket. If VisionIQ saves only the latest text, it loses **what was known when**. If every sync inserts a new item, searches become full of duplicates. If it stores private text directly in an index, it can leak secrets.
