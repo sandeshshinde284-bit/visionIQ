@@ -22,8 +22,8 @@
 ## Remaining before signoff
 
 1. Inspect changed files from a real selected `KIOSK_TVM` commit/PR against its ADO source and confirm filename/change-type fidelity; don't conflate link graph projection with code change inventory.
-2. Run full regression on latest `feature/learn`, including opt-in PostgreSQL tests in disposable infrastructure; record skipped tests separately.
+2. **Completed:** full solution regression on latest local `feature/learn`: 402 tests passed, 0 failed, 0 skipped; exit 0. Review 66 build warnings for actionable correctness/security issues.
 3. Review live source scopes/pipeline filtering, required approvals, and any material security blockers.
 4. Optional LRN-03 follow-up: independently validate newly collected comments in canonical archive for a source revision; local JSONL preservation alone doesn't establish archival backfill.
 
-**Acceptance decision: NOT YET FULLY SIGNED OFF.** No production-style scheduler validated. PR #14 must remain DRAFT until LRN-01–07 have been fully reviewed.
+**Acceptance decision: NOT YET FULLY SIGNED OFF; changed-file source comparison remains.** No production-style scheduler validated. PR #14 must remain DRAFT until LRN-01–07 have been fully reviewed.
