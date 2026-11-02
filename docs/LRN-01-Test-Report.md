@@ -1,7 +1,12 @@
+
+## Changed-file fidelity — PASSED (2026-11-02)
+
+User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8bb6a9` in approved `Genoa Kiosk / KIOSK_TVM` against VisionIQ's local JSONL export (`artifacts/ingestion/lrn01-changed-files/20261102-122630/commits.jsonl`). **VisionIQFiles=8, AzureDevOpsFiles=8, Differences=0, Truncated=False, Result=PASS**. Comparison matched both changed-file paths and change types, without publishing filenames or source contents. Export contained 39 commits, exit 0. This is one sampled live commit, not exhaustive verification of every commit. Combined with 402/402 full solution tests, all three written LRN-01 acceptance criteria now have supporting evidence; 66 build warnings still require severity review. PR #14 remains Draft pending LRN-01–07 acceptance.
+
 # LRN-01 — Azure DevOps historical ingestion acceptance report
 
 **Project:** VisionIQ · **Branch:** `feature/learn` · **Review PR:** #14 (DRAFT; covers LRN-01 through LRN-07)  
-**Evidence updated:** 2026-11-02 · **Status:** Core LRN-01 tests PASSED; changed-file source verification and acceptance signoff PENDING. Git access, canonical ingestion, GCS sampled integrity, live comments and automated recovery are now verified. PR #14 must stay DRAFT through LRN-01–07 review.
+**Evidence updated:** 2026-11-02 · **Status:** Core LRN-01 tests PASSED; build-warning review and formal acceptance signoff PENDING. Git access, canonical ingestion, GCS sampled integrity, live comments and automated recovery are now verified. PR #14 must stay DRAFT through LRN-01–07 review.
 
 
 
