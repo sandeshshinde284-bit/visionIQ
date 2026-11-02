@@ -124,6 +124,13 @@ On 2026-11-02 the user ran `dotnet run --configuration Release --project .\\src\
 
 **Pending verification:** independently query canonical PostgreSQL source identities/revisions/checkpoints and inspect GCS archive object metadata and references; replay the unchanged sync to establish canonical idempotency; test canonical failure recovery. These are not yet passed merely because the sync returned exit 0. Live repo/commit/PR ingestion remains blocked pending appropriate Azure Repos access.
 
+
+## Canonical no-change replay — PASSED (2026-11-02)
+
+Run `08b22273-4089-41b2-b40e-2b48eaa044d6` used canonical PostgreSQL checkpoints and GCS bucket `visioniq-source-evidence-dev`. The ADO work-item sync returned exit code **0** with **0 work items, 0 links, 0 not-stored, 0 quarantined**. Database counts before and after were identical: **208 source items and 524 source revisions**. This demonstrates a no-change incremental replay without duplicate canonical evidence. Report: `artifacts/ingestion/lrn01-canonical-test/20261102-074700/report.json`.
+
+Archive location breakdown at the prior read: 503 rows referenced `visioniq-source-evidence-dev`, 15 `disposable-ci-only`, and 6 `test-evidence`; the latter 21 are test-related URI prefixes and should not be counted as actual GCS objects. PostgreSQL duplicate `(item_key, provider_revision_id)` query returned zero rows. **Still open:** validate selected current-bucket objects exist and their bytes match stored SHA-256; test a canonical persistence failure without advancing checkpoint. Live repository/commit/PR ingestion remains pending access.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
