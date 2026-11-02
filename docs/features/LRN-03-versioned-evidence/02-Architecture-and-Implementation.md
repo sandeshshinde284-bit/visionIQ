@@ -50,3 +50,18 @@ The schema's `source_items` row has `latest_revision_id`, `latest_source_updated
 ## Current review findings
 
 Existing mappings include ADO work-item current/revisions, PR, commit, CI builds, links, and Confluence page/decision/ACL data. The reviewed sink switch did not show standalone review, deployment or incident cases; these remain a **coverage audit question**, not an automatic claim of noncompliance. See [live audit](01-Code-Audit.md) for tasks and status.
+
+## Downstream indexing redaction review — 2 November 2026
+
+**Code-level finding:** `EvidenceNormalizer.SafeFields` previously copied `commentTruncated` for commits and `environmentRaw` / `environmentReason` / `environment` for work item current records, even though these source-derived strings could contain free text or sensitive values. These have been removed from the normalized indexable metadata allowlist. The safe work-item-current fields now include `state`, `workItemType`, `environmentStatus`, `environmentSource`; commit records include only `kind`. The raw original still belongs in authorized GCS archive, not a search projection.
+
+**Regression coverage added:** `Lrn03EvidenceBoundaryTests.Indexable_metadata_never_contains_synthetic_sensitive_source_text` has four synthetic examples covering commit commentary, work-item environment raw/reason, work-item description and Confluence page text. **Local execution pending**, not yet a pass.
+
+```powershell
+git switch feature/learn
+git pull
+dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Tests.csproj --configuration Release --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests" --verbosity minimal
+Write-Host "LRN-03 redaction tests exit code: $LASTEXITCODE"
+```
+
+**Important distinction:** tests prove the normalization/ingestion **boundary** excludes specified text and PostgreSQL stores its `redacted_payload`. They do **not** prove there is an actual deployed downstream vector/full-text index consuming only this JSON. A deployment-specific index writer or retrieval path must be located and tested independently before full indexing signoff. Existing stored rows may need a controlled backfill/reindex to pick up normalization changes; there is no automatic retroactive rewrite in this patch.
