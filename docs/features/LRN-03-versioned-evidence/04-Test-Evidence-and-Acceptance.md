@@ -11,7 +11,7 @@
 | Alembic migration on isolated DB | `20261101_0012` | PASS | Migration applied in isolated database |
 | Evidence table inventory | **14** evidence tables; `source_items`, `source_revisions` present | PASS | Table existence, not row correctness |
 | First `db.manage bootstrap` command | CLI `invalid choice: 'bootstrap'`, exit **2** | COMMAND ERROR | Earlier command was wrong; correct CLI action is `roles`; not a database/bootstrap logic failure |
-| `db.manage roles` | Not executed in supplied transcript | PENDING | Runtime role/bootstrap verification |
+| `db.manage roles` | User reports completed; exact stdout/exit code not supplied | REPORTED COMPLETE — NOT INDEPENDENTLY VERIFIED | Runtime role/bootstrap verification |
 | Two revisions + identical replay | Not executed in supplied transcript | PENDING | **Official LRN-03 completion evidence** |
 | Existing revision ID + altered content | Not executed in supplied transcript | PENDING | Conflict must be returned; no revision overwrite |
 | GCS raw snapshot integrity/immutability | No new LRN-03 run supplied | PENDING | Prior LRN-01 5/5 GCS hash sample is supporting context only |
@@ -34,4 +34,4 @@
 
 ## Next action
 
-Run the exact `python -m db.manage roles` command with the target preflight in [setup/operations](03-Setup-Commands-and-Troubleshooting.md); record the actual result here before further integration testing.
+Run `python -m db.manage verify` against the same isolated target, as documented in [setup/operations](03-Setup-Commands-and-Troubleshooting.md). This verification creates and drops temporary test tables. Record its real exit code and sanitized output; do not mark it passed before seeing them. Then test real revision/replay through `PostgresEvidenceStore`.
