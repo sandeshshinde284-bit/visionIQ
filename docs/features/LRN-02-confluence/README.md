@@ -1,30 +1,26 @@
-# LRN-02 — Confluence design decisions
+# LRN-02 — Include design decisions from Confluence
 
-## Scope and evidence (2 November 2026)
+**Documentation baseline:** 2 November 2026  
+**Implementation status:** Implemented and locally exercised  
+**Documentation status:** Complete as-of baseline; updates tracked here  
+**User-story acceptance:** OPEN — end-to-end user-specific retrieval authorization depends on LRN-03 integration
 
-- Approved source: Confluence Cloud, `ERK` space. Do not expand scope without authorization.
-- Live inventory: 589 pages. ACL records: 589; 527 complete, 62 incomplete.
-- 213 ACLs are complete/restricted; 314 complete/unrestricted; 1 incomplete/restricted; 61 incomplete/unrestricted.
-- Controlled local JSONL sync since 2026-11-01: 2 pages exported with positive version numbers and version histories, zero unsafe exported-page ACL matches, 3 pages withheld from local page export. Run status **Partial**, exit 2. These are not equivalent to 589 imported page bodies.
-- 37 Confluence-focused automated tests passed, zero failed/skipped. No real end-to-end unauthorized-engineer retrieval test has been shown.
-- The two sampled pages yielded zero design-decision records; neither had labels or extracted decision properties. This does not mean no ERK design decisions exist.
+## Document index
+1. [Architecture and implementation](01-Architecture-and-Implementation.md) — behavior, code locations, ACL model and storage boundaries.
+2. [Setup and operations](02-Setup-and-Operations.md) — configuration, safe commands, diagnostics and operational limits.
+3. [Test report and evidence](03-Test-Report-and-Evidence.md) — reported 37/37 tests, 589-page inventory, controlled sync, discovery outputs and unverified scenarios.
+4. [Acceptance and LRN-03 handoff](04-Acceptance-and-LRN03-Handoff.md) — original acceptance criteria, security contract, risks and final signoff checklist.
 
-## Safe discovery command
+## Verified user-run evidence
+- Confluence Cloud approved ERK space: **589 pages**, **527 complete** ACLs, **62 incomplete**.
+- ACL classification: **314 complete/unrestricted**, **213 complete/restricted**, **61 incomplete/unrestricted**, **1 incomplete/restricted**.
+- Local JSONL sample since 2026-11-01: **2 versioned page snapshots**, **589 ACL records**, **3 page snapshots withheld**, **0 unsafe exported page matches**, partial sync exit **2**.
+- Automated filtered suite: **37 passed, 0 failed, 0 skipped**.
+- Safe discovery: **0 title candidates**, **0 label candidates**, **0 label lookup failures** among 314 eligible pages. This is not a template/body search.
+- **Not yet demonstrated:** per-requester denied read through the actual VisionIQ retrieval API, denial from AI context, and permission revocation at retrieval time.
 
-On `feature/learn`, from the repository root:
+## Decision
+We can finish and freeze the LRN-02 **documentation baseline** now. We must **not** mark the story itself 100% accepted until the LRN-03 secure retrieval path passes positive and negative authorization integration tests. Neither production Cloud Run behavior nor complete 589-page historical content ingestion has been verified here.
 
-```powershell
-git pull
-dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- discover-confluence-decisions
-Write-Host "Discovery exit code: $LASTEXITCODE"
-```
-
-The command queries **current metadata and view restrictions** for the approved Confluence Cloud spaces; **it does not request storage page bodies** and does not use ingestion sinks, write checkpoints or upload to PostgreSQL/GCS. It reports aggregate counts only, with no page titles, IDs, URLs or ACL members. It applies inherited restriction completeness and excludes restricted pages, **but this is not a verified per-engineer authorization check**.
-
-**Candidate coverage includes title patterns** (ADR-number, Decision, Design decision, Architecture decision) **and recognized labels** (decision, decisions, decision-log, adr, design-decision, architecture-decision). Labels are fetched only for complete, unrestricted ACL pages. A failed label lookup is counted, does not classify the page as a candidate, and produces exit code 2. Decision-template properties are not inspected, so empty results remain inconclusive. Counts for title and label matches may overlap. Empty results are inconclusive. Metadata discovery performs a separate label request for each eligible page (314 in the previously recorded ERK snapshot), in addition to restriction checks; expect a longer run and avoid frequent repeats. The build and new label path have not yet been validated in the user's local environment.
-
-## Acceptance boundary
-
-The original LRN-02 requirements are (1) preserve versions and permissions and (2) prevent disclosure of Confluence pages to unauthorized engineers. Ingestion-side ACLs and unit tests are implemented, but a real identity-aware retrieval denial test remains open for the LRN-03 retrieval integration. Never assume the ingestion credential grants all engineers the same visibility. Unknown ACLs fail closed; do not switch Confluence data to canonical ingestion based solely on this discovery output.
-
-Reference: `docs/LRN-01-Test-Report.md` for the prior LRN-01 boundary; the LRN-02 test logs are kept locally outside source control.
+## Safety
+Keep credential values and Confluence contents out of source control. Read-only discovery is not proof of access for any particular engineer, and `--since` does not bypass full-space ACL evaluation. See the operations guide before new live runs.
