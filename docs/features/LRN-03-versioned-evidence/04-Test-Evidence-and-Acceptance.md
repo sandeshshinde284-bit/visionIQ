@@ -12,8 +12,8 @@
 | Evidence table inventory | **14** evidence tables; `source_items`, `source_revisions` present | PASS | Table existence, not row correctness |
 | First `db.manage bootstrap` command | CLI `invalid choice: 'bootstrap'`, exit **2** | COMMAND ERROR | Earlier command was wrong; correct CLI action is `roles`; not a database/bootstrap logic failure |
 | `db.manage roles` | User reports completed; exact stdout/exit code not supplied | REPORTED COMPLETE | Runtime role/bootstrap verification |
-| Two revisions + identical replay | New opt-in actual PostgreSQL integration test committed; not executed yet | PENDING EXECUTION | **Official LRN-03 completion evidence** |
-| Existing revision ID + altered content | Not executed in supplied transcript | PENDING | Conflict must be returned; no revision overwrite |
+| Two revisions + identical replay | User-run targeted xUnit: 1 succeeded, 0 failed, 0 skipped; exit 0; build succeeded with 63 warnings | **PASS — targeted integration** | Test asserts 1 logical item, 2 revisions, correct latest revision, replay statuses; no actual GCS |
+| Existing revision ID + altered content | Included in same successful targeted xUnit integration test | **PASS — targeted integration** | `Conflict` return asserted; database revision count remains 2 |
 | GCS raw snapshot integrity/immutability | No new LRN-03 run supplied | PENDING | Prior LRN-01 5/5 GCS hash sample is supporting context only |
 | End-user Confluence ACL retrieval | Not executed | OUTSIDE STORAGE GATE / OPEN DEPENDENCY | LRN-02 authorization handoff |
 
@@ -21,9 +21,13 @@
 
 - [ ] Each record keeps its source ID, revision, timestamps and access list. **Schema/code located; actual stored row test pending.**
 - [ ] A raw copy is kept in Cloud Storage; sensitive fields are redacted before indexing. **Service code and fake-backed tests passed; live archive and indexing checks pending.**
-- [ ] Re-importing the same item updates it instead of creating a duplicate. **PostgreSQL upsert implementation located; real replay/integration test pending.**
+- [x] Re-importing the same item updates it instead of creating a duplicate. **Targeted opt-in PostgreSQL integration test passed (1/1); synthetic source item and two revisions, replay and conflict asserted.**
 
 **Completion evidence:** the same item imported twice leaves **one logical record with two source revisions** (after introducing the second distinct revision and replaying records). Do not mark complete before verifying counts and latest pointer in the disposable PostgreSQL database.
+
+## Result caveats and next gate
+
+The successful targeted integration does **not** prove a GCS object was created: the test uses a synthetic archive returning a `gs://` URI. Next audit the concrete GCS archive implementation and verify actual object integrity and immutability using an approved isolated bucket. Existing build warnings (63) are not test failures but need separate severity review. The two other original acceptance criteria require real stored-record field checks and GCS/index safety before signoff.
 
 ## Documentation policy
 
@@ -62,4 +66,4 @@ finally {
 }
 ```
 
-**Important:** this test returns early when `LRN03_TEST_DB` is not `1`; therefore **a green test run without opt-in does not demonstrate real DB integration**. Only count a PASS when the opt-in is set and actual results confirmed. Run after `python -m db.manage roles` and `python -m db.manage verify` both pass.
+**Execution evidence, 2 November 2026:** user supplied the targeted xUnit log: `Test summary: total: 1, failed: 0, succeeded: 1, skipped: 0`, `Build succeeded with 63 warning(s) in 32.0s`, `Integration test exit code: 0`. Prior command set `LRN03_TEST_DB=1` before `dotnet test`. Test source verifies Created → NewRevision → Unchanged → Unchanged → Conflict, exact 1 item / 2 revisions, latest ID 2, ACL metadata, and redaction; it deletes its unique synthetic rows. **Qualification:** its early return when `LRN03_TEST_DB` is missing means the log alone does not independently show the opt-in environment state. For a future audit-grade rerun, make missing opt-in fail or use an explicit test trait/configuration gate. **No real GCS interaction was performed** and 63 build warnings remain to triage.
