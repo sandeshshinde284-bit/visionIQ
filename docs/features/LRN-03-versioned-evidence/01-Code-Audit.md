@@ -33,7 +33,7 @@ sequenceDiagram
 
 | Task | Verified source observation | Remaining verification |
 | --- | --- | --- |
-| S05-01 schema | `PostgresEvidenceStore` references `evidence.source_items` and `evidence.source_revisions`, with revision, observed/source timestamps, raw URI, ACL and redacted JSON fields | Find/review corresponding migrations and unique/FK constraints; execute real PostgreSQL query |
+| S05-01 schema | `PostgresEvidenceStore` references `evidence.source_items` and `evidence.source_revisions`, with revision, observed/source timestamps, raw URI, ACL and redacted JSON fields | Migration `db/migrations/versions/20261030_0002_versioned_evidence.py` reviewed: item_key PK; revision composite PK (item_key, provider_revision_id); FK from revision to item and deferred FK from latest (item_key, latest_revision_id) back to the corresponding revision. Real PostgreSQL query pending. |
 | S05-02 identity | `EvidenceIdentity.ItemKey()` hashes length-delimited UTF-8 identity fields; distinguishes null repository from an empty string, and provider, project and external ID | Real insert and collision/identity fixture checks |
 | S05-03 archive | `EvidenceIngestionService` hashes raw bytes and invokes archive before `SaveAsync`; accepts `gs://` return | Review concrete GCS implementation and verify immutability/object content and hash in real bucket |
 | S05-04 work items | `CanonicalEvidenceSink` maps `work-items` to current evidence and `work-item-revisions` to historical revisions | Check historical/replay fidelity and missing source fields |
@@ -49,7 +49,15 @@ sequenceDiagram
 - For Confluence page/decision evidence, sink access metadata uses a space principal; **that alone does not implement inherited per-engineer page authorization**. LRN-02 retrieval acceptance remains open.
 - `PostgresEvidenceStore.SaveAsync` serializes concurrent item writes via upsert in a transaction, verifies existing revision hashes, and uses source-update time plus revision comparisons for latest-selection. These are code observations, not a proven physical database outcome.
 
-## 4. Next actual validation
+## 4. Migration audit (2 November 2026)
+
+The checked migration defines `evidence.source_items` with `item_key CHAR(64) PRIMARY KEY`, provider/source/project/repository/kind/external identity, latest revision pointer and observation timestamps. It defines `evidence.source_revisions` with composite primary key `(item_key, provider_revision_id)`, source and observation timestamps, SHA-256, GCS URI, redacted JSON, ACL verification and principal list. JSONB type constraints enforce array ACLs and object metadata; the deferred composite FK protects the latest pointer. Schema migration depends on `20261029_0001`.
+
+Preflight observed: Docker engine 29.5.3; existing `visioniq-postgres` running healthy on host port 5432; pgvector/pgvector:pg16 available; branch `feature/learn`. The pre-existing container appears published on **all interfaces** (0.0.0.0:5432); review its host firewall and replace with loopback-only binding during a separately approved maintenance change. **Do not restart or alter that container as part of this integration test.**
+
+**Next:** disposable separate container/database, dedicated schema migration, C# store integration and exact counts; results not yet collected.
+
+## 5. Next actual validation
 
 First run the committed focused synthetic boundary tests and capture discovered count and exit code:
 
