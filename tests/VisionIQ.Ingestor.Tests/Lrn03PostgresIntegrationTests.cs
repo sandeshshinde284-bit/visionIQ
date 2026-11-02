@@ -148,6 +148,7 @@ public sealed class Lrn03PostgresIntegrationTests
                 Assert.Equal(64, rows.GetString(17).TrimEnd().Length);
             }
             Assert.False(await rows.ReadAsync(), "Unexpected extra source revision");
+            await rows.CloseAsync();
 
         }
         finally
