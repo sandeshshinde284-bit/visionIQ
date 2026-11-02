@@ -1,9 +1,14 @@
 # LRN-01 — Azure DevOps historical ingestion acceptance report
 
 **Project:** VisionIQ · **Branch:** `feature/learn` · **Review PR:** #14 (DRAFT; covers LRN-01 through LRN-07)  
-**Evidence updated:** 2026-11-02 · **Status:** Core LRN-01 tests PASSED; final branch-wide regression and acceptance signoff PENDING. Git access, canonical ingestion, GCS sampled integrity, live comments and automated recovery are now verified. PR #14 must stay DRAFT through LRN-01–07 review.
+**Evidence updated:** 2026-11-02 · **Status:** Core LRN-01 tests PASSED; changed-file source verification and acceptance signoff PENDING. Git access, canonical ingestion, GCS sampled integrity, live comments and automated recovery are now verified. PR #14 must stay DRAFT through LRN-01–07 review.
 
 
+
+
+## Full solution regression — PASSED (2026-11-02)
+
+User executed `dotnet test .\VisionIQ.sln --configuration Release` on local checkout after latest branch pull: **402 total, 402 passed, 0 failed, 0 skipped; exit code 0; build succeeded with 66 warnings; test duration 10.4s, build duration 32.1s.** The warning categories were not supplied and require review before treating them as harmless. This closes the full current-branch regression gate from the previous acceptance decision. **Still open:** independent comparison of changed-file paths/change types in a real approved `KIOSK_TVM` commit/PR against ADO and final acceptance signoff. PR #14 remains Draft.
 
 ## Live CI build ingestion — PASSED (2026-11-02)
 
@@ -11,7 +16,7 @@ Command: `dotnet run --configuration Release --project .\\src\\VisionIQ.Ingestor
 
 ## Current acceptance decision — 2026-11-02
 
-**Decision: NOT YET FULLY ACCEPTED.** The authoritative Trello LRN-01 criteria require work items, PRs, commits, **changed files and CI runs** for every approved project. Core ingestion, unavailable-source handling and checkpoint resume have strong evidence, but changed-file live-source verification and final regression remain open. Evidence below includes earlier chronological results which must not be read as current blockers.
+**Decision: NOT YET FULLY ACCEPTED.** The authoritative Trello LRN-01 criteria require work items, PRs, commits, **changed files and CI runs** for every approved project. Core ingestion, unavailable-source handling and checkpoint resume have strong evidence, but changed-file live-source verification and final regression now passed; changed-file inspection remains open. Evidence below includes earlier chronological results which must not be read as current blockers.
 
 | Acceptance area | Latest evidence | State |
 |---|---|---|
@@ -23,7 +28,7 @@ Command: `dotnet run --configuration Release --project .\\src\\VisionIQ.Ingestor
 | Checkpoints & no-change idempotency | Three isolated PostgreSQL cursors present; ADO work-item canonical no-change delta with stable 208 identities / 524 revisions | PASS |
 | Synthetic failure recovery | 30/30 targeted tests, exit 0 (archive failure, stream isolation, retry, checkpoint preservation) | PASS (automated fault injection, not cloud outage) |
 | LRN-07 assertion-key regression encountered during Git testing | Collision fix applied; live reconciliation no longer reports failures, 141 persisted assertions, 3/3 identity regression tests pass | PASS for specific defect |
-| Full current-branch regression | Earlier solution tests 381 pass + 7 skipped; 10 isolated database integration tests later passed; not rerun as a full suite after latest code changes | **PENDING** |
+| Full current-branch regression | Latest local solution run: 402 passed / 0 failed / 0 skipped, exit 0, build successful with 66 warnings | **PASS** (warnings to review) |
 | Original LRN-01 story acceptance criteria / reviewer signoff | Retrieved authoritative Trello card; 86 CI builds now verified live; changed-file detail still not independently checked | **PENDING** |
 
 **Boundaries:** This evidence does not prove every ADO record or every GCS object was sampled, all nine repositories were ingested, work-item comments persisted in canonical storage, or that a real GCS outage was exercised. All source scopes must remain authorized. Source PAT rotation and organizational approval should be reconfirmed independently; do not include secrets in evidence.
