@@ -12,6 +12,28 @@ CONFLUENCE_API_TOKEN=<secret>
 ```
 These are **templates**, not credential values. The observed integration used Confluence Cloud, the approved `ERK` space, and no other approved space.
 
+## Which command should I run?
+
+| Your goal | Action | Safety |
+| --- | --- | --- |
+| Check whether the code builds | Run the build command below | No source ingestion |
+| Find decision candidates | Run `discover-confluence-decisions` below | Reads metadata, restrictions and eligible labels; no page bodies or evidence writes |
+| Confirm ERK connectivity | Run `inventory` below | Read-only remote access; writes a local inventory result |
+| Validate ACL logic | Run the automated tests below | Synthetic/test fixtures, no live user impersonation |
+| Import historical pages | **Do not run by default** | Requires separate approval and destination review |
+
+### Automated authorization/unit tests
+
+```powershell
+dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj `
+    --configuration Release --no-restore `
+    --filter "FullyQualifiedName~Confluence|FullyQualifiedName~ContentRevisionTests" `
+    --verbosity normal
+if ($LASTEXITCODE -ne 0) { throw "Confluence tests failed" }
+```
+
+**Recorded result:** 37 passed / 0 failed / 0 skipped. Confirm a nonzero number of tests are discovered. These verify simulated ACL behavior, **not** the live API access-control acceptance requirement.
+
 ## Read-only candidate discovery
 ```powershell
 git switch feature/learn
@@ -20,6 +42,7 @@ dotnet build .\VisionIQ.sln --configuration Release
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 dotnet run --no-build --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- discover-confluence-decisions
 Write-Host "Discovery exit code: $LASTEXITCODE"
+if ($LASTEXITCODE -ne 0) { throw "Discovery incomplete; check sanitized errors" }
 ```
 Queries current page metadata, effective restrictions and labels of complete/unrestricted pages; requests no page storage bodies. Prints totals only. A 0 exit means all label requests succeeded, **not** that individual Confluence viewer permissions have been tested. It can make hundreds of REST calls. Do not run repeatedly without a reason.
 
@@ -28,6 +51,10 @@ Queries current page metadata, effective restrictions and labels of complete/unr
 dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- inventory
 ```
 Inventory checks configured source reachability, including Confluence counts. It does not import content.
+
+## Controlled local sync — do not repeat as routine verification
+
+**This command has already been run for LRN-02 evidence.** Running it again can read the space's ACLs and write local snapshots and checkpoints. Check that `INGESTION_OUTPUT_DIR` resolves to the intended isolated folder, and never commit its outputs.
 
 ## Controlled local sync (only when needed)
 For a bounded test, first configure local **file** checkpoints and an isolated JSONL output directory:
@@ -39,6 +66,16 @@ dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync
 Write-Host "Sync exit code: $LASTEXITCODE"
 ```
 The `--since` filter does not avoid the need to compute current ACLs for the whole approved space; existing checkpoints can override `--since` for normal delta runs. A partial exit 2 is expected when restricted or unverifiable pages are withheld. Do not publish JSONL files: unrestricted does not imply publicly distributable corporate content. This is a **reference command**, not a request to rerun the already completed test.
+
+## Expected results from the completed discovery run
+
+```text
+Confluence space ERK: pages=589, eligible-complete-unrestricted=314, title-candidates=0, label-candidates=0, label-lookup-failures=0, withheld-or-unverified=275
+```
+
+This is a **recorded result**, not a hardcoded or guaranteed output. It means that the 314 ACL-complete unrestricted pages have no matching **title or label** under current patterns; it does not examine decision templates, and it does not prove that any specific engineer can retrieve a page.
+
+If discovery reports `label-lookup-failures` above zero, treat the run as incomplete. If eligibility counts change, permissions may have changed; do not change the ACL safety logic merely to restore previous totals.
 
 ## Safety and troubleshooting
 - No page bodies or private identities should appear in discovery output.
