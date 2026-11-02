@@ -1,7 +1,7 @@
 # LRN-03 — Store history as versioned evidence
 
 > **Story:** [LRN-03 on Trello](https://trello.com/c/aqRFYZ9G/9-learn-lrn-03-store-history-as-versioned-evidence)  
-> **Status:** EXISTING IMPLEMENTATION UNDER ACCEPTANCE REVIEW — not a new build. Original LRN-03 functionality was implemented earlier alongside LRN-01–07; this phase audits it against the original Trello card and verifies real persistence. Documentation is maintained **alongside each review, fix and test**, not after story completion.  
+> **Status:** COMPLETE — original LRN-03 storage acceptance verified on 2 November 2026. Not a new build. Original LRN-03 functionality was implemented earlier alongside LRN-01–07; the review audited the original Trello card and verified real persistence. Documentation is maintained **alongside each review, fix and test**, not after story completion.  
 > **Scope:** S05-01 through S05-06, S05-11; approved PostgreSQL / GCS evidence persistence and conservative normalization.
 
 ![Versioned evidence architecture](images/lrn03-evidence-flow.svg)
@@ -115,3 +115,7 @@ Existing LRN-01 test evidence included canonical PostgreSQL/GCS writes, 5/5 samp
 After each meaningful change, update this folder with: (1) implementation explanation, (2) architecture diagram if flow changed, (3) actual PowerShell commands run, (4) sanitized expected/observed outputs, and (5) acceptance status. Never record corporate ticket content, tokens or unapproved access lists. Don't merge the draft LEARN PR until agreed story validation is complete.
 
 **Related:** [LRN-01 visual guide](../LRN-01-history-connectors/visual-guide.md), [LRN-02 acceptance handoff](../LRN-02-confluence/04-Acceptance-and-LRN03-Handoff.md).
+
+## Completion record — 2 November 2026
+
+LRN-03 **COMPLETE against original storage scope**. Final user-run isolated PostgreSQL test: 1 passed, 0 failed, 0 skipped, exit 0; persisted source IDs, revisions, timestamps, ACL, redacted metadata and archive reference verified. Separate passing real GCS (1/1) and metadata boundary (8/8) tests support the remaining acceptance points. Deployed semantic index/retrieval is separately tracked, not part of this storage story. The test builds still report 65 warnings (cleanup backlog). See [acceptance register](04-Test-Evidence-and-Acceptance.md).
