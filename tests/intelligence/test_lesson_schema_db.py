@@ -73,7 +73,7 @@ def test_lesson_revisions_are_append_only() -> None:
         pattern = _lesson(cur)
         with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
             cur.execute(
-                "UPDATE knowledge.lesson_revisions SET status = 'stale' WHERE pattern_id = %s",
+                "UPDATE knowledge.lesson_revisions SET status = 'retired' WHERE pattern_id = %s",
                 (pattern,),
             )
         connection.rollback()
@@ -84,7 +84,7 @@ def test_lesson_revisions_are_append_only() -> None:
         connection.rollback()
 
 
-@pytest.mark.parametrize("status,cause", [("current", "unverified"), ("candidate", "verified")])
+@pytest.mark.parametrize("status,cause", [("reviewed", "unverified"), ("candidate", "verified")])
 def test_current_or_verified_needs_a_named_human(status: str, cause: str) -> None:
     with _connect("INTELLIGENCE") as connection, connection.cursor() as cur:
         with pytest.raises(psycopg.errors.CheckViolation):
@@ -104,4 +104,11 @@ def test_intelligence_writes_lessons_and_the_api_can_only_read_them() -> None:
         cur.execute("SELECT count(*) FROM knowledge.lesson_revisions")
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             _lesson(cur)
+        connection.rollback()
+
+
+def test_the_old_status_names_are_rejected() -> None:
+    with _connect("INTELLIGENCE") as connection, connection.cursor() as cur:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _lesson(cur, "stale")
         connection.rollback()
