@@ -14,7 +14,7 @@
 2. [Architecture and implementation explained](02-Architecture-and-Implementation.md) — visual design, code responsibility, identity, revisions, access and redaction.
 3. [Setup, executable commands and troubleshooting](03-Setup-Commands-and-Troubleshooting.md) — Windows PowerShell runbook, isolated PostgreSQL, CLI commands, failure resolutions.
 4. [Actual test evidence and acceptance](04-Test-Evidence-and-Acceptance.md) — every observed result, outstanding gates and original user-story acceptance.
-5. [GCS archive verification and live runbook](05-GCS-Archive-Verification.md) — existing GCS implementation, conditional writes, exact SHA-256 check and isolated live test.\n6. [Visual architecture image](images/lrn03-evidence-flow.svg) — end-to-end source → archive → versioned database.
+5. [GCS archive verification and live runbook](05-GCS-Archive-Verification.md) — existing GCS implementation, conditional writes, exact SHA-256 check and isolated live test.\n6. [Deployed index/retrieval audit](06-Index-Retrieval-Deployment-Audit.md) — read-only infrastructure inventory, search-index contract and authorization acceptance.\n7. [Visual architecture image](images/lrn03-evidence-flow.svg) — end-to-end source → archive → versioned database.
 
 **Current correction:** The local CLI command is `python -m db.manage roles`, **not** `bootstrap`. The latter was a wrong recommendation and resulted in argument-parser exit 2. This is documented in the operations guide and test evidence.
 
