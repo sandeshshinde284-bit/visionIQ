@@ -111,6 +111,19 @@ An initial database test run reported **9 succeeded / 1 failed** because the dat
 
 This verifies the selected database integration tests against the isolated PostgreSQL instance. It does **not** establish that canonical LRN-01 ingestion into PostgreSQL + GCS was exercised end-to-end, nor that every earlier solution-wide skipped test was necessarily selected by this filter. Keep those as separately scoped checks if required.
 
+## Live canonical ADO ingestion — initial run succeeded, verification pending
+
+On 2026-11-02 the user ran `dotnet run --configuration Release --project .\\src\\VisionIQ.Ingestor.Cli -- sync --source work-items --since 2026-10-30` with `INGESTION_OUTPUT_MODE=canonical`, PostgreSQL checkpoints on a disposable database at `127.0.0.1:15543/visioniq`, and GCS bucket `visioniq-source-evidence-dev` in `EUROPE-WEST3`.
+
+- Run ID `d42d2dbf-8b8a-45e0-820b-4a31b14bfb3b`; exit code **0**; all streams synced.
+- 33 work items stored; 123 links; zero not-stored and zero quarantined.
+- Recycle Bin: 415 deleted work-item markers reported.
+- Graph, test-link and build-link projections processed zero assertions.
+- Report: `artifacts/ingestion/lrn01-canonical-test/20261102-071749/report.json`.
+- Bucket configuration reported `uniform_bucket_level_access=true`, `public_access_prevention=enforced`, and a seven-day soft-delete policy. Effective inherited project IAM and organizational source-data authorization require independent review.
+
+**Pending verification:** independently query canonical PostgreSQL source identities/revisions/checkpoints and inspect GCS archive object metadata and references; replay the unchanged sync to establish canonical idempotency; test canonical failure recovery. These are not yet passed merely because the sync returned exit 0. Live repo/commit/PR ingestion remains blocked pending appropriate Azure Repos access.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
@@ -126,7 +139,7 @@ Code review of `src/VisionIQ.Ingestor/Ado/AdoWorkItemReader.cs`, `src/VisionIQ.A
 
 1. **Azure Repos access:** restore authorized Basic/repo read rights; verify repository inventory, commits and pull requests, pagination and independent checkpoint behavior. Do not treat 0 repositories as a completed repo test.
 2. **Source fidelity:** sampled latest fields and five earlier historical revisions have now been matched against ADO; **dedicated downstream defect-only classification/search** validation remains a downstream feature gate, because no dedicated defect search implementation exists in the reviewed code. The sample does not prove exhaustive history correctness.
-3. **Canonical persistence where required by approved story acceptance criteria:** selected disposable PostgreSQL integration tests now pass (10/10); end-to-end canonical PostgreSQL + GCS ingestion, tombstones and checkpoint atomicity still require explicit verification if within story scope. Coordinate cross-story ownership with LRN-03/05/07.
+3. **Canonical persistence:** first live ADO canonical sync returned exit 0 (33 work items, 123 links); independently verify PostgreSQL records, GCS objects, checkpoint/replay and failure recovery before acceptance. Coordinate cross-story ownership with LRN-03/05/07.
 4. **Final code review and evidence signoff:** evaluate any additional review blockers or CI gates at the final branch head. Do not merge on the basis of this report alone.
 
 ## PR policy
