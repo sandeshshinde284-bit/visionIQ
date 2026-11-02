@@ -19,7 +19,7 @@
 
 ## Acceptance criteria (original Trello wording)
 
-- [ ] Each record keeps its source ID, revision, timestamps and access list. **Schema/code located; actual stored row test pending.**
+- [ ] Each record keeps its source ID, revision, timestamps and access list. **Final persisted-column assertions committed; user execution pending.**
 - [ ] A raw copy is kept in Cloud Storage; sensitive fields are redacted before indexing. **Live GCS upload/download/checksum/replay PASSED**, while downstream indexing safety remains to be verified independently.
 - [x] Re-importing the same item updates it instead of creating a duplicate. **Targeted opt-in PostgreSQL integration test passed (1/1); synthetic source item and two revisions, replay and conflict asserted.**
 
@@ -100,3 +100,30 @@ The user executed `dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Inges
 ## Deployed index/retrieval audit — 2 November 2026
 
 Checked source entry points `src/VisionIQ.Api/Program.cs`, `src/VisionIQ.Ingestor.Cli/Program.cs`, `PostgresEvidenceStore` and targeted repository search. Found canonical ingest to raw GCS and redacted PostgreSQL evidence; .NET API registers a permission-aware graph API, but no demonstrated downstream redacted-metadata index writer or deployed evidence-search endpoint. **Status: not verified**, not evidence of failure or success. The required read-only Cloud Run and PostgreSQL inventory commands, sentinel query test design and requester ACL gate are documented in [06-Index-Retrieval-Deployment-Audit.md](06-Index-Retrieval-Deployment-Audit.md). Do not treat previously passing 8/8 normalizer tests as a deployed retrieval PASS.
+
+## Final persisted metadata acceptance test — 2 November 2026 (prepared, not yet executed)
+
+Updated `tests/VisionIQ.Ingestor.Tests/Lrn03PostgresIntegrationTests.cs` to validate the **actual joined database rows** after importing two synthetic revisions and replaying them. Assertions now cover all identity columns (provider, instance, project, null repository, kind and source external ID); native revision ID; source and observation timestamps plus first/last observed values; HTTPS source URL; trusted retrieval principal; verified ACL and principal IDs; redacted JSON kind/state with private text excluded; `gs://` raw archive reference; and SHA-256 length. The existing assertions for Created → NewRevision → Unchanged → Unchanged → Conflict, one item, two revisions and latest revision remain. **The URI comes from an archive stub; real GCS was separately verified using the live bucket test.**
+
+Run from the existing PowerShell session with the isolated database and credentials:
+
+```powershell
+git switch feature/learn
+git pull
+if ($env:DB_TARGET -ne "local" -or $env:DB_HOST -ne "127.0.0.1" -or
+    $env:DB_PORT -ne "55433" -or $env:DB_LOCAL_NAME -ne "visioniq_lrn03_test" -or
+    $env:DB_API_USER -ne "visioniq_lrn03_api" -or
+    [string]::IsNullOrWhiteSpace($env:DB_API_PASSWORD)) {
+    throw "Isolated LRN-03 test database required"
+}
+$env:LRN03_TEST_DB = "1"
+try {
+    dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Tests.csproj \`\n      --configuration Release \`\n      --filter "FullyQualifiedName~Lrn03PostgresIntegrationTests" \`\n      --verbosity minimal
+    Write-Host "Final LRN-03 metadata test exit code: $LASTEXITCODE"
+}
+finally {
+    Remove-Item Env:LRN03_TEST_DB -ErrorAction SilentlyContinue
+}
+```
+
+**Status: PENDING EXECUTION.** Record actual stdout and exit code before marking LRN-03 fully accepted. Deployed semantic indexing and retrieval remain separate, as documented in [06](06-Index-Retrieval-Deployment-Audit.md).
