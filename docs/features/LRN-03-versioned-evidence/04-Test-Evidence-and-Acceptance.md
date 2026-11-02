@@ -19,8 +19,8 @@
 
 ## Acceptance criteria (original Trello wording)
 
-- [ ] Each record keeps its source ID, revision, timestamps and access list. **Final persisted-column assertions committed; user execution pending.**
-- [ ] A raw copy is kept in Cloud Storage; sensitive fields are redacted before indexing. **Live GCS upload/download/checksum/replay PASSED**, while downstream indexing safety remains to be verified independently.
+- [x] Each record keeps its source ID, revision, timestamps and access list. **Final isolated PostgreSQL test passed (1/1), including real persisted-column assertions.**
+- [x] A raw copy is kept in Cloud Storage; sensitive fields are redacted before indexing. **Live isolated GCS integrity/replay test passed (1/1); metadata redaction boundary passed (8/8).** Actual semantic indexing/retrieval is separate future scope.
 - [x] Re-importing the same item updates it instead of creating a duplicate. **Targeted opt-in PostgreSQL integration test passed (1/1); synthetic source item and two revisions, replay and conflict asserted.**
 
 **Completion evidence:** the same item imported twice leaves **one logical record with two source revisions** (after introducing the second distinct revision and replaying records). Do not mark complete before verifying counts and latest pointer in the disposable PostgreSQL database.
@@ -126,4 +126,8 @@ finally {
 }
 ```
 
-**Status: PENDING EXECUTION.** Record actual stdout and exit code before marking LRN-03 fully accepted. Deployed semantic indexing and retrieval remain separate, as documented in [06](06-Index-Retrieval-Deployment-Audit.md).
+**Status: PASS — user executed final test on 2 November 2026: 1 succeeded, 0 failed, 0 skipped, 2.9 seconds; build succeeded with 65 warnings in 28.6 seconds; final exit code 0.** Original LRN-03 storage acceptance is complete. Deployed semantic indexing/retrieval remains separate. Deployed semantic indexing and retrieval remain separate, as documented in [06](06-Index-Retrieval-Deployment-Audit.md).
+
+## Final acceptance decision — 2 November 2026
+
+**LRN-03: COMPLETE (original storage scope).** User-run final isolated PostgreSQL persisted-metadata test: **1/1 PASS, 0 failed, 0 skipped, exit 0, 2.9 s**; build success with 65 warnings in 28.6 s. The revised test asserts provider, source instance, project, original external ID, native revision IDs, UTC source/observed timestamps, first/last observed, source URL, retrieval identity, verified ACL/principal IDs, safe redacted metadata and raw archive reference, in addition to idempotency/conflict and latest revision. Real GCS archive integrity/replay **1/1 PASS**, redaction boundary **8/8 PASS**. All three original storage acceptance checks now supported. **Nonblocking follow-ups:** 65 analyzer warnings; separate deployed indexing/retrieval and requester authorization; any historic data reindex/backfill. Draft PR remains unmerged.
