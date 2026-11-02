@@ -1,7 +1,7 @@
 # LRN-03 — Store history as versioned evidence
 
 > **Story:** [LRN-03 on Trello](https://trello.com/c/aqRFYZ9G/9-learn-lrn-03-store-history-as-versioned-evidence)  
-> **Status:** IN PROGRESS — existing implementation under review. Documentation is maintained **alongside each code/test change**, not after story completion.  
+> **Status:** EXISTING IMPLEMENTATION UNDER ACCEPTANCE REVIEW — not a new build. Original LRN-03 functionality was implemented earlier alongside LRN-01–07; this phase audits it against the original Trello card and verifies real persistence. Documentation is maintained **alongside each review, fix and test**, not after story completion.  
 > **Scope:** S05-01 through S05-06, S05-11; approved PostgreSQL / GCS evidence persistence and conservative normalization.
 
 ![Versioned evidence architecture](images/lrn03-evidence-flow.svg)
@@ -52,9 +52,9 @@ flowchart LR
 | `src/VisionIQ.Api/Features/Evidence/` | Archive and evidence storage interfaces/implementations |
 | `tests/VisionIQ.Ingestor.Tests/` | Relevant ingestion/normalization and integration test code |
 
-## Initial test coverage added with the implementation
+## Additional review regression tests (not evidence of new feature implementation)
 
-New synthetic regression tests are in `tests/VisionIQ.Ingestor.Tests/Lrn03EvidenceBoundaryTests.cs`:
+Additional synthetic regression tests were added during the review in `tests/VisionIQ.Ingestor.Tests/Lrn03EvidenceBoundaryTests.cs`:
 
 - Raw evidence is archived before a database store call.
 - An archive failure prevents a database write.
@@ -71,7 +71,21 @@ dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj `
 if ($LASTEXITCODE -ne 0) { throw "LRN-03 focused tests failed" }
 ```
 
-**Status:** test source committed; local execution and results **not yet observed**. This synthetic suite does not validate real PostgreSQL row constraints, GCS object contents, or GCP IAM. Those need separate integration testing.
+**Status:** additional test source committed; local execution and results **not yet observed**. Existing tests and existing previously recorded LRN-01 canonical archive evidence must also be reviewed; do not infer LRN-03 was unimplemented from this addition. This synthetic suite does not validate real PostgreSQL row constraints, GCS object contents, or GCP IAM. Those need separate integration testing.
+
+## Trello implementation task audit (review, not new implementation)
+
+| Task | Review target | Status |
+| --- | --- | --- |
+| S05-01 Canonical evidence schema | PostgreSQL migrations, evidence tables and constraints | Awaiting full migration review |
+| S05-02 Source identity strategy | `EvidenceIdentity.ItemKey`, source collisions and keys | Existing code located; tests pending |
+| S05-03 Raw immutable snapshot archive | GCS object implementation, hash/object existence and failure behavior | Existing code path located; live validation pending |
+| S05-04 Work-item revision normalization | Canonical mappings for work-item revisions | Existing sink located; audit pending |
+| S05-05 PR, commit, review normalization | Canonical mappings and field fidelity | Existing sink located; audit pending |
+| S05-06 CI, deployment, incident normalization | Accepted record types and safe normalizer output | Existing normalizer located; audit pending |
+| S05-11 Deduplication/upsert | PostgreSQL same-item replay, new revision and conflict | Existing store located; actual DB test pending |
+
+Existing LRN-01 test evidence included canonical PostgreSQL/GCS writes, 5/5 sampled GCS hash checks and duplicate-key checks in a sample. These are **supporting evidence**, not a completed LRN-03 two-revision acceptance run.
 
 ## Source-of-truth acceptance checklist
 
