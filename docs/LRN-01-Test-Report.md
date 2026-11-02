@@ -169,3 +169,7 @@ Code review of `src/VisionIQ.Ingestor/Ado/AdoWorkItemReader.cs`, `src/VisionIQ.A
 ## PR policy
 
 **PR #14 remains DRAFT** and must not be merged until LRN-01 through LRN-07 have each passed their story-specific acceptance and the combined pipeline has been reviewed and approved. Live Git verification is pending access restoration. No cloud deployment is authorized by this report.
+
+## LRN-07 graph assertion identity fix — implementation awaiting local validation (2026-11-02)
+
+Live `KIOSK_TVM` incremental Git sync (`runId=908c1918-a7c9-43b8-bba6-e023c488d78b`) synced 2 PRs and 19 commits (no source errors), but reconciliation failed 21 associations with `immutable_graph_assertion_conflict` and process exit 2. Database contained multiple ticket-fix associations sharing evidence refs. Root cause in code: `GraphAssertion.AssertionKey` previously omitted `TicketFixAssociationKey`, while `ContentHash` included it, so legitimate distinct associations could collide. Updated association-linked keys to hash `(RelationshipKey, ProvenanceRevision, TicketFixAssociationKey)`, retaining the legacy key formula for assertions without an association. Added unit regression for two distinct associations, deterministic replay, legacy identity, and immutable changed-content detection. Old graph rows are deliberately preserved; no migration or data deletion performed. Verify runtime behavior and inspect legacy/new row coexistence in isolated database before acceptance. PR #14 remains Draft.

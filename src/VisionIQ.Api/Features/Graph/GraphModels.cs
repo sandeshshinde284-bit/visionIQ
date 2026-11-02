@@ -80,7 +80,9 @@ public sealed record GraphAssertion(
 
     /// <summary>Identity for this specific immutable provenance revision.</summary>
     public string AssertionKey() =>
-        GraphHashes.Hash(RelationshipKey(), ProvenanceRevision);
+        TicketFixAssociationKey is { } association
+            ? GraphHashes.Hash(RelationshipKey(), ProvenanceRevision, association)
+            : GraphHashes.Hash(RelationshipKey(), ProvenanceRevision);
 
     /// <summary>Hash of all immutable columns to detect conflicting replays.</summary>
     public string ContentHash() =>
