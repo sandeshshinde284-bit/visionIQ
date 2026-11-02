@@ -6,7 +6,7 @@
 
 ## Current acceptance decision — 2026-11-02
 
-**Decision: conditionally ready for LRN-01 signoff; do not mark fully accepted until final full regression and story-criteria comparison are reviewed.** Evidence below includes earlier chronological results which must not be read as current blockers.
+**Decision: NOT YET FULLY ACCEPTED.** The authoritative Trello LRN-01 criteria require work items, PRs, commits, **changed files and CI runs** for every approved project. Core ingestion, unavailable-source handling and checkpoint resume have strong evidence, but changed-file and CI-run live-source verification and final regression remain open. Evidence below includes earlier chronological results which must not be read as current blockers.
 
 | Acceptance area | Latest evidence | State |
 |---|---|---|
@@ -19,7 +19,7 @@
 | Synthetic failure recovery | 30/30 targeted tests, exit 0 (archive failure, stream isolation, retry, checkpoint preservation) | PASS (automated fault injection, not cloud outage) |
 | LRN-07 assertion-key regression encountered during Git testing | Collision fix applied; live reconciliation no longer reports failures, 141 persisted assertions, 3/3 identity regression tests pass | PASS for specific defect |
 | Full current-branch regression | Earlier solution tests 381 pass + 7 skipped; 10 isolated database integration tests later passed; not rerun as a full suite after latest code changes | **PENDING** |
-| Original LRN-01 story acceptance criteria / reviewer signoff | No authoritative LRN-01 acceptance-criteria text included in this report | **PENDING** |
+| Original LRN-01 story acceptance criteria / reviewer signoff | Retrieved authoritative Trello card; changed-file and CI-run reads not yet shown in live acceptance evidence | **PENDING** |
 
 **Boundaries:** This evidence does not prove every ADO record or every GCS object was sampled, all nine repositories were ingested, work-item comments persisted in canonical storage, or that a real GCS outage was exercised. All source scopes must remain authorized. Source PAT rotation and organizational approval should be reconfirmed independently; do not include secrets in evidence.
 
@@ -33,6 +33,17 @@ git status --short
 ```
 
 Inspect skipped integration tests and warnings; report the actual summary rather than treating a zero exit code as proof that all integrations ran. Record any remaining unsupported scenarios in the LRN-02+ acceptance plans. Do not merge PR #14 until LRN-01–07 approval.
+
+
+### Authoritative story criteria (Trello LRN-01)
+
+Source: https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources
+
+1. **Read work items, PRs, commits, changed files and CI runs for every approved project:** work items / PRs / commits **verified** against the selected ADO project and `KIOSK_TVM` repo. **Changed-file extraction and CI-run ingestion not yet verified live**; pipeline inventory alone does not satisfy CI-run ingestion. Other projects/repositories need only be tested if approved as in scope.
+2. **Unreachable source is NOT SYNCED, never empty:** simulated invalid-PAT test and failure isolation **verified**; test output preserved in earlier evidence.
+3. **Interrupted synchronization resumes from last checkpoint without duplicates:** simulated mid-stream tests **verified**; live no-change canonical replay **verified**.
+
+**LRN-01 remaining acceptance gates:** (a) selected `KIOSK_TVM` commit changed-file metadata inspection, (b) real CI build/run ingestion or explicit approved scope exception, (c) final current branch regression / reviewer approval. Canonical comments archival check is a cross-story LRN-03 quality follow-up, not one of the three written LRN-01 criteria.
 
 ## Scope and environment
 
