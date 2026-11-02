@@ -138,6 +138,11 @@ Five archive URIs were selected from `evidence.source_revisions` in the isolated
 
 **Remaining canonical gate:** verify persistence failure does not advance the PostgreSQL checkpoint and successful recovery does not duplicate evidence. Execute this only with the isolated database, controlled fault injection and no destructive changes to shared infrastructure.
 
+
+## Live ADO access restored and comments unit regression — PASSED (2026-11-02)
+
+User executed the new `WorkItemCommentTests` suite: **4 passed, 0 failed, 0 skipped, exit code 0**. Build reported 63 warnings; evaluate warning types during final regression. Live `inventory` exited 0 and reported **Genoa Kiosk: 4,438 work items, 9 repositories, 22 pipelines**. The former missing Azure Repos permission is resolved at discovery/inventory level; actual live commit and PR ingestion plus real comment cases remain unverified. Confluence remains unconfigured.
+
 ## Security observations
 
 - ADO invalid credential test failed closed; 203 sign-in response was recognized and source reported `NotSynced` rather than zero results.
