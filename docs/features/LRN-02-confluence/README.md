@@ -5,11 +5,16 @@
 **Documentation status:** Complete as-of baseline; updates tracked here  
 **User-story acceptance:** OPEN — end-to-end user-specific retrieval authorization depends on LRN-03 integration
 
+![Visual overview: how LRN-02 handles Confluence permissions](images/lrn02-security-flow.svg)
+
+**Start with [the illustrated step-by-step walkthrough](05-Illustrated-Walkthrough.md)** — realistic synthetic examples, Mermaid flows, inherited ACL examples and explanations of each ERK count.
+
 ## Document index
 1. [Architecture and implementation](01-Architecture-and-Implementation.md) — behavior, code locations, ACL model and storage boundaries.
 2. [Setup and operations](02-Setup-and-Operations.md) — configuration, safe commands, diagnostics and operational limits.
 3. [Test report and evidence](03-Test-Report-and-Evidence.md) — reported 37/37 tests, 589-page inventory, controlled sync, discovery outputs and unverified scenarios.
 4. [Acceptance and LRN-03 handoff](04-Acceptance-and-LRN03-Handoff.md) — original acceptance criteria, security contract, risks and final signoff checklist.
+5. [Illustrated walkthrough](05-Illustrated-Walkthrough.md) — diagram-based explanation, practical examples and test-result interpretation.
 
 ## Verified user-run evidence
 - Confluence Cloud approved ERK space: **589 pages**, **527 complete** ACLs, **62 incomplete**.
