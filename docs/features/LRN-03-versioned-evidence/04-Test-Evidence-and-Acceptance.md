@@ -15,7 +15,7 @@
 | Two revisions + identical replay | User-run targeted xUnit: 1 succeeded, 0 failed, 0 skipped; exit 0; build succeeded with 63 warnings | **PASS — targeted integration** | Test asserts 1 logical item, 2 revisions, correct latest revision, replay statuses; no actual GCS |
 | Existing revision ID + altered content | Included in same successful targeted xUnit integration test | **PASS — targeted integration** | `Conflict` return asserted; database revision count remains 2 |
 | GCS raw snapshot integrity/immutability | Retried 2026-11-02 after ADC reauthentication; 1/1 passed, 0 failed, 0 skipped, exit 0 (14.6s); 65 warnings | **PASS — real isolated GCS** | One synthetic object: exact bytes, SHA-256, unchanged generation on replay; broader IAM/indexing not tested |
-| End-user Confluence ACL retrieval | Not executed | OUTSIDE STORAGE GATE / OPEN DEPENDENCY | LRN-02 authorization handoff |
+| Downstream indexable metadata safety | Source allowlist hardened, 4 new synthetic regressions added, test execution pending | CODE FIX COMMITTED — TEST PENDING | Actual deployed index writer not established |\n| End-user Confluence ACL retrieval | Not executed | OUTSIDE STORAGE GATE / OPEN DEPENDENCY | LRN-02 authorization handoff |
 
 ## Acceptance criteria (original Trello wording)
 
@@ -77,3 +77,18 @@ User executed `Lrn03GcsArchiveIntegrationTests.Real_cloud_storage_archive_is_imm
 ## Successful live GCS retry — 2 November 2026
 
 After reauthentication of Application Default Credentials, user reran `Lrn03GcsArchiveIntegrationTests.Real_cloud_storage_archive_is_immutable_idempotent_and_exact` against isolated bucket `visioniq-lrn03-test-1`. Observed: `total: 1, failed: 0, succeeded: 1, skipped: 0`, duration 14.6 s, **exit code 0**. Build succeeded with **65 warnings**. The test source checks byte-for-byte download, SHA-256 hash, same GCS URI and unchanged object generation for the replay. The test deletes its uniquely named object on success. This resolves the earlier `invalid_rapt` authentication blocker. **Not validated by this single test:** bucket-wide retention and IAM; independent indexing pipeline safety; every production source/ACL mapping.
+
+## Downstream indexing redaction review — 2 November 2026
+
+**Code-level finding:** `EvidenceNormalizer.SafeFields` previously copied `commentTruncated` for commits and `environmentRaw` / `environmentReason` / `environment` for work item current records, even though these source-derived strings could contain free text or sensitive values. These have been removed from the normalized indexable metadata allowlist. The safe work-item-current fields now include `state`, `workItemType`, `environmentStatus`, `environmentSource`; commit records include only `kind`. The raw original still belongs in authorized GCS archive, not a search projection.
+
+**Regression coverage added:** `Lrn03EvidenceBoundaryTests.Indexable_metadata_never_contains_synthetic_sensitive_source_text` has four synthetic examples covering commit commentary, work-item environment raw/reason, work-item description and Confluence page text. **Local execution pending**, not yet a pass.
+
+```powershell
+git switch feature/learn
+git pull
+dotnet test .\\tests\\VisionIQ.Ingestor.Tests\\VisionIQ.Ingestor.Tests.csproj --configuration Release --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests" --verbosity minimal
+Write-Host "LRN-03 redaction tests exit code: $LASTEXITCODE"
+```
+
+**Important distinction:** tests prove the normalization/ingestion **boundary** excludes specified text and PostgreSQL stores its `redacted_payload`. They do **not** prove there is an actual deployed downstream vector/full-text index consuming only this JSON. A deployment-specific index writer or retrieval path must be located and tested independently before full indexing signoff. Existing stored rows may need a controlled backfill/reindex to pick up normalization changes; there is no automatic retroactive rewrite in this patch.
