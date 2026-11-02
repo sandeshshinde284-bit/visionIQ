@@ -4,9 +4,14 @@
 **Evidence updated:** 2026-11-02 · **Status:** Core LRN-01 tests PASSED; final branch-wide regression and acceptance signoff PENDING. Git access, canonical ingestion, GCS sampled integrity, live comments and automated recovery are now verified. PR #14 must stay DRAFT through LRN-01–07 review.
 
 
+
+## Live CI build ingestion — PASSED (2026-11-02)
+
+Command: `dotnet run --configuration Release --project .\\src\\VisionIQ.Ingestor.Cli -- sync --source builds --since 2026-10-30`; approved ADO project `Genoa Kiosk`; canonical PostgreSQL at `127.0.0.1:15543/visioniq` and GCS evidence destination. The CLI notes that `--since` applies only if no checkpoint exists, unless `--full` is specified. Run ID `00c39f65-5491-4b63-b78b-6ff5176d1f49`: **86 builds stored; 149 source links; 0 not stored, 0 quarantined; 112 build-link graph assertions processed; exit 0; all synced.** Output report: `artifacts/ingestion/lrn01-canonical-test/20261102-115556/report.json`. Pipeline builds were read at **project scope**; `ADO_REPOS=KIOSK_TVM` is not proof of filtering CI builds to that repository. Changed-file content/metadata has not yet been independently sampled. Feature guides: [docs/features/LRN-01-history-connectors/](features/LRN-01-history-connectors/README.md).
+
 ## Current acceptance decision — 2026-11-02
 
-**Decision: NOT YET FULLY ACCEPTED.** The authoritative Trello LRN-01 criteria require work items, PRs, commits, **changed files and CI runs** for every approved project. Core ingestion, unavailable-source handling and checkpoint resume have strong evidence, but changed-file and CI-run live-source verification and final regression remain open. Evidence below includes earlier chronological results which must not be read as current blockers.
+**Decision: NOT YET FULLY ACCEPTED.** The authoritative Trello LRN-01 criteria require work items, PRs, commits, **changed files and CI runs** for every approved project. Core ingestion, unavailable-source handling and checkpoint resume have strong evidence, but changed-file live-source verification and final regression remain open. Evidence below includes earlier chronological results which must not be read as current blockers.
 
 | Acceptance area | Latest evidence | State |
 |---|---|---|
@@ -19,7 +24,7 @@
 | Synthetic failure recovery | 30/30 targeted tests, exit 0 (archive failure, stream isolation, retry, checkpoint preservation) | PASS (automated fault injection, not cloud outage) |
 | LRN-07 assertion-key regression encountered during Git testing | Collision fix applied; live reconciliation no longer reports failures, 141 persisted assertions, 3/3 identity regression tests pass | PASS for specific defect |
 | Full current-branch regression | Earlier solution tests 381 pass + 7 skipped; 10 isolated database integration tests later passed; not rerun as a full suite after latest code changes | **PENDING** |
-| Original LRN-01 story acceptance criteria / reviewer signoff | Retrieved authoritative Trello card; changed-file and CI-run reads not yet shown in live acceptance evidence | **PENDING** |
+| Original LRN-01 story acceptance criteria / reviewer signoff | Retrieved authoritative Trello card; 86 CI builds now verified live; changed-file detail still not independently checked | **PENDING** |
 
 **Boundaries:** This evidence does not prove every ADO record or every GCS object was sampled, all nine repositories were ingested, work-item comments persisted in canonical storage, or that a real GCS outage was exercised. All source scopes must remain authorized. Source PAT rotation and organizational approval should be reconfirmed independently; do not include secrets in evidence.
 
@@ -39,7 +44,7 @@ Inspect skipped integration tests and warnings; report the actual summary rather
 
 Source: https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources
 
-1. **Read work items, PRs, commits, changed files and CI runs for every approved project:** work items / PRs / commits **verified** against the selected ADO project and `KIOSK_TVM` repo. **Changed-file extraction and CI-run ingestion not yet verified live**; pipeline inventory alone does not satisfy CI-run ingestion. Other projects/repositories need only be tested if approved as in scope.
+1. **Read work items, PRs, commits, changed files and CI runs for every approved project:** work items / PRs / commits **verified** against the selected ADO project and `KIOSK_TVM` repo. **CI build runs verified live (86 builds / 149 links); changed-file extraction not yet independently verified live**; pipeline inventory alone does not satisfy CI-run ingestion. Other projects/repositories need only be tested if approved as in scope.
 2. **Unreachable source is NOT SYNCED, never empty:** simulated invalid-PAT test and failure isolation **verified**; test output preserved in earlier evidence.
 3. **Interrupted synchronization resumes from last checkpoint without duplicates:** simulated mid-stream tests **verified**; live no-change canonical replay **verified**.
 
