@@ -1,5 +1,11 @@
 # LRN-01 — Operations, recovery and demo preparation
 
+## Start here: when should I use this?
+
+This is an **operations reference**, not a sequence of commands to run every morning. First use [local testing](local-testing.md) for a no-ingestion build/test check and [the command register](../LEARN-01-02-Command-Register.md) to distinguish observed test commands from optional operational tasks. A historical full backfill is a separately approved operation; it is not required merely because the README shows it.
+
+**Operator decision example:** If your code changed but source data did not, run local tests—not a full ADO backfill. If an approved source stream stopped due to throttling, inspect its report and checkpoint, then retry a controlled delta. If evidence is missing despite a successful run, investigate the source scope and cursor before considering reconciliation.
+
 ## Three sync types
 
 | Type | When | Why |
