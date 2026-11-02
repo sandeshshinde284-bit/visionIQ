@@ -2,7 +2,7 @@
 
 > **In one sentence:** VisionIQ reads approved engineering history from Azure DevOps and makes that evidence available to downstream LEARN features.
 
-**Story:** [LRN-01 on Trello](https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources) · **Status:** Core tests pass; changed-file live verification and full current-branch regression are outstanding. **Do not merge PR #14 yet.**
+**Story:** [LRN-01 on Trello](https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources) · **Status:** All original LRN-01 functional acceptance criteria have supporting evidence, including 8/8 changed-file fidelity and 402/402 final regression. Formal story signoff and review of 66 build warnings remain; PR #14 stays Draft. **Do not merge PR #14 yet.**
 
 ## Why we need this
 
