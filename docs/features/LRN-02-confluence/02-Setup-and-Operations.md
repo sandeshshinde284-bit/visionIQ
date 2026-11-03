@@ -9,8 +9,10 @@ CONFLUENCE_BASE_URL=https://<tenant>.atlassian.net/wiki
 CONFLUENCE_SPACE_KEYS=<approved-space-keys>
 CONFLUENCE_USER_EMAIL=<credential-email>
 CONFLUENCE_API_TOKEN=<secret>
+# Per-user read check (API only): JSON map of e-mail -> Atlassian account ID, kept outside source control.
+CONFLUENCE_IDENTITY_MAP_FILE=<path-to-identity-map.json>
 ```
-These are **templates**, not credential values. The observed integration used Confluence Cloud, the approved `ERK` space, and no other approved space.
+These are **templates**, not credential values. The observed integration used Confluence Cloud, the approved `ERK` space, and no other approved space. `CONFLUENCE_IDENTITY_MAP_FILE` is read only by the VisionIQ API: without it, Confluence evidence is never shown to anyone. The map is a decision for your Atlassian administrators (for example exported from Atlassian Guard or your SSO directory); see `docs/graph-api.md`.
 
 ## Which command should I run?
 
