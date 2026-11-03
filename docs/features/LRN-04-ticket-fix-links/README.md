@@ -28,11 +28,11 @@ An engineer must be able to see which PRs/commits were linked to a past defect a
 
 ## Test gate A — focused synthetic tests
 
-From repository root with branch `feature/learn`:
+From repository root on `main` (or the corresponding company-repository feature branch):
 
 ```powershell
-git switch feature/learn
-git pull --ff-only origin feature/learn
+git switch main
+git pull --ff-only origin main
 dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj `
   --configuration Release `
   --filter "FullyQualifiedName~TicketFixResolverTests|FullyQualifiedName~TicketFixProjectionSinkTests" `
@@ -44,7 +44,7 @@ Write-Host "LRN-04 focused test exit code: $LASTEXITCODE"
 
 ## Test gate B — real PostgreSQL
 
-Use only the isolated `visioniq-lrn03-test-postgres` local database at `127.0.0.1:55433`. Confirm existing Alembic migrations, API role isolation and the actual table schema before writing any test rows. Test source claim replay, review state preservation, explicit vs inferred, dispute, and revert in an isolated transaction. Do not touch the ordinary database (`5432`) or Cloud SQL. **Pending test setup and execution.**
+Prefer the isolated `visioniq-lrn03-test-postgres` local database at `127.0.0.1:55433` (or another explicitly disposable CI test database). Confirm existing Alembic migrations, API role isolation and the actual table schema before writing any test rows. Test source claim replay, review state preservation, explicit vs inferred, dispute, and revert in a disposable database. Do not touch the ordinary development database (`5432`) or Cloud SQL. **Pending test setup and execution.**
 
 ## Test gate C — five known source-grounded examples
 
@@ -54,9 +54,33 @@ Review five approved ADO ticket→PR/commit links, confirm the reference is actu
 
 Code inspection confirms `PostgresTicketFixLinkStore.UpsertSourceAsync` persists source classification and evidence refs, while `RecordReviewAsync` appends reviewed decisions transactionally and checks for a reverted association. The store maintains source association, reviewed verdict and revert markers as distinct evidence dimensions. **No real PostgreSQL integration run has yet been observed for LRN-04.**
 
-**Potential gap — ingest ordering:** `RecordRevertAsync` updates only *existing* `ticket_fix_links` rows matching source, project, repository and original SHA. If a revert commit is processed **before** the corresponding ticket→commit claim exists, the UPDATE can affect zero rows; current `TicketFixProjectionSink` does not visibly retry that revert once the claim is subsequently created. Test reverse arrival order and checkpoint/replay behavior before signoff. This is a code-level risk, not a confirmed production failure.
+**Ingest ordering issue — code fix committed, execution pending:** Prior code updated only existing `ticket_fix_links` rows, so reverts arriving before ticket→commit links could be lost. Migration `20261103_0018` introduces source-scoped `evidence.ticket_fix_revert_observations`. The store now records each full-SHA revert observation independently and joins those observations into later claims. A shared transaction-scoped PostgreSQL advisory lock serializes the operations for a given source/project/repository/original SHA. Regression test `Revert_observed_before_a_fix_is_preserved_scoped_and_idempotent` was added. The fix remains **unverified by execution** until the isolated database test passes.
 
 **Potential gap — scope:** The source-scoped SQL update requires an exact repository and project match. Verify that artifact URL identity normalization makes the PR/work-item association and revert-commit project/repository IDs equivalent in real data.
+
+## New LRN-04 database remediation — execution gate
+
+The repository now contains migration `db/migrations/versions/20261103_0018_ticket_fix_revert_observations.py`. Apply the full forward migration chain to a **disposable local PostgreSQL database** and run `python -m db.manage roles` as required to grant the limited API role write access to the new table. Never test on shared Cloud SQL.
+
+**Opt-in PostgreSQL regression** (environment variables must point to a disposable migrated test database):
+
+```powershell
+$env:VISIONIQ_TICKET_FIX_DB_INTEGRATION = "1"
+$env:DB_HOST = "127.0.0.1"
+$env:DB_PORT = "55433"
+$env:DB_NAME = "visioniq_lrn03_test"
+$env:DB_API_USER = "visioniq_lrn03_api"
+# DB_API_PASSWORD must already be securely configured in the current shell.
+dotnet test .\tests\VisionIQ.Api.Tests\VisionIQ.Api.Tests.csproj `
+  --configuration Release `
+  --filter "FullyQualifiedName~TicketFixDatabaseIntegrationTests" `
+  --verbosity minimal
+Write-Host "LRN-04 PostgreSQL test exit code: $LASTEXITCODE"
+```
+
+The two database test cases cover immutable review replay, reverse-arrival revert observations, scoped association isolation and duplicate replay. Note: the test suite also contains a non-opt-in association-key check; verify the runner's actual test count and skip status, not just process exit code. Revert projection into the relationship graph and five authorized source-grounded examples still require separate validation.
+
+**Deployment sequencing:** Migration `0018` must complete before deploying the updated runtime store; the new SQL references the observation table.
 
 ## Findings to verify
 
@@ -72,14 +96,14 @@ Code inspection confirms `PostgresTicketFixLinkStore.UpsertSourceAsync` persists
 | --- | --- | --- |
 | Resolver focused xUnit (8 cases) | No user output yet | PENDING |
 | Projection sink focused xUnit (7 cases) | No user output yet | PENDING |
-| Out-of-order revert persistence | Not yet tested | OPEN RISK |
-| Isolated PostgreSQL review/replay/revert | Not yet tested | PENDING |
+| Out-of-order revert persistence | Fix + isolated PostgreSQL regression test committed; not executed | IMPLEMENTED / UNVERIFIED |
+| Isolated PostgreSQL review/replay/revert | Existing review-history test + added reverse-order integration test; execution pending | PENDING |
 | Five approved ADO reference checks | Not yet recorded | PENDING |
 
 ## Review log
 
-3 November 2026: original Trello story retrieved, code and xUnit tests located on `feature/learn`, documentation created. **No LRN-04 test output supplied yet; acceptance remains OPEN.**
+3 November 2026: original Trello story retrieved, implementation reviewed, and acceptance documentation created. The source was then consolidated into `main`. Implemented reversal-order persistence remediation on `main` in commits `5b4c634` (Alembic migration), `e4b7b32` (.NET store), `4dc7b50` (PostgreSQL regression test). **No fresh LRN-04 test output has been observed; acceptance remains OPEN.**
 
 ## Next stories today
 
-After LRN-04 test evidence, apply the same Trello→code→focused tests→database integration→living docs sequence to LRN-05, LRN-06 and LRN-07. Keep `feature/learn-08-14` separate and draft PR unmerged until review completes.
+After LRN-04 test evidence, apply the same Trello→code→focused tests→database integration→living docs sequence to LRN-05, LRN-06 and LRN-07. The earlier LRN-01–14 feature branches were merged into the personal repository `main`. For corporate-repository transfer, inspect differences before cherry-picking; do not overwrite company changes.
