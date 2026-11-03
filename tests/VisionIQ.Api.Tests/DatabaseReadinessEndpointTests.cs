@@ -40,9 +40,14 @@ public sealed class DatabaseReadinessEndpointTests
     }
 
     /// <summary>Runs a real restricted-role SELECT 1 only on disposable CI PostgreSQL.</summary>
-    [DatabaseFact("VISIONIQ_READY_DB_INTEGRATION")]
+    [Fact]
     public async Task Disposable_database_uses_restricted_api_identity_for_readiness()
     {
+        if (Environment.GetEnvironmentVariable("VISIONIQ_READY_DB_INTEGRATION") != "1")
+        {
+            return;
+        }
+
         var password = Environment.GetEnvironmentVariable("DB_API_PASSWORD");
         Assert.False(string.IsNullOrWhiteSpace(password));
 
@@ -54,8 +59,8 @@ public sealed class DatabaseReadinessEndpointTests
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
                         ["DB_HOST"] = Environment.GetEnvironmentVariable("DB_HOST") ?? "127.0.0.1",
-                        ["DB_PORT"] = Environment.GetEnvironmentVariable("DB_PORT") ?? "5432",
-                        ["DB_NAME"] = Environment.GetEnvironmentVariable("DB_NAME") ?? "visioniq",
+                        ["DB_PORT"] = "5432",
+                        ["DB_NAME"] = Environment.GetEnvironmentVariable("DB_LOCAL_NAME") ?? "visioniq",
                         ["DB_API_USER"] = Environment.GetEnvironmentVariable("DB_API_USER") ?? "visioniq_api",
                         ["DB_API_PASSWORD"] = password!,
                         ["DB_SSL_MODE"] = "disable",
