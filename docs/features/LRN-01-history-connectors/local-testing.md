@@ -89,7 +89,7 @@ dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync
 Write-Host "Build ingestion exit code: $LASTEXITCODE"
 ```
 
-**Important:** `ADO_REPOS=KIOSK_TVM` limits repository selection; it does **not** necessarily limit project-level CI build ingestion. Verify pipeline IDs/scopes separately before running against broader datasets.
+**Important:** `ADO_REPOS` limits **repositories only** (commits and pull requests). CI build ingestion is **never** limited by `ADO_REPOS`: builds are limited only by `ADO_PIPELINE_IDS` (comma-separated pipeline definition IDs; empty means every pipeline in the approved projects). Set `ADO_PIPELINE_IDS` before running `--source builds` against a large project. `inventory` reports only **how many** pipeline definitions exist; to find an ID, open the pipeline in Azure DevOps (Pipelines → select it): the URL contains `definitionId=<number>`.
 
 ## 5. Understand results
 
@@ -117,4 +117,4 @@ dotnet test .\VisionIQ.sln --configuration Release
 Write-Host "Solution exit code: $LASTEXITCODE"
 ```
 
-Recorded result: **402 passed, 0 failed, 0 skipped, exit 0**, build successful with **66 warnings** to review. Re-run after changes and note any skipped integration tests separately. See [acceptance](acceptance.md) for exact gates.
+Previously recorded result (not a fresh run after the LRN-03 acceptance changes): **402 passed, 0 failed, 0 skipped, exit 0**, build successful with **66 warnings**. These are analyzer advisories, not errors: 15 × `CA1873` in production code (logging performance, already fixed on `feature/learn-08-14`) and performance/nullable advisories in test code; see [acceptance](acceptance.md) for the breakdown. The exact count varies by run (63 was recorded on an earlier run) and `NU1900` appears when NuGet's vulnerability feed is unreachable. Re-run after changes and note any skipped integration tests separately.
