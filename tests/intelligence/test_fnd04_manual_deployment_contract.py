@@ -56,8 +56,8 @@ def test_read_only_verification_cannot_certify_database_connectivity() -> None:
 def test_manual_runbook_separates_real_cloud_acceptance_from_ci() -> None:
     """Cloud Build and external source validation remain separately tracked."""
     guide = (ROOT / "docs" / "fnd04-manual-deployment.md").read_text(encoding="utf-8")
-    assert "FND-04 is NOT Done" in guide
-    assert "FND-AUTO (#11)" in guide
-    assert "20261031_0006" in guide
+    assert "Do not mark FND-04 Done" in guide
+    assert "FND-AUTO" in guide
+    assert "20261031_0006" not in guide  # LRN migrations must not enter FND-04
     assert "03-verify-deployment.ps1" in guide
     assert "Cloud SQL" in guide
