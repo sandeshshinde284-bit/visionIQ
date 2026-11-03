@@ -153,7 +153,18 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
                 source_evidence_refs, revert_commit_shas
             ) VALUES (
                 @key, @source, @project, @ticket, @repo,
-                @pr, @commit, @classification, @evidence, @reverts
+                @pr, @commit, @classification, @evidence,
+                (
+                    SELECT COALESCE(jsonb_agg(DISTINCT v.sha ORDER BY v.sha), '[]'::jsonb)
+                    FROM (
+                        SELECT value AS sha FROM jsonb_array_elements_text(@reverts::jsonb)
+                        UNION
+                        SELECT revert_commit_sha AS sha
+                        FROM evidence.ticket_fix_revert_observations
+                        WHERE source_instance = @source AND project_id = @project
+                          AND repository_id = @repo AND original_commit_sha = lower(@commit)
+                    ) AS v
+                )
             )
             ON CONFLICT (association_key) DO UPDATE SET
                 last_seen_at = now(),
@@ -176,7 +187,15 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
                 )
             """;
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        // Serialize observations and association creation within one source/repo/SHA scope.
+        // Otherwise a concurrent first-time revert could be missed by both operations.
+        if (claim.RepositoryId is not null && IsFullSha(claim.CommitSha))
+        {
+            await LockRevertScopeAsync(connection, transaction, claim.SourceInstance,
+                claim.ProjectId, claim.RepositoryId, claim.CommitSha!, cancellationToken);
+        }
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("key", key);
         command.Parameters.AddWithValue("source", claim.SourceInstance);
         command.Parameters.AddWithValue("project", claim.ProjectId);
@@ -194,6 +213,7 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
             Value = JsonSerializer.Serialize(claim.RevertCommitShas.Distinct(StringComparer.OrdinalIgnoreCase)),
         });
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return key;
     }
 
@@ -302,7 +322,18 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
             throw new ArgumentException("Revert markers require two different complete 40-character Git SHAs.");
         }
 
-        const string sql = """
+        // The revert observation must exist even when the target association has not
+        // yet been ingested. Replay of the original PR/commit will then attach it.
+        const string observationSql = """
+            INSERT INTO evidence.ticket_fix_revert_observations (
+                source_instance, project_id, repository_id,
+                original_commit_sha, revert_commit_sha
+            ) VALUES (@source, @project, @repository, @original, @revert)
+            ON CONFLICT (source_instance, project_id, repository_id,
+                         original_commit_sha, revert_commit_sha)
+            DO UPDATE SET last_seen_at = now()
+            """;
+        const string updateSql = """
             UPDATE evidence.ticket_fix_links
             SET revert_commit_shas = (
                 SELECT COALESCE(jsonb_agg(DISTINCT value ORDER BY value), '[]'::jsonb)
@@ -312,16 +343,53 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
             ), last_seen_at = now()
             WHERE source_instance = @source AND project_id = @project
               AND repository_id = @repository
-              AND lower(commit_sha) = lower(@original)
+              AND lower(commit_sha) = @original
             """;
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var original = originalCommitSha.ToLowerInvariant();
+        var revert = revertCommitSha.ToLowerInvariant();
+        await LockRevertScopeAsync(connection, transaction, sourceInstance, projectId,
+            repositoryId, original, cancellationToken);
+
+        await using (var observed = new NpgsqlCommand(observationSql, connection, transaction))
+        {
+            observed.Parameters.AddWithValue("source", sourceInstance);
+            observed.Parameters.AddWithValue("project", projectId);
+            observed.Parameters.AddWithValue("repository", repositoryId);
+            observed.Parameters.AddWithValue("original", original);
+            observed.Parameters.AddWithValue("revert", revert);
+            await observed.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var command = new NpgsqlCommand(updateSql, connection, transaction);
         command.Parameters.AddWithValue("source", sourceInstance);
         command.Parameters.AddWithValue("project", projectId);
         command.Parameters.AddWithValue("repository", repositoryId);
-        command.Parameters.AddWithValue("original", originalCommitSha);
-        command.Parameters.AddWithValue("revert", revertCommitSha.ToLowerInvariant());
-        return await command.ExecuteNonQueryAsync(cancellationToken);
+        command.Parameters.AddWithValue("original", original);
+        command.Parameters.AddWithValue("revert", revert);
+        var updated = await command.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return updated;
+    }
+
+    /// <summary>
+    /// Uses the same transaction-scoped lock in revert and fix ingestion, so neither
+    /// operation can finish between the other's observation lookup and insert.
+    /// </summary>
+    private static async Task LockRevertScopeAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string sourceInstance, string projectId, string repositoryId,
+        string originalCommitSha, CancellationToken cancellationToken)
+    {
+        // Length prefixes prevent ambiguity even if scope identifiers contain separators.
+        var parts = new[] { sourceInstance, projectId, repositoryId, originalCommitSha.ToLowerInvariant() };
+        var scope = string.Concat(parts.Select(part => part.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + ":" + part));
+        await using var command = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock(hashtextextended(@scope, 0))", connection, transaction);
+        command.Parameters.AddWithValue("scope", scope);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>Accepts only canonical full-length hexadecimal Git object IDs.</summary>
