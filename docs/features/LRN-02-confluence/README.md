@@ -3,7 +3,7 @@
 **Documentation baseline:** 2 November 2026  
 **Implementation status:** Implemented and locally exercised  
 **Documentation status:** Complete as-of baseline; updates tracked here  
-**User-story acceptance:** OPEN — end-to-end user-specific retrieval authorization depends on LRN-03 integration
+**User-story acceptance:** OPEN: the per-user read check is implemented and unit-tested; a live allow/deny demonstration needs a surface that returns Confluence evidence (see [Acceptance](04-Acceptance-and-LRN03-Handoff.md))
 
 ![Visual overview: how LRN-02 handles Confluence permissions](images/lrn02-security-flow.svg)
 
@@ -22,10 +22,10 @@
 - Local JSONL sample since 2026-11-01: **2 versioned page snapshots**, **589 ACL records**, **3 page snapshots withheld**, **0 unsafe exported page matches**, partial sync exit **2**.
 - Automated filtered suite: **37 passed, 0 failed, 0 skipped**.
 - Safe discovery: **0 title candidates**, **0 label candidates**, **0 label lookup failures** among 314 eligible pages. This is not a template/body search.
-- **Not yet demonstrated:** per-requester denied read through the actual VisionIQ retrieval API, denial from AI context, and permission revocation at retrieval time.
+- **Implemented, not yet demonstrated live:** per-user read check through Confluence's own permission check (identity map + Entra ID; Data Center pages stay hidden). Denial from search and AI context, and revocation at retrieval time, still need a delivery surface to demonstrate.
 
 ## Decision
-We can finish and freeze the LRN-02 **documentation baseline** now. We must **not** mark the story itself 100% accepted until the LRN-03 secure retrieval path passes positive and negative authorization integration tests. Neither production Cloud Run behavior nor complete 589-page historical content ingestion has been verified here.
+We can finish and freeze the LRN-02 **documentation baseline** now. We must **not** mark the story itself 100% accepted until a positive and a negative live authorization test pass through a VisionIQ endpoint that returns Confluence evidence (the per-user check exists; the delivery surface does not yet). Neither production Cloud Run behavior nor complete 589-page historical content ingestion has been verified here.
 
 ## Safety
 Keep credential values and Confluence contents out of source control. Read-only discovery is not proof of access for any particular engineer, and `--since` does not bypass full-space ACL evaluation. See the operations guide before new live runs.
@@ -33,3 +33,7 @@ Keep credential values and Confluence contents out of source control. Read-only 
 ## Commands: what to run and what not to repeat
 
 See the [LRN-01 and LRN-02 command register](../LEARN-01-02-Command-Register.md) for routine commands, recorded test runs, expected outcomes, write-side safety checks, and operations that should **not** be repeated as everyday steps.
+
+## Storage dependency status (3 November 2026)
+
+LRN-03 original evidence-storage acceptance is now **COMPLETE**; this does not change LRN-02's **OPEN** live requester-authorization acceptance. See [LRN-03 final acceptance](../LRN-03-versioned-evidence/04-Test-Evidence-and-Acceptance.md).
