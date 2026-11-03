@@ -14,7 +14,7 @@
 
 ## CLI lifecycle
 
-1. Parse `inventory`, `sync`, or `serve-webhooks`.
+1. Parse the command: `inventory`, `sync`, `serve-webhooks` (LRN-05 webhooks) or `discover-confluence-decisions` (LRN-02 metadata-only discovery, which runs before normal option parsing).
 2. Load settings from environment/merged `.env`; validate output mode.
 3. Open file or PostgreSQL checkpoint store.
 4. Select source streams and approved projects/repositories.
