@@ -2,7 +2,7 @@
 
 ## Source acceptance criteria
 1. **Pages are stored with version and page permissions.** Controlled two-page local version/ACL sample passed; tests cover versioning and permission updates. Whole-space historical content import has not been demonstrated.
-2. **A page an engineer cannot open in Confluence is never shown to that engineer through VisionIQ.** Unit tests for `ConfluenceAccess.CanView` passed. **End-to-end retrieval enforcement is not yet accepted**.
+2. **A page an engineer cannot open in Confluence is never shown to that engineer through VisionIQ.** Ingestion-side `ConfluenceAccess.CanView` and the API's live per-user check (`ConfluencePageAccessVerifier`) are implemented and unit-tested. **End-to-end retrieval enforcement is not yet accepted**: no endpoint returns Confluence pages to users yet.
 
 **Status: implementation and documentation complete; original user-story acceptance remains OPEN.** Do not close the Trello card or merge based on the current sample.
 
@@ -18,14 +18,19 @@
 | Canonical evidence archived but retrieval path not secure | Do not expose pages through the API until protected retrieval is tested |
 | Permission status silently downgraded | Reject or quarantine incomplete ACL; use audit/error metrics |
 
-## Explicit LRN-03 integration contract
-LRN-03 must provide a concrete protected read path that:
-1. Authenticates the caller and maps them to the appropriate Confluence identity/group principals (not an arbitrary client-supplied identity).
-2. Checks the approved space, complete current ACL, all inherited restriction levels, and permission refresh/revocation before exposing any page text.
-3. Excludes denied evidence from search hits, evidence detail responses, API error diagnostics, cached snippets, LLM prompts and generated summaries.
-4. Permits a known authorized caller to read an eligible restricted fixture and denies a different unauthorized caller.
-5. Includes integration tests for missing identity, missing group, wrong space, incomplete ACL, inherited restrictions, stale/revoked permissions and cross-user cache leakage.
-6. Produces sanitized test output proving both allow and deny cases, with no confidential content shared.
+## Protected read path: what exists and what remains
+
+| Requirement | Status |
+| --- | --- |
+| Authenticate the caller; never trust a client-supplied identity | **Implemented** in the API (Entra ID token validation, approved callers only) |
+| Map the caller to their Confluence identity | **Implemented** via `CONFLUENCE_IDENTITY_MAP_FILE`; unmapped users are denied |
+| Check space, page, inherited restrictions and revocation at read time | **Implemented** by asking Confluence Cloud live per page (`permission/check`); Data Center pages stay hidden |
+| Denied evidence absent from responses and diagnostics | **Implemented** for the graph API: denied items are left out exactly like missing ones, with no hidden counts; a denied or missing root item gives the same 404 |
+| A user-facing surface that returns Confluence evidence | **Missing**: ticket-to-page links are not created yet, and BRIEF retrieval is not built |
+| Denied evidence absent from search hits, snippets and LLM prompts | **Pending** the BRIEF retrieval and prompt path |
+| Live positive and negative tests (an allowed and a denied engineer), including revocation | **Pending** a delivery surface, a real identity map and Entra configuration |
+
+LRN-03 remains responsible for versioned evidence storage; it is not the owner of the per-user check.
 
 ## Return-to-LRN-02 signoff checklist
 - [x] Approved Confluence inventory and connector behavior verified
@@ -48,3 +53,7 @@ Zero title- or label-matched candidates among 314 complete/unrestricted eligible
 - Code paths: see `01-Architecture-and-Implementation.md`.
 - Local commands: see `02-Setup-and-Operations.md`.
 - Results: see `03-Test-Report-and-Evidence.md`.
+
+## LRN-03 integration closure (3 November 2026)
+
+LRN-03's **original versioned-storage acceptance** is complete on `feature/learn` (persisted source identity/revisions/timestamps/ACL, real GCS integrity and redaction boundary tests passed). This does **not** sign off LRN-02 live per-user Confluence delivery, denied snippets or revocation: those remain pending delivery-surface and authorized-user integration tests. See [LRN-03 acceptance](../LRN-03-versioned-evidence/04-Test-Evidence-and-Acceptance.md).
