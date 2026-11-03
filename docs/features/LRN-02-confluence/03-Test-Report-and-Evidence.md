@@ -44,8 +44,8 @@ Title+labels release: `pages=589; eligible-complete-unrestricted=314; title-cand
 The sum is **213 restricted pages with complete ACLs + 62 pages with incomplete ACLs = 275 excluded pages**. A permission check with incomplete data must deny access, not guess. The discovery result deliberately excludes even restricted pages that *some* legitimate users could access; therefore this discovery is **not** a personal authorized search.
 
 ## Missing acceptance evidence
-1. Real requester identity mapping to Confluence account and groups, including membership freshness.
-2. An actual restricted page denied by the VisionIQ retrieval interface for an unauthorized user, including absence from search and AI brief context.
+1. A real identity map (`CONFLUENCE_IDENTITY_MAP_FILE`) for test engineers. Group membership and its freshness are evaluated by Confluence's live permission check, not by VisionIQ.
+2. An actual restricted page denied to an unauthorized user through a VisionIQ endpoint, including absence from search and AI brief context. Requires a delivery surface for Confluence evidence (see Architecture: per-user read path).
 3. Corresponding authorized-user positive retrieval when permission is granted.
 4. End-to-end ACL change/revocation demonstration through persisted storage and retrieval.
 5. A qualifying real ADR in the approved ERK space was not found by title or label; label/title discovery is not an exhaustive body/template scan. Synthetic decision-recognition tests passed.
