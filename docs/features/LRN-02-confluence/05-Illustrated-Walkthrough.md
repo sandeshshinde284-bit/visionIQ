@@ -21,7 +21,7 @@ flowchart TD
   E --> F{"Decision evidence?"}
   F -->|Label / title / template| G["Decision record + version + ACL"]
   F -->|No match| H["General historical page evidence"]
-  G --> I["Protected retrieval required in LRN-03"]
+  G --> I["Shown only if Confluence confirms this user may read it now"]
 ```
 
 The implemented `DesignDecisionDetector` recognizes decision-oriented **labels**, **titles**, or **template properties** (e.g. Status and Outcome). A metadata-only discovery run checks titles and labels; it does **not** inspect body templates, so zero candidates is inconclusive.
@@ -87,18 +87,18 @@ Discovery deliberately excludes **all restricted pages**, even those an authoriz
 
 The 275 excluded pages are 213 restricted + 62 incomplete ACLs. The local sync was **Partial (exit 2)** because some fresh pages were withheld; this is expected safety behavior, not a full historical import.
 
-## 6. The test still needed to close LRN-02
+## 6. The per-user read check and the test still needed
 
 ```mermaid
 flowchart LR
-    U["Authenticated engineer"] --> I["Resolve actual Confluence identity/groups"]
-    I --> L["Load current effective ACL"]
-    L --> Q{"Every access level passes?"}
+    U["Authenticated engineer (Entra ID)"] --> I["Identity map: Atlassian account ID"]
+    I --> L["Ask Confluence: can this account read this page now?"]
+    L --> Q{"Confluence says yes?"}
     Q -->|Yes| T["Return permitted source evidence"]
     Q -->|No or unknown| N["Deny: no text, snippet or AI context"]
 ```
 
-**LRN-03 must implement and validate this protected read path.** A positive and negative test must demonstrate that an authorized engineer receives permitted evidence while another authenticated engineer cannot retrieve its text, search snippet or AI context, including after permission revocation.
+**This read check is implemented** in the VisionIQ API: the caller's identity comes from their Entra ID token, the identity map gives their Atlassian account, and Confluence Cloud itself answers whether that account may read the page right now. **What remains** is a user-facing surface that returns Confluence evidence (ticket-to-page links, or BRIEF retrieval), followed by a positive and a negative live test: an authorized engineer receives the page while another cannot retrieve its text, search snippet or AI context, including after permission revocation.
 
 ## 7. Related resources
 
