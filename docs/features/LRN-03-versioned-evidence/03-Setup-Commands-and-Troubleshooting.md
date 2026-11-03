@@ -38,7 +38,7 @@ if ($LASTEXITCODE -ne 0) { throw "Disposable PostgreSQL database is not ready" }
 
 Observed on 2 November 2026: `Up`, `127.0.0.1:55433->5432/tcp`, accepting connections, exit 0.
 
-## Step B — Configure runtime roles (NEXT COMMAND)
+## Step B — Configure runtime roles
 
 The three distinct database passwords were already reported as configured. First validate that **all** effective target settings identify the disposable database.
 
@@ -62,7 +62,7 @@ python -m db.manage roles
 if ($LASTEXITCODE -ne 0) { throw "Isolated role configuration failed" }
 ```
 
-**Expected:** `Database roles and schema permissions configured.` Do not mark PASSED until the real output is observed. This action changes users/grants **only** in the configured disposable database.
+**Expected:** `Database roles and schema permissions configured.` (Recorded 2 November 2026: completed; confirmed by Step C.) This action changes users/grants **only** in the configured disposable database.
 
 ## Step C — Verify roles (after Step B passes)
 
