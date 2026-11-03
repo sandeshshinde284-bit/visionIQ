@@ -24,7 +24,7 @@ All commands assume Windows PowerShell at the VisionIQ repository root and `feat
 | Failure-recovery filter | `dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~StreamIsolationTests|FullyQualifiedName~CanonicalEvidenceSinkTests|FullyQualifiedName~AdoWorkItemChangeHandlerTests|FullyQualifiedName~SyncRunnerTests|FullyQualifiedName~TicketFixProjectionSinkTests"` | Observed | Recorded filtered run: 30 passed |
 | Source-specific sync | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source work-items` | Reference | **Writes to configured output destination and checkpoints**; inspect destination first |
 | Repository Git history | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source commits,pull-requests` | Reference | Confirm approved ADO repository filters before running |
-| CI build history | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source builds` | Observed workflow | Can be project-scoped beyond one repository; recorded sample 86 builds/149 links |
+| CI build history | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source builds` | Observed workflow | Limited **only** by `ADO_PIPELINE_IDS`, never by `ADO_REPOS` (empty = every pipeline in the approved projects); recorded sample 86 builds/149 links |
 | Full backfill/reconcile | See [LRN-01 operations](LRN-01-history-connectors/operations.md) | Do not repeat casually | Heavy live read/writes; not a routine health check |
 
 ## C. LRN-02: Confluence and security checks
