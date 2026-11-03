@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "id": "98304",
+      "key": "ENG",
+      "name": "Engineering",
+      "type": "global",
+      "status": "current"
+    }
+  ],
+  "_links": {
+    "base": "https://contoso.atlassian.net/wiki"
+  }
+}

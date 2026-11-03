@@ -1,0 +1,82 @@
+{
+  "results": [
+    {
+      "id": "1000",
+      "status": "current",
+      "title": "Engineering home",
+      "spaceId": "98304",
+      "parentId": null,
+      "authorId": "not-stored",
+      "version": {
+        "number": 1,
+        "message": "",
+        "minorEdit": false,
+        "authorId": "not-stored",
+        "createdAt": "2026-09-01T08:00:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "value": "<p>Welcome</p>",
+          "representation": "storage"
+        }
+      },
+      "_links": {
+        "webui": "/spaces/ENG/pages/1000/Engineering+home"
+      }
+    },
+    {
+      "id": "1001",
+      "status": "current",
+      "title": "ADR-012: Retry budget for payment calls",
+      "spaceId": "98304",
+      "parentId": "1000",
+      "parentType": "page",
+      "authorId": "not-stored",
+      "version": {
+        "number": 3,
+        "message": "",
+        "minorEdit": false,
+        "authorId": "not-stored",
+        "createdAt": "2026-10-10T09:30:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "value": "<p>Payments retries were unbounded.</p><table><tbody><tr><th>Status</th><td>Accepted</td></tr><tr><th>Outcome</th><td>Cap retries at 3 with a budget per request.</td></tr></tbody></table><h2>Context</h2><p>Retries &amp; timeouts caused <strong>storms</strong>.</p><ac:structured-macro ac:name=\"code\"><ac:parameter ac:name=\"language\">csharp</ac:parameter><ac:plain-text-body><![CDATA[if (attempt > 3) return;]]></ac:plain-text-body></ac:structured-macro><h2>Decision</h2><ul><li>Use a retry budget</li><li>Log when exhausted</li></ul>",
+          "representation": "storage"
+        }
+      },
+      "_links": {
+        "webui": "/spaces/ENG/pages/1001/ADR-012"
+      }
+    },
+    {
+      "id": "1002",
+      "status": "current",
+      "title": "Incident notes",
+      "spaceId": "98304",
+      "parentId": "1000",
+      "parentType": "page",
+      "authorId": "not-stored",
+      "version": {
+        "number": 1,
+        "message": "",
+        "minorEdit": false,
+        "authorId": "not-stored",
+        "createdAt": "2026-10-12T14:00:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "value": "<p>Customer data involved</p>",
+          "representation": "storage"
+        }
+      },
+      "_links": {
+        "webui": "/spaces/ENG/pages/1002/Incident+notes"
+      }
+    }
+  ],
+  "_links": {
+    "next": "/wiki/api/v2/spaces/98304/pages?cursor=abc123&limit=250",
+    "base": "https://contoso.atlassian.net/wiki"
+  }
+}

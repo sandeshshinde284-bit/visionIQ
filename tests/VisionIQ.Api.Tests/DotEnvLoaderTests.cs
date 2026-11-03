@@ -53,3 +53,15 @@ public sealed class DotEnvLoaderTests
         }
     }
 }
+
+/// <summary>m-8: inline comments after unquoted values are not part of the value.</summary>
+public sealed class DotEnvInlineCommentTests
+{
+    [Theory]
+    [InlineData("value # note", "value")]
+    [InlineData("value", "value")]
+    [InlineData("\"value # kept\"", "\"value # kept\"")]
+    [InlineData("a#b", "a#b")]
+    public void Inline_comments_are_stripped_only_from_unquoted_values(string raw, string expected) =>
+        Assert.Equal(expected, VisionIQ.Api.Configuration.DotEnvLoader.StripInlineComment(raw));
+}

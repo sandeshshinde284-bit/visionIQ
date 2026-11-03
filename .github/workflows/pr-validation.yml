@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/fnd03-sqlalchemy-alembic-local
+      - feature/learn
 
 permissions:
   contents: read
@@ -41,12 +42,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build API runtime image
+      - name: Build .NET API image for manual Cloud Run deployment
         run: docker build -f src/VisionIQ.Api/Dockerfile -t visioniq-api:ci .
       - name: Build Intelligence runtime image
         run: docker build -f src/VisionIQ.Intelligence/Dockerfile -t visioniq-intelligence:ci .
       - name: Build migration image
         run: docker build -f db/Dockerfile -t visioniq-db-migrate:ci .
+
+  manual-deploy-scripts:
+    name: Manual deployment PowerShell syntax and plan-only safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse deployment scripts without executing cloud changes
+        shell: pwsh
+        run: |
+          foreach ($file in (Get-ChildItem scripts/manual-deploy/*.ps1)) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+          }
+      - name: Validate build plan and guarded deployment plan
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          ./scripts/manual-deploy/01-build-push.ps1
+          ./scripts/manual-deploy/02-deploy-services.ps1 -Commit $sha -ApiSecretVersion 1 -IntelligenceSecretVersion 1
 
   fresh-postgres:
     name: Fresh-volume migration and rerun
@@ -71,35 +96,113 @@ jobs:
       - name: Assert expected revision and schemas
         run: |
           revision=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT version_num FROM public.alembic_version")
-          test "$revision" = "20261029_0001"
+          # Expected head = newest migration revision in the repository (never hardcoded).
+          expected=$(grep -h '^revision = ' db/migrations/versions/*.py | sed -E 's/revision = "([^"]+)"/\1/' | sort | tail -1)
+          echo "database: $revision, expected: $expected"
+          test -n "$expected" && test "$revision" = "$expected"
           schemas=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('workflow','evidence','knowledge')")
           test "$schemas" = "3"
           extension=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT extname FROM pg_extension WHERE extname='vector'")
           test "$extension" = "vector"
+          tables=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('source_items','source_revisions')")
+          test "$tables" = "2"
+          checkpoint=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name='connector_checkpoints'")
+          test "$checkpoint" = "1"
+          links=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('ticket_fix_links','ticket_fix_reviews')")
+          test "$links" = "2"
+          backfill=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('source_change_inbox','source_sync_runs')")
+          test "$backfill" = "2"
+          graph=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='evidence' AND table_name IN ('graph_nodes','graph_assertions')")
+          test "$graph" = "2"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Verify actual FND-04 API SQL readiness with restricted database identity
+        env:
+          VISIONIQ_READY_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~DatabaseReadinessEndpointTests"
+      - name: Verify LRN-03 actual database idempotency and revisions
+        env:
+          VISIONIQ_EVIDENCE_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~EvidenceDatabaseIntegrationTests"
+      - name: Verify LRN-04 reviewed link idempotency against PostgreSQL
+        env:
+          VISIONIQ_TICKET_FIX_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~TicketFixDatabaseIntegrationTests"
+      - name: Verify LRN-05 inbox lease and replay on PostgreSQL
+        env:
+          VISIONIQ_CHANGE_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~SourceChangeDatabaseIntegrationTests"
+      - name: Verify live LRN-05 source synchronization audit rows
+        env:
+          VISIONIQ_SOURCE_AUDIT_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~SourceSyncRunDatabaseIntegrationTests"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install isolated LRN-06 PostgreSQL test requirements
+        run: python -m pip install pytest "psycopg[binary]" fastapi pydantic-settings httpx structlog
+      - name: Verify actual FND-04 Intelligence SQL readiness on PostgreSQL
+        env:
+          VISIONIQ_READY_INTELLIGENCE_DB_INTEGRATION: "1"
+          PYTHONPATH: src/VisionIQ.Intelligence
+          DB_HOST: "127.0.0.1"
+          DB_LOCAL_NAME: "visioniq"
+        run: python -m pytest -q tests/intelligence/test_database_readiness.py
+      - name: Verify canonical LRN-06 Git scan revisions in PostgreSQL
+        env:
+          VISIONIQ_SCAN_DB_INTEGRATION: "1"
+          PYTHONPATH: src/VisionIQ.Intelligence
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: python -m pytest -q tests/intelligence/test_code_canonical_db_integration.py
+      - name: Verify LRN-07 Python graph idempotency on PostgreSQL
+        env:
+          VISIONIQ_SCAN_DB_INTEGRATION: "1"
+          PYTHONPATH: src/VisionIQ.Intelligence
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: python -m pytest -q tests/intelligence/test_code_relationship_graph.py
+      - name: Verify LRN-07 graph history, disputes and ACL on PostgreSQL
+        env:
+          VISIONIQ_GRAPH_DB_INTEGRATION: "1"
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: dotnet test VisionIQ.sln --configuration Release --filter "FullyQualifiedName~GraphDatabaseIntegrationTests"
+      - name: Install full Python requirements for LRN database tests
+        run: python -m pip install -r requirements.txt
+      - name: Verify FND-03 role isolation and LRN blocker fixes (B-8, B-9, B-15) on PostgreSQL
+        env:
+          VISIONIQ_DB_INTEGRATION: "1"
+          PYTHONPATH: src/VisionIQ.Intelligence
+          DB_HOST: "127.0.0.1"
+          DB_NAME: "visioniq"
+        run: >-
+          python -m pytest -q
+          tests/intelligence/test_database_foundation.py
+          tests/intelligence/test_latest_revision_tiebreak_db.py
+          tests/intelligence/test_code_scan_role_isolation_db.py
+          tests/intelligence/test_file_rename_edges.py
+          tests/intelligence/test_test_case_nodes.py
+          tests/intelligence/test_graph_tiebreak_db.py
+          tests/intelligence/test_test_links_db.py
+          tests/intelligence/test_build_links_db.py
+          tests/intelligence/test_code_scan_access.py
+          tests/intelligence/test_tombstones_db.py
+          tests/intelligence/test_sync_quarantine_db.py
       - name: Capture container status on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=100 postgres
       - name: Destroy CI-only disposable volume
         if: always()
         run: docker compose down --volumes --remove-orphans
-
-  fnd04-manual:
-    name: FND-04 PowerShell validation (no cloud writes)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Parse deployment scripts
-        shell: pwsh
-        run: |
-          foreach ($file in (Get-ChildItem scripts/manual-deploy/*.ps1)) {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
-          }
-      - name: Run plan-only build and deployment
-        shell: pwsh
-        run: |
-          $sha = (git rev-parse HEAD).Trim()
-          ./scripts/manual-deploy/01-build-push.ps1
-          ./scripts/manual-deploy/02-deploy-services.ps1 -Commit $sha -ApiSecretVersion 1 -IntelligenceSecretVersion 1

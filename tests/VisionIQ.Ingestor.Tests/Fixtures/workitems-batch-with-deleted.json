@@ -1,0 +1,16 @@
+{
+  "count": 2,
+  "value": [
+    null,
+    {
+      "id": 1240,
+      "rev": 3,
+      "fields": {
+        "System.WorkItemType": "User Story",
+        "System.State": "Active",
+        "System.Title": "Show retry budget in brief",
+        "System.ChangedDate": "2026-10-21T09:00:00Z"
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "results": [
+    {
+      "number": 3,
+      "message": "Accepted",
+      "minorEdit": false,
+      "createdAt": "2026-10-10T09:30:00.000Z"
+    },
+    {
+      "number": 2,
+      "message": "",
+      "minorEdit": true,
+      "createdAt": "2026-10-05T09:30:00.000Z"
+    },
+    {
+      "number": 1,
+      "message": "Draft",
+      "minorEdit": false,
+      "createdAt": "2026-10-01T09:30:00.000Z"
+    }
+  ],
+  "_links": {}
+}

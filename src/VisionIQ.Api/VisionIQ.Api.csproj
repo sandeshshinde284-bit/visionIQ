@@ -8,5 +8,13 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="9.0.4" />
+    <PackageReference Include="Google.Cloud.Storage.V1" Version="4.13.0" />
+    <!-- LRN-07 graph API: Microsoft Entra ID token validation (never custom cryptography). -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- B-6: live ADO project-membership check for evidence access. Ingestor references no project. -->
+    <ProjectReference Include="..\VisionIQ.Ingestor\VisionIQ.Ingestor.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,57 @@
+{
+  "results": [
+    {
+      "id": "1003",
+      "status": "current",
+      "title": "Incident timeline",
+      "spaceId": "98304",
+      "parentId": "1002",
+      "parentType": "page",
+      "authorId": "not-stored",
+      "version": {
+        "number": 1,
+        "message": "",
+        "minorEdit": false,
+        "authorId": "not-stored",
+        "createdAt": "2026-10-15T10:00:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "value": "<p>Timeline</p>",
+          "representation": "storage"
+        }
+      },
+      "_links": {
+        "webui": "/spaces/ENG/pages/1003/Incident+timeline"
+      }
+    },
+    {
+      "id": "1004",
+      "status": "current",
+      "title": "Orphan page",
+      "spaceId": "98304",
+      "parentId": "9999",
+      "parentType": "page",
+      "authorId": "not-stored",
+      "version": {
+        "number": 1,
+        "message": "",
+        "minorEdit": false,
+        "authorId": "not-stored",
+        "createdAt": "2026-10-16T10:00:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "value": "<p>Parent not visible</p>",
+          "representation": "storage"
+        }
+      },
+      "_links": {
+        "webui": "/spaces/ENG/pages/1004/Orphan+page"
+      }
+    }
+  ],
+  "_links": {
+    "base": "https://contoso.atlassian.net/wiki"
+  }
+}

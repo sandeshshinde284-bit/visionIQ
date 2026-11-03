@@ -1,5 +1,7 @@
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Health;
+using VisionIQ.Api.Features.Evidence;
+using VisionIQ.Api.Features.Graph;
 using VisionIQ.Api.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +27,10 @@ builder.Logging.AddJsonConsole(options =>
     options.UseUtcTimestamp = true;
     options.TimestampFormat = "O";
 });
+// LOG_LEVEL: Information by default; Debug adds per-item detail such as each access-denial reason.
+builder.Logging.SetMinimumLevel(Enum.TryParse<LogLevel>(builder.Configuration["LOG_LEVEL"], true, out var level) ? level : LogLevel.Information);
+var pseudonymizer = new IdentityPseudonymizer(builder.Configuration["LOG_PSEUDONYM_KEY"]);
+builder.Services.AddSingleton(pseudonymizer);
 
 builder.Services
     .AddOptions<ServiceOptions>()
@@ -34,19 +40,42 @@ builder.Services
 
 builder.Services.AddSingleton(services =>
     DatabaseOptions.FromConfiguration(services.GetRequiredService<IConfiguration>()));
+// Ingestion is an internal application service, not an unauthenticated HTTP endpoint.
+builder.Services.AddSingleton<IRawEvidenceArchive>(services =>
+    new CloudStorageEvidenceArchive(
+        services.GetRequiredService<IConfiguration>()["GCS_EVIDENCE_BUCKET"]));
+builder.Services.AddSingleton<IVersionedEvidenceStore>(services =>
+    new PostgresEvidenceStore(services.GetRequiredService<DatabaseOptions>()));
+builder.Services.AddSingleton<EvidenceIngestionService>();
+// LRN-07 (B-16): authorized relationship-graph traversal; fail-closed provider access.
+builder.Services.AddAdoEvidenceAccess(builder.Configuration);
+builder.Services.AddRelationshipGraph();
+// LRN-07 graph query API: exposed only when Entra ID and ADO access are fully configured.
+var graphApi = VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.AddGraphApi(builder.Services, builder.Configuration);
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
+app.UseMiddleware<RequestLoggingMiddleware>();
 
 // Validate runtime database credentials during startup, after test-host configuration is applied.
 _ = app.Services.GetRequiredService<DatabaseOptions>();
 
 app.MapHealthEndpoints();
 app.MapDatabaseReadiness();
+if (graphApi)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+    VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.MapGraphApi(app);
+}
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStarted.Register(() => LifecycleLog.Started(logger));
+if (!pseudonymizer.IsKeyed)
+{
+    LifecycleLog.UnkeyedPseudonyms(logger);
+}
 lifetime.ApplicationStopping.Register(() => LifecycleLog.Stopping(logger));
 
 app.Run();

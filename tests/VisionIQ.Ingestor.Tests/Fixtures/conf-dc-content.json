@@ -1,0 +1,123 @@
+{
+  "results": [
+    {
+      "id": "2001",
+      "type": "page",
+      "status": "current",
+      "title": "Architecture overview",
+      "version": {
+        "number": 4,
+        "when": "2026-10-01T09:00:00.000+02:00"
+      },
+      "body": {
+        "storage": {
+          "value": "<p>Overview</p>",
+          "representation": "storage"
+        }
+      },
+      "ancestors": [],
+      "metadata": {
+        "labels": {
+          "results": [],
+          "size": 0
+        }
+      },
+      "restrictions": {
+        "read": {
+          "operation": "read",
+          "restrictions": {
+            "user": {
+              "results": [],
+              "start": 0,
+              "limit": 200,
+              "size": 0
+            },
+            "group": {
+              "results": [
+                {
+                  "type": "group",
+                  "name": "architects"
+                }
+              ],
+              "start": 0,
+              "limit": 200,
+              "size": 1
+            }
+          }
+        }
+      },
+      "_links": {
+        "webui": "/display/OPS/Architecture+overview"
+      }
+    },
+    {
+      "id": "2002",
+      "type": "page",
+      "status": "current",
+      "title": "Decision: Use Redis for sessions",
+      "version": {
+        "number": 2,
+        "when": "2026-10-05T10:00:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "value": "<h2>Decision</h2><p>Use Redis with a 30 minute expiry.</p>",
+          "representation": "storage"
+        }
+      },
+      "ancestors": [
+        {
+          "id": "2001",
+          "type": "page",
+          "title": "Architecture overview"
+        }
+      ],
+      "metadata": {
+        "labels": {
+          "results": [
+            {
+              "prefix": "global",
+              "name": "decision"
+            }
+          ],
+          "size": 1
+        }
+      },
+      "restrictions": {
+        "read": {
+          "operation": "read",
+          "restrictions": {
+            "user": {
+              "results": [
+                {
+                  "type": "known",
+                  "username": "jdoe",
+                  "userKey": "k-jdoe"
+                }
+              ],
+              "start": 0,
+              "limit": 200,
+              "size": 1
+            },
+            "group": {
+              "results": [],
+              "start": 0,
+              "limit": 200,
+              "size": 0
+            }
+          }
+        }
+      },
+      "_links": {
+        "webui": "/display/OPS/Decision%3A+Use+Redis+for+sessions"
+      }
+    }
+  ],
+  "start": 0,
+  "limit": 50,
+  "size": 2,
+  "_links": {
+    "base": "https://confluence.example.com/confluence",
+    "context": "/confluence"
+  }
+}

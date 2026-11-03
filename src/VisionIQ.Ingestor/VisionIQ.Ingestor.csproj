@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>VisionIQ.Ingestor</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Logging (Microsoft.Extensions.Logging) from the shared framework; no extra packages. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,13 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "id": 1,
+      "name": "drop",
+      "resource": {
+        "type": "Container",
+        "downloadUrl": "https://dev.azure.com/contoso/_apis/resources/Containers/1"
+      }
+    }
+  ]
+}

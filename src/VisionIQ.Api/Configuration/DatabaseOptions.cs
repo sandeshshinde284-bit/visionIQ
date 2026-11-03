@@ -22,7 +22,7 @@ public sealed record DatabaseOptions(
             Name: ValueOrDefault(configuration["DB_NAME"], "visioniq"),
             User: Required(configuration["DB_API_USER"], "DB_API_USER"),
             Password: Required(configuration["DB_API_PASSWORD"], "DB_API_PASSWORD"),
-            SslMode: ValueOrDefault(configuration["DB_SSL_MODE"], "disable"));
+            SslMode: ValueOrDefault(configuration["DB_SSL_MODE"], "prefer"));
     }
 
     /// <summary>Describes the target without ever including the password.</summary>

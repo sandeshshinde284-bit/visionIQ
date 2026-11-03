@@ -1,0 +1,14 @@
+{
+  "queryType": "flat",
+  "asOf": "2026-10-28T09:00:00Z",
+  "workItems": [
+    {
+      "id": 1234,
+      "url": "https://dev.azure.com/contoso/_apis/wit/workItems/1234"
+    },
+    {
+      "id": 1240,
+      "url": "https://dev.azure.com/contoso/_apis/wit/workItems/1240"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>VisionIQ.Ingestor.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- LRN-05: the serve-webhooks command hosts the ADO Service Hook endpoint. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VisionIQ.Ingestor\VisionIQ.Ingestor.csproj" />
+    <ProjectReference Include="..\VisionIQ.Api\VisionIQ.Api.csproj" />
+  </ItemGroup>
+
+</Project>

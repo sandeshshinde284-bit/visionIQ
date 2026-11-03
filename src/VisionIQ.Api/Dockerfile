@@ -7,9 +7,12 @@ WORKDIR /src
 # Restore first so this layer is cached until the project file changes.
 COPY global.json Directory.Build.props .editorconfig ./
 COPY src/VisionIQ.Api/VisionIQ.Api.csproj src/VisionIQ.Api/
+# The API references the Ingestor library (live ADO membership checks, B-6).
+COPY src/VisionIQ.Ingestor/VisionIQ.Ingestor.csproj src/VisionIQ.Ingestor/
 RUN dotnet restore src/VisionIQ.Api/VisionIQ.Api.csproj
 
 COPY src/VisionIQ.Api/ src/VisionIQ.Api/
+COPY src/VisionIQ.Ingestor/ src/VisionIQ.Ingestor/
 RUN dotnet publish src/VisionIQ.Api/VisionIQ.Api.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime

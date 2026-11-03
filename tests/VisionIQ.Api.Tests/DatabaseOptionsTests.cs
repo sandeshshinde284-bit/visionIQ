@@ -21,7 +21,7 @@ public sealed class DatabaseOptionsTests
 
         Assert.Equal("localhost", options.Host);
         Assert.Equal(5432, options.Port);
-        Assert.Equal("disable", options.SslMode);
+        Assert.Equal("prefer", options.SslMode);
         Assert.Equal("visioniq_api", options.User);
         Assert.Equal("runtime-secret", options.Password);
     }

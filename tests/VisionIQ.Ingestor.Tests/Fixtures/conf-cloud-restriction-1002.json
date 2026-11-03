@@ -1,0 +1,28 @@
+{
+  "operation": "read",
+  "restrictions": {
+    "user": {
+      "results": [
+        {
+          "type": "known",
+          "accountId": "acc-lead"
+        }
+      ],
+      "start": 0,
+      "limit": 200,
+      "size": 1
+    },
+    "group": {
+      "results": [
+        {
+          "type": "group",
+          "name": "eng-leads",
+          "id": "g-eng-leads"
+        }
+      ],
+      "start": 0,
+      "limit": 200,
+      "size": 1
+    }
+  }
+}

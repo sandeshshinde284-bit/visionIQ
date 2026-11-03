@@ -62,7 +62,8 @@ class LocalConfig(BaseSettings):
 
     def url(self) -> URL:
         self.check()
-        assert self.db_local_password is not None
+        if self.db_local_password is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return URL.create(
             "postgresql+psycopg",
             username=self.db_local_user,
@@ -82,7 +83,8 @@ class LocalConfig(BaseSettings):
         if target not in identities:
             raise ValueError("Unknown database identity")
         username, secret = identities[target]
-        assert secret is not None
+        if secret is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return psycopg.connect(
             host=self.db_host,
             port=self.db_port,
@@ -111,7 +113,8 @@ def bootstrap(settings: LocalConfig) -> None:
             (settings.db_intelligence_user, settings.db_intelligence_password),
         )
         for name, password in runtime:
-            assert password is not None
+            if password is None:  # m-7: real check, not an assert
+                raise ValueError("A required database password is missing.")
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (name,))
             action = (
                 "CREATE ROLE {} LOGIN PASSWORD {}"
@@ -209,7 +212,86 @@ def bootstrap(settings: LocalConfig) -> None:
                     "GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {}"
                 ).format(admin, schema, owner)
             )
+        _grant_code_scan_writes(cur, settings)
     print("Database roles and schema permissions configured.")
+
+
+CODE_SCAN_ROWS = "provider = 'git' AND kind = 'code_scan'"
+
+
+def _grant_code_scan_writes(cur: psycopg.Cursor, settings: LocalConfig) -> None:
+    """B-15: let the Intelligence role write ONLY its own code-scan evidence.
+
+    The evidence schema is owned by the API role. Instead of borrowing API
+    credentials, the Python scanner gets INSERT/UPDATE on four tables, and
+    row-level security limits those writes to git code_scan rows and the graph
+    rows they prove. Every other evidence row and table stays read-only for it.
+    """
+    cur.execute("SELECT to_regclass('evidence.graph_assertions') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return  # migrations have not created the tables yet ("roles" before "migrate")
+    api = sql.Identifier(settings.db_api_user)
+    intel = sql.Identifier(settings.db_intelligence_user)
+    scan_items = f"SELECT item_key FROM evidence.source_items WHERE {CODE_SCAN_ROWS}"
+    ado_commits = (
+        "SELECT item_key FROM evidence.source_items "
+        "WHERE provider = 'azure_devops' AND kind = 'commit'"
+    )
+    grants = {
+        "source_items": "INSERT, UPDATE",
+        "source_revisions": "INSERT",
+        "graph_nodes": "INSERT",
+        "graph_assertions": "INSERT",
+    }
+    policies = {
+        "source_items": [
+            ("intel_read", "FOR SELECT", "USING (true)"),
+            ("intel_insert", "FOR INSERT", f"WITH CHECK ({CODE_SCAN_ROWS})"),
+            (
+                "intel_update",
+                "FOR UPDATE",
+                f"USING ({CODE_SCAN_ROWS}) WITH CHECK ({CODE_SCAN_ROWS})",
+            ),
+        ],
+        "source_revisions": [
+            ("intel_read", "FOR SELECT", "USING (true)"),
+            ("intel_insert", "FOR INSERT", f"WITH CHECK (item_key IN ({scan_items}))"),
+        ],
+        "graph_nodes": [
+            ("intel_read", "FOR SELECT", "USING (true)"),
+            (
+                "intel_insert",
+                "FOR INSERT",
+                f"WITH CHECK (anchor_item_key IN ({scan_items}) OR "
+                f"(node_kind = 'commit' AND anchor_item_key IN ({ado_commits})))",
+            ),
+        ],
+        "graph_assertions": [
+            ("intel_read", "FOR SELECT", "USING (true)"),
+            ("intel_insert", "FOR INSERT", f"WITH CHECK (provenance_item_key IN ({scan_items}))"),
+        ],
+    }
+    for table, privileges in grants.items():
+        qualified = sql.SQL("evidence.{}").format(sql.Identifier(table))
+        cur.execute(sql.SQL("GRANT {} ON {} TO {}").format(sql.SQL(privileges), qualified, intel))
+        cur.execute(sql.SQL("ALTER TABLE {} ENABLE ROW LEVEL SECURITY").format(qualified))
+        # The API role owns this schema's data: keep its full access explicit under RLS.
+        cur.execute(sql.SQL("DROP POLICY IF EXISTS api_all ON {}").format(qualified))
+        cur.execute(
+            sql.SQL("CREATE POLICY api_all ON {} TO {} USING (true) WITH CHECK (true)").format(
+                qualified, api
+            )
+        )
+        for name, operation, rule in policies[table]:
+            cur.execute(
+                sql.SQL("DROP POLICY IF EXISTS {} ON {}").format(sql.Identifier(name), qualified)
+            )
+            cur.execute(
+                # operation and rule are fixed constants above, never input (second-pass review).
+                sql.SQL("CREATE POLICY {} ON {} {} TO {} {}").format(
+                    sql.Identifier(name), qualified, sql.SQL(operation), intel, sql.SQL(rule)
+                )
+            )
 
 
 def verify(settings: LocalConfig) -> None:

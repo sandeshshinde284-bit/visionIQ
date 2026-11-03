@@ -1,0 +1,29 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "id": 501,
+      "buildNumber": "20261019.3",
+      "status": "completed",
+      "result": "failed",
+      "reason": "pullRequest",
+      "definition": {
+        "id": 12,
+        "name": "payments-ci"
+      },
+      "sourceBranch": "refs/pull/77/merge",
+      "sourceVersion": "f00dbabe00000000000000000000000000000077",
+      "repository": {
+        "id": "repo-1",
+        "type": "TfsGit"
+      },
+      "queueTime": "2026-10-19T15:00:00Z",
+      "startTime": "2026-10-19T15:01:00Z",
+      "finishTime": "2026-10-19T15:20:00Z",
+      "triggerInfo": {
+        "pr.number": "77",
+        "pr.sourceBranch": "refs/heads/fix/retry"
+      }
+    }
+  ]
+}

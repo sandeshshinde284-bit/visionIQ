@@ -1,6 +1,6 @@
 """Cloud SQL DEVELOPMENT migration and schema access verification.
 
-One-shot Cloud Run Job, routed to Cloud SQL private IP through approved VPC connectivity.
+One-shot Cloud Run Job, routed to Cloud SQL private IP through Direct VPC egress.
 Never invoked by normal docker compose startup.
 
 Usage:
@@ -91,7 +91,8 @@ class CloudConfig(LocalConfig):
 
     def url(self) -> URL:
         self.check()
-        assert self.db_cloud_password is not None
+        if self.db_cloud_password is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return URL.create(
             "postgresql+psycopg",
             username=self.db_cloud_user,
@@ -112,7 +113,8 @@ class CloudConfig(LocalConfig):
         if target not in accounts:
             raise ValueError("Unknown database role.")
         user, secret = accounts[target]
-        assert secret is not None
+        if secret is None:  # m-7: real check, not an assert
+            raise ValueError("A required database password is missing.")
         return psycopg.connect(
             host=self.db_host,
             port=self.db_port,
@@ -133,9 +135,9 @@ def wait_for_private_database(
     probe_timeout_seconds: float = 5,
     interval_seconds: float = 5,
 ) -> None:
-    """Wait for private VPC connectivity before modifying Cloud SQL.
+    """Wait for Direct VPC egress to become usable before modifying Cloud SQL.
 
-    Private network startup can take time for either VPC connector or direct VPC egress.
+    Cloud Run Direct VPC egress can take a minute or more to become available.
     A TCP check distinguishes startup/routing failures from authentication or
     migration errors. Do not log credentials.
     """

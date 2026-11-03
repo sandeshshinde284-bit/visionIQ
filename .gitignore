@@ -67,3 +67,6 @@ crash.log
 # ---------- Local data ----------
 pgdata/
 .docker-data/
+
+# ---------- Ingestion output (LRN-01) ----------
+artifacts/
