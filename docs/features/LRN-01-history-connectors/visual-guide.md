@@ -17,15 +17,15 @@ sequenceDiagram
     participant ADO as Azure DevOps
     participant Checkpoint
     participant Sink as Output sink
-    Operator->>CLI: inventory or sync
-    CLI->>ADO: Request approved project sources
-    ADO-->>CLI: Paginated work items, PRs, commits, builds
+    Operator->>CLI: sync
     CLI->>Checkpoint: Read per-stream cursor
-    Checkpoint-->>CLI: Last successful position
+    Checkpoint-->>CLI: Last successful position (or none)
+    CLI->>ADO: Request records changed since that position
+    ADO-->>CLI: Paginated work items, PRs, commits, builds
     loop Each fresh record
         CLI->>Sink: Write versioned evidence
     end
-    alt Complete stream
+    alt Complete stream, or a capped batch fully written
         CLI->>Checkpoint: Advance checkpoint
     else Partial or failed stream
         CLI-->>Operator: Report partial/not synced
@@ -33,11 +33,13 @@ sequenceDiagram
     CLI-->>Operator: Sanitized sync report
 ```
 
+The checkpoint is read **first**, because it decides what to ask Azure DevOps for. It advances only after records are written: for a complete stream, or for a batch that hit the 20,000-item query cap (progress is kept so the next run continues). A failed stream never advances past unwritten records.
+
 **Inventory** answers “Can I reach these sources and how much history is present?” **Sync** answers “Which history can I collect and persist?” A successful source connection alone does not demonstrate full historical coverage or downstream reasoning quality.
 
 ## 3. What is a checkpoint?
 
-Imagine a bookshelf with 4,442 ticket folders. A checkpoint is a *bookmark for a particular source stream*, not evidence that all folders were read. A later run resumes from an acknowledged position. If a stream fails partway, do not advance its bookmark as though the run succeeded.
+Imagine a bookshelf with about 4,400 ticket folders. A checkpoint is a *bookmark for a particular source stream*, not evidence that all folders were read. A later run resumes from an acknowledged position. If a stream fails partway, do not advance its bookmark as though the run succeeded.
 
 ## 4. Why do JSONL and canonical modes differ?
 
@@ -56,7 +58,7 @@ Local JSONL is useful for checking shapes and counts; it is not an ACL-aware ret
 
 ## 5. Real test observations versus illustration
 
-The previously documented LRN-01 runs found **4,442 work items, 9 repositories and 22 pipelines** in the approved inventory; test evidence further includes **86 builds and 149 links**, **402/402 regression tests**, and **8/8 changed-file fidelity**. Consult the dated [test report](../../LRN-01-Test-Report.md) for scope and caveats. None of these figures alone proves the AI can produce a correct fix recommendation.
+The previously documented LRN-01 runs found **4,438 work items, 9 repositories and 22 pipelines** (inventory recorded in the [test report](../../LRN-01-Test-Report.md); counts change as ADO grows) in the approved inventory; test evidence further includes **86 builds and 149 links**, **402/402 regression tests**, and **8/8 changed-file fidelity**. Consult the dated [test report](../../LRN-01-Test-Report.md) for scope and caveats. None of these figures alone proves the AI can produce a correct fix recommendation.
 
 ## 6. Where to go next
 
