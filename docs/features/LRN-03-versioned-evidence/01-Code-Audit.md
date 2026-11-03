@@ -1,4 +1,6 @@
-# LRN-03 — Existing code audit (review increment 1)
+# LRN-03 — Existing code audit
+
+> **Outcome:** every gap listed in the "Remaining verification" column below was subsequently tested; final results are in [04 — Test evidence](04-Test-Evidence-and-Acceptance.md). This page keeps the original audit as written, plus the later findings at the end.
 
 **Source of truth:** [Original LRN-03 Trello acceptance criteria](https://trello.com/c/aqRFYZ9G/9-learn-lrn-03-store-history-as-versioned-evidence). This file records observations from source on `feature/learn`, **not** a claim that today's build, database or GCS integration tests passed.
 
@@ -57,7 +59,7 @@ Preflight observed: Docker engine 29.5.3; existing `visioniq-postgres` running h
 
 **Observed user-run test container readiness (2 November 2026):** `visioniq-lrn03-test-postgres` running with isolated host bind `127.0.0.1:55433`; `pg_isready -U visioniq_test -d visioniq_lrn03_test` returned 0. **Migration now confirmed by user-run output:** Alembic head `20261101_0012`; `evidence.source_items` and `evidence.source_revisions` both listed among 14 `evidence` tables in isolated test database. **Revision import/replay counts remain untested.** `db.manage.LocalConfig` reads local environment variables and `.env`, and migration selection requires local target; the next command must override host/port/db identity explicitly to prevent accidental writes to the usual database.
 
-## 5. Next actual validation
+## 5. Validation performed
 
 First run the committed focused synthetic boundary tests and capture discovered count and exit code:
 
@@ -73,7 +75,7 @@ Write-Host "LRN-03 focused test exit code: $LASTEXITCODE"
 
 Then use an **isolated approved PostgreSQL test schema/database** to demonstrate exactly one source item with two revisions after replay. Do not run test imports into shared evidence tables or mutate production-like checkpoints. The exact executable integration command and SQL must be grounded in the existing test harness/schema before publishing it as copy-paste instruction.
 
-## 5. Documentation update rule
+## 6. Documentation update rule
 
 Each reviewed task gets one of `CODE FOUND`, `TEST PASSED`, `BLOCKED`, `GAP`, or `NOT APPLICABLE`. Never upgrade to `TEST PASSED` based on reading code alone. Record sample counts and sanitized output; don't commit source page contents or credentials.
 
@@ -98,4 +100,7 @@ docker exec visioniq-lrn03-test-postgres psql -U visioniq_test -d visioniq_lrn03
 ## Bootstrap command correction and documentation coverage
 
 The user ran `python -m db.manage bootstrap` with the correct isolated environment, but `db/manage.py` accepts only `migrate`, `roles`, `verify`, and `all`. The result was **CLI usage exit 2**; this is not evidence of a failed database permission grant. The Python function `bootstrap(settings)` is reached through the `roles` action. New [operations](03-Setup-Commands-and-Troubleshooting.md) and [test evidence](04-Test-Evidence-and-Acceptance.md) documentation covers this incident plus prior Docker/PowerShell issues. Role verification is still pending.
-\n## Concrete GCS archive class located\n\nThe archive implementation is `src/VisionIQ.Api/Features/Evidence/RawEvidenceArchive.cs` (`CloudStorageEvidenceArchive`). It computes object path `raw/v1/{itemKey}/{sha256(revision)}/{sha256(rawJson)}.json` and uses conditional create `IfGenerationMatch=0`, treating precondition failure as replay, with no overwrite. The real isolated-bucket test and command are in [05-GCS-Archive-Verification.md](05-GCS-Archive-Verification.md). **Code review complete; live verification pending.**\n
+
+## Concrete GCS archive class located
+
+The archive implementation is `src/VisionIQ.Api/Features/Evidence/RawEvidenceArchive.cs` (`CloudStorageEvidenceArchive`). It computes object path `raw/v1/{itemKey}/{sha256(revision)}/{sha256(rawJson)}.json` and uses conditional create `IfGenerationMatch=0`, treating precondition failure as replay, with no overwrite. The real isolated-bucket test and command are in [05-GCS-Archive-Verification.md](05-GCS-Archive-Verification.md). **Code review complete; live verification pending.**
