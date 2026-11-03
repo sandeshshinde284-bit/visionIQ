@@ -1,40 +1,50 @@
 # LRN-03 — Store history as versioned evidence
 
-> **Story:** [LRN-03 on Trello](https://trello.com/c/aqRFYZ9G/9-learn-lrn-03-store-history-as-versioned-evidence)  
-> **Status:** COMPLETE — original LRN-03 storage acceptance verified on 2 November 2026. Not a new build. Original LRN-03 functionality was implemented earlier alongside LRN-01–07; the review audited the original Trello card and verified real persistence. Documentation is maintained **alongside each review, fix and test**, not after story completion.  
-> **Scope:** S05-01 through S05-06, S05-11; approved PostgreSQL / GCS evidence persistence and conservative normalization.
+> **Story:** [LRN-03 on Trello](https://trello.com/c/aqRFYZ9G/9-learn-lrn-03-store-history-as-versioned-evidence)
+> **Status:** **COMPLETE (original storage scope)**, verified 2 November 2026 with real PostgreSQL and
+> Cloud Storage tests. LRN-03 was implemented earlier alongside LRN-01–07; this folder documents the
+> review that audited it against the Trello card and verified it.
+> **Scope:** S05-01 to S05-06 and S05-11: versioned evidence persistence in PostgreSQL, immutable raw
+> archive in Cloud Storage, conservative metadata normalization.
 
 ![Versioned evidence architecture](images/lrn03-evidence-flow.svg)
 
-**Review progress:** [Detailed code audit and Trello task matrix](01-Code-Audit.md). This audit identifies existing implementation, specific unverified areas and executable tests; it is updated as the review proceeds.
+## At a glance
 
-## Complete LRN-03 documentation index
-
-1. [Existing code audit and Trello task mapping](01-Code-Audit.md) — factual review findings and gaps.
-2. [Architecture and implementation explained](02-Architecture-and-Implementation.md) — visual design, code responsibility, identity, revisions, access and redaction.
-3. [Setup, executable commands and troubleshooting](03-Setup-Commands-and-Troubleshooting.md) — Windows PowerShell runbook, isolated PostgreSQL, CLI commands, failure resolutions.
-4. [Actual test evidence and acceptance](04-Test-Evidence-and-Acceptance.md) — every observed result, outstanding gates and original user-story acceptance.
-5. [GCS archive verification and live runbook](05-GCS-Archive-Verification.md) — existing GCS implementation, conditional writes, exact SHA-256 check and isolated live test.\n6. [Deployed index/retrieval audit](06-Index-Retrieval-Deployment-Audit.md) — read-only infrastructure inventory, search-index contract and authorization acceptance.\n7. [Visual architecture image](images/lrn03-evidence-flow.svg) — end-to-end source → archive → versioned database.
-
-**Current correction:** The local CLI command is `python -m db.manage roles`, **not** `bootstrap`. The latter was a wrong recommendation and resulted in argument-parser exit 2. This is documented in the operations guide and test evidence.
-
-## The problem, explained
-
-An Azure DevOps ticket can be revised many times. An engineer might change a description, attach a PR, and resolve the ticket. If VisionIQ saves only the latest text, it loses **what was known when**. If every sync inserts a new item, searches become full of duplicates. If it stores private text directly in an index, it can leak secrets.
-
-**Illustrative example (fictional, not company data):** A ticket is first imported at revision 3. Reimporting revision 3 again should leave that revision unchanged; importing revision 4 should preserve the earlier revision and update the latest reference. Both raw revisions must remain traceable to their source, without adding private free text to indexed metadata.
-
-## What LRN-03 actually includes
-
-| Acceptance criterion | Implementation already present | Validation status |
+| Original acceptance criterion | Result | Evidence |
 | --- | --- | --- |
-| Source identity, revision, timestamps, access metadata | `EvidenceIdentity`, `EvidenceEnvelope`, `PostgresEvidenceStore` | Code found; fresh test execution pending |
-| Immutable GCS raw record; redaction before indexing | `EvidenceIngestionService`, `EvidenceNormalizer`, archive service | Code found; fresh archive/hash and secret-exclusion checks pending |
-| Idempotent import; two revisions of one source item | PostgreSQL upsert/revision handling | Code found; fresh real DB integration verification pending |
+| Each record keeps its source ID, revision, timestamps and access list | **PASS** | Isolated PostgreSQL test 1/1: every persisted identity, revision, timestamp, URL, retrieval identity, ACL and archive column asserted |
+| A raw copy is kept in Cloud Storage; sensitive fields are redacted before indexing | **PASS** | Real isolated GCS test 1/1 (exact bytes, SHA-256, unchanged object generation on replay); metadata redaction tests 8/8 |
+| Re-importing the same item updates it instead of creating a duplicate | **PASS** | Isolated PostgreSQL test 1/1: Created → NewRevision → Unchanged → Unchanged → Conflict; one item, two revisions, correct latest |
 
-**Official completion evidence:** the same item imported twice leaves **one logical item and two distinct source revisions** (where the two imports include two native revision IDs and a replay).
+**Completion evidence (Trello):** the same item imported twice leaves **one logical record with two
+source revisions**. Verified by the isolated PostgreSQL test above. Full results, commands and history:
+[test evidence and acceptance](04-Test-Evidence-and-Acceptance.md).
 
-## Architecture, step by step
+## Documentation
+
+| Document | Read it to |
+| --- | --- |
+| [01 — Code audit and Trello task mapping](01-Code-Audit.md) | See where each Trello task is implemented and what was verified |
+| [02 — Architecture and implementation](02-Architecture-and-Implementation.md) | Understand identity, revisions, archive, redaction and access boundaries |
+| [03 — Setup, commands and troubleshooting](03-Setup-Commands-and-Troubleshooting.md) | Prepare an isolated database and run the checks safely (Windows PowerShell) |
+| [04 — Test evidence and acceptance](04-Test-Evidence-and-Acceptance.md) | See every observed result, the acceptance decision and the dated test history |
+| [05 — Cloud Storage archive verification](05-GCS-Archive-Verification.md) | Understand and re-run the real GCS integrity and immutability test |
+| [06 — Index and retrieval audit](06-Index-Retrieval-Deployment-Audit.md) | See what is outside LRN-03: search indexing and per-user retrieval |
+| [Architecture image](images/lrn03-evidence-flow.svg) | Source → archive → versioned database at a glance |
+
+## The problem LRN-03 solves
+
+An Azure DevOps ticket changes many times: its description is edited, a PR is attached, it is
+resolved. If VisionIQ kept only the latest text it would lose **what was known when**. If every sync
+inserted a new item, results would fill with duplicates. If private text went straight into searchable
+metadata, it could leak secrets.
+
+**Example (fictional):** a ticket is imported at revision 3. Importing revision 3 again changes
+nothing. Importing revision 4 keeps revision 3, adds revision 4 and moves the "latest" pointer. Both
+raw revisions stay traceable to their source, and no private free text enters searchable metadata.
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -46,76 +56,83 @@ flowchart LR
   P --> R["Later search / reasoning: separately permission-gated"]
 ```
 
-1. **Identity:** provider, source instance, project, optional repository, item kind and external ID are combined into a stable item key. Different sources must not accidentally collide.
-2. **Version:** the source-native revision and source update timestamp describe the source change. Observation timestamp describes when the connector saw it. Keep both.
-3. **Redaction:** `EvidenceNormalizer` uses a restrictive allowlist of short structured metadata. Raw descriptions and source text must not be copied into unreviewed search metadata.
-4. **Archive first:** raw bytes are content-hashed and saved in GCS before the PostgreSQL revision is persisted. Failures must not silently advance the evidence state.
-5. **Upsert:** a replay of an identical item+revision should be unchanged, while a new revision gets a separate row. Same revision ID with different content must be treated as a conflict, not silently overwritten.
-6. **Security:** storing an ACL or space principal does not prove a particular requesting engineer can read the page. LRN-02 retrieval authorization remains open until an actual protected read path is tested.
+1. **Identity:** provider, source instance, project, optional repository, item kind and external ID
+   are combined into a stable item key, so different sources never collide.
+2. **Version:** the source's own revision ID and update time describe the change; the observation time
+   records when VisionIQ saw it. Both are kept.
+3. **Redaction:** `EvidenceNormalizer` copies only an allowlist of short structured fields (for example
+   state and work-item type) into searchable metadata. Descriptions, comments, commit messages and raw
+   environment text never enter it.
+4. **Archive first:** the raw bytes are hashed (SHA-256) and written to Cloud Storage **before** the
+   database revision is recorded. If archiving fails, nothing is written to the database.
+5. **Upsert:** replaying the same revision is a no-op; a new revision gets its own row; the same
+   revision ID with **different** content is a **Conflict**, never a silent overwrite.
+6. **Access:** each revision stores its access list. Storing it does not by itself decide what a
+   particular engineer may see; that is decided at read time (see [Boundaries](#what-lrn-03-does-not-cover)).
 
 ## Code map
 
 | Source location | Responsibility |
 | --- | --- |
-| `src/VisionIQ.Api/Features/Evidence/EvidenceModels.cs` | Stable identity, access metadata, version envelope, conservative normalizer |
-| `src/VisionIQ.Api/Features/Evidence/EvidenceIngestionService.cs` | Validation, SHA-256, redaction, archive-before-database sequence |
-| `src/VisionIQ.Api/Features/Evidence/PostgresEvidenceStore.cs` | Item/revision persistence and idempotent upsert |
-| `src/VisionIQ.Ingestor.Cli/CanonicalEvidenceSink.cs` | Maps connector source records to canonical envelopes |
-| `src/VisionIQ.Api/Features/Evidence/` | Archive and evidence storage interfaces/implementations |
-| `tests/VisionIQ.Ingestor.Tests/` | Relevant ingestion/normalization and integration test code |
+| `src/VisionIQ.Api/Features/Evidence/EvidenceModels.cs` | Stable identity, access metadata, version envelope, metadata normalizer |
+| `src/VisionIQ.Api/Features/Evidence/EvidenceIngestionService.cs` | Validation, SHA-256, redaction, archive-before-database order |
+| `src/VisionIQ.Api/Features/Evidence/RawEvidenceArchive.cs` | Cloud Storage archive (`CloudStorageEvidenceArchive`): content-addressed, create-only uploads |
+| `src/VisionIQ.Api/Features/Evidence/PostgresEvidenceStore.cs` | Item and revision persistence, idempotent upsert, conflict detection |
+| `src/VisionIQ.Ingestor.Cli/CanonicalEvidenceSink.cs` | Maps connector records to canonical evidence envelopes |
+| `db/migrations/versions/20261030_0002_versioned_evidence.py` | `evidence.source_items` / `evidence.source_revisions` schema and constraints |
+| `tests/VisionIQ.Ingestor.Tests/Lrn03EvidenceBoundaryTests.cs` | Archive order, archive failure, identity separation, redaction (8 tests) |
+| `tests/VisionIQ.Ingestor.Tests/Lrn03PostgresIntegrationTests.cs` | Opt-in real PostgreSQL acceptance test (`LRN03_TEST_DB=1`) |
+| `tests/VisionIQ.Ingestor.Tests/Lrn03GcsArchiveIntegrationTests.cs` | Opt-in real Cloud Storage test (`LRN03_TEST_GCS=1`) |
 
-## Additional review regression tests (not evidence of new feature implementation)
+## Trello implementation tasks
 
-Additional synthetic regression tests were added during the review in `tests/VisionIQ.Ingestor.Tests/Lrn03EvidenceBoundaryTests.cs`:
+| Task | Status | How it was verified |
+| --- | --- | --- |
+| S05-01 Canonical evidence schema | **Verified** | Migration applied to an isolated database (14 evidence tables); persisted columns asserted by the PostgreSQL test |
+| S05-02 Source identity strategy | **Verified** | Identity separation in the boundary tests; persisted identity columns in the PostgreSQL test |
+| S05-03 Raw immutable snapshot archive | **Verified** | Real isolated GCS test: exact bytes, SHA-256, no overwrite on replay |
+| S05-04 Work-item revision normalization | **Verified for work items** | Work-item current/revision mappings in the sink; persisted revision test |
+| S05-05 PR, commit, review normalization | **Partly** | PR and commit mappings present and redaction-tested; review comments are not ingested on `feature/learn` (they are added to PR records by LRN-12 on `feature/learn-08-14`) |
+| S05-06 CI, deployment, incident normalization | **Partly** | CI builds mapped; deployment and incident records have no source mapping yet (no connector produces them; see LRN-14) |
+| S05-11 Deduplication / upsert | **Verified** | PostgreSQL test: replay unchanged, new revision added, conflicting content rejected |
 
-- Raw evidence is archived before a database store call.
-- An archive failure prevents a database write.
-- Stable item identities differ across provider/repository boundaries.
-- Unknown record kinds do not leak unreviewed values into redacted metadata.
+## How to re-run the checks
 
-Run from the repo root:
+The three commands are in [03 — Setup, commands and troubleshooting](03-Setup-Commands-and-Troubleshooting.md):
+the boundary tests run anywhere; the PostgreSQL and GCS tests are **opt-in** and must only target an
+isolated database and an approved isolated bucket.
 
 ```powershell
 dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj `
   --configuration Release `
-  --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests" `
-  --verbosity normal
-if ($LASTEXITCODE -ne 0) { throw "LRN-03 focused tests failed" }
+  --filter "FullyQualifiedName~Lrn03EvidenceBoundaryTests"
+if ($LASTEXITCODE -ne 0) { throw "LRN-03 boundary tests failed" }
 ```
 
-**Status:** additional test source committed; local execution and results **not yet observed**. Existing tests and existing previously recorded LRN-01 canonical archive evidence must also be reviewed; do not infer LRN-03 was unimplemented from this addition. This synthetic suite does not validate real PostgreSQL row constraints, GCS object contents, or GCP IAM. Those need separate integration testing.
+**Expected:** 8 passed, 0 failed, 0 skipped, exit 0.
 
-## Trello implementation task audit (review, not new implementation)
+## What LRN-03 does not cover
 
-| Task | Review target | Status |
-| --- | --- | --- |
-| S05-01 Canonical evidence schema | PostgreSQL migrations, evidence tables and constraints | Awaiting full migration review |
-| S05-02 Source identity strategy | `EvidenceIdentity.ItemKey`, source collisions and keys | Existing code located; tests pending |
-| S05-03 Raw immutable snapshot archive | GCS object implementation, hash/object existence and failure behavior | Existing code path located; live validation pending |
-| S05-04 Work-item revision normalization | Canonical mappings for work-item revisions | Existing sink located; audit pending |
-| S05-05 PR, commit, review normalization | Canonical mappings and field fidelity | Existing sink located; audit pending |
-| S05-06 CI, deployment, incident normalization | Accepted record types and safe normalizer output | Existing normalizer located; audit pending |
-| S05-11 Deduplication/upsert | PostgreSQL same-item replay, new revision and conflict | Existing store located; actual DB test pending |
+- **Search indexing and retrieval** are outside this storage story. On `feature/learn` no index writer
+  exists ([06](06-Index-Retrieval-Deployment-Audit.md)). The LEARN search index (LRN-08 and later) is
+  being built on `feature/learn-08-14`; it must pass the sentinel test described in 06 once merged.
+- **Per-engineer access to Confluence pages** is decided at read time by LRN-02's live Confluence
+  permission check; see [LRN-02 acceptance](../LRN-02-confluence/04-Acceptance-and-LRN03-Handoff.md).
+- **Bucket-wide retention and IAM** are infrastructure responsibilities; the code prevents overwrites
+  of individual objects.
+- **Rows stored before the redaction hardening** keep their old metadata until they are re-imported.
 
-Existing LRN-01 test evidence included canonical PostgreSQL/GCS writes, 5/5 sampled GCS hash checks and duplicate-key checks in a sample. These are **supporting evidence**, not a completed LRN-03 two-revision acceptance run.
+## Follow-ups (non-blocking)
 
-## Source-of-truth acceptance checklist
+1. **The opt-in tests handle a missing opt-in inconsistently.** The PostgreSQL test returns early and
+   is reported as **passed**, so a log alone does not prove it ran. The GCS test **throws**, so an
+   ordinary `dotnet test` without `LRN03_TEST_GCS=1` reports a **failure**; this has made the CI .NET
+   job fail on `feature/learn` since the test was added (commit `9c05d76`). Both should report an
+   explicit **skip** when not opted in.
+2. Build warnings (63–65 depending on the run) are analyzer advisories, not failures; see the
+   [LRN-01 warning review](../LRN-01-history-connectors/acceptance.md).
+3. Historic rows: re-import or backfill if older metadata must match the hardened allowlist.
 
-- [x] Original Trello acceptance criteria retrieved and documented.
-- [x] Existing implementation locations identified.
-- [ ] Review schema and identity constraints against every accepted source kind.
-- [ ] Validate raw object integrity and archive-before-database failure behavior.
-- [ ] Validate that normalized/indexable metadata excludes secrets and unrestricted text.
-- [ ] Run PostgreSQL integration: same item replayed, then second revision, verify one logical item and two revisions.
-- [ ] Record command output, test counts, sanitized evidence, and any defects addressed.
-- [ ] Only then mark LRN-03 accepted.
-
-## Documentation workflow
-
-After each meaningful change, update this folder with: (1) implementation explanation, (2) architecture diagram if flow changed, (3) actual PowerShell commands run, (4) sanitized expected/observed outputs, and (5) acceptance status. Never record corporate ticket content, tokens or unapproved access lists. Don't merge the draft LEARN PR until agreed story validation is complete.
-
-**Related:** [LRN-01 visual guide](../LRN-01-history-connectors/visual-guide.md), [LRN-02 acceptance handoff](../LRN-02-confluence/04-Acceptance-and-LRN03-Handoff.md).
-
-## Completion record — 2 November 2026
-
-LRN-03 **COMPLETE against original storage scope**. Final user-run isolated PostgreSQL test: 1 passed, 0 failed, 0 skipped, exit 0; persisted source IDs, revisions, timestamps, ACL, redacted metadata and archive reference verified. Separate passing real GCS (1/1) and metadata boundary (8/8) tests support the remaining acceptance points. Deployed semantic index/retrieval is separately tracked, not part of this storage story. The test builds still report 65 warnings (cleanup backlog). See [acceptance register](04-Test-Evidence-and-Acceptance.md).
+**Related:** [LRN-01 visual guide](../LRN-01-history-connectors/visual-guide.md) ·
+[LRN-02 acceptance](../LRN-02-confluence/04-Acceptance-and-LRN03-Handoff.md) ·
+[Canonical evidence contract](../../lrn03-canonical-evidence-contract.md)
