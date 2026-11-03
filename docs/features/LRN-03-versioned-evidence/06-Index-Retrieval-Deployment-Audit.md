@@ -39,6 +39,16 @@ These commands inspect **tables and PostgreSQL indexes**, not necessarily actual
 
 If no real index writer/retrieval path exists, label this gate **NOT IMPLEMENTED / NOT APPLICABLE TO LRN-03 STORAGE ACCEPTANCE**, and track its implementation under its intended learning/retrieval story, instead of inventing passing evidence.
 
+## Where the search index is being built
+
+On `feature/learn` there is no index writer (findings above). The LEARN search index is being built
+on `feature/learn-08-14` (LRN-08 indexing, LRN-09 retrieval, LRN-15 published snapshots). It differs
+from step 2 of the required test in one deliberate way: to find similar defects it indexes **full
+text** (descriptions, repro steps, comments) read from the raw archive, after its own text redaction
+policy (`text-redaction-v1`: secrets, credentials, e-mail addresses, phone and card numbers), instead
+of the allowlisted `redacted_payload` alone. That policy needs explicit approval, and the sentinel
+test in step 3 is the right acceptance check once the branches are merged.
+
 ## Current conclusion
 
 LRN-03 raw storage, deduplication and metadata normalization have concrete local+GCS integration results. **A deployed indexing and retrieval flow has not been established or tested.** The 8/8 boundary test result cannot substitute for an authenticated deployed retrieval test.
@@ -47,6 +57,6 @@ LRN-03 raw storage, deduplication and metadata normalization have concrete local
 
 **Cloud Run listing:** observed `visioniq-api` and `visioniq-intelligence` services, and `visioniq-db-migrate` job in `gbr-mts-wgh-hkt-dev` / `europe-west3`. The listing also included unrelated project services; those are not part of the LRN-03 evidence trail. Listing proves resource existence, not service readiness, implemented retrieval routes, or up-to-date image revisions.
 
-**Isolated local PostgreSQL:** `\\dt knowledge.*` yielded `Did not find any relation named "knowledge.*".` The `pg_indexes` query returned **27 indexes under `evidence`**, with no `knowledge` index rows. These include B-tree identity/revision/graph indexes and GIN `source_revisions_acl_idx` for `acl_principals`. No vector/embedding search index was observed. The query does not establish whether another Cloud SQL database has any indexes.
+**Isolated local PostgreSQL:** `\dt knowledge.*` yielded `Did not find any relation named "knowledge.*".` The `pg_indexes` query returned **27 indexes under `evidence`**, with no `knowledge` index rows. These include B-tree identity/revision/graph indexes and GIN `source_revisions_acl_idx` for `acl_principals`. No vector/embedding search index was observed. The query does not establish whether another Cloud SQL database has any indexes.
 
 **Decision:** downstream deployed semantic indexing/retrieval remains **NOT IMPLEMENTED/NOT DEMONSTRATED in inspected environment**, rather than a failed LRN-03 storage criterion. Keep LRN-03 canonical evidence ingestion and secure redacted metadata handoff as a separate completed boundary. Track an independently scoped future story for an index writer, embedding/chunking safeguards, requester-level ACL validation and retrieval test before making any deployed search claims.
