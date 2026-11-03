@@ -154,8 +154,12 @@ public sealed class AdoClient
             using (response)
             {
                 var status = (int)response.StatusCode;
-                Logging.IngestionLog.Call(log, "ADO", method, path, status,
-                    System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, attempt + 1);
+                if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
+                {
+                    var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    var attemptNumber = attempt + 1;
+                    Logging.IngestionLog.Call(log, "ADO", method, path, status, elapsed, attemptNumber);
+                }
                 if (response.StatusCode == HttpStatusCode.NonAuthoritativeInformation)
                 {
                     Logging.IngestionLog.CallFailed(log, "ADO", method, path, attempt + 1, "203 (usually an expired or wrong PAT)");

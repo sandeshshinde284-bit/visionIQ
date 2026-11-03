@@ -16,6 +16,9 @@ public sealed class AdoWebhookEndpoint(
     private readonly Microsoft.Extensions.Logging.ILogger log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
     public const string Route = "/webhooks/ado/work-items";
+
+    /// <summary>LRN-12: URL for PR Service Hook subscriptions.</summary>
+    public const string PullRequestRoute = "/webhooks/ado/pull-requests";
     private const long MaxBody = 1024 * 1024;
 
     public async Task<IResult> HandleAsync(HttpContext context)
@@ -57,16 +60,28 @@ public sealed class AdoWebhookEndpoint(
                     IngestorLogging.WebhookRejected(log, "not a recognizable work-item event");
                     return Results.BadRequest(new { status = "invalid" });
                 case ServiceHookOutcome.Ignored:
-                    IngestorLogging.WebhookIgnored(log, Field("id"), Field("eventType"));
+                    if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Information))
+                    {
+                        var ignoredId = Field("id");
+                        var ignoredType = Field("eventType");
+                        IngestorLogging.WebhookIgnored(log, ignoredId, ignoredType);
+                    }
+
                     return Results.Ok(new { status = "ignored" });
             }
 
             using var scope = log.BeginScope(new Dictionary<string, object> { ["eventId"] = change!.EventId });
             var status = await processor.ProcessAsync(change, context.RequestAborted);
             var result = Respond(status);
-            IngestorLogging.WebhookProcessed(log, change.EventId, change.ProviderKind, change.SourceId[(change.SourceId.LastIndexOf('/') + 1)..],
-                change.NativeId, change.SourceRevision, status.ToString(), (result as IStatusCodeHttpResult)?.StatusCode ?? 200,
-                System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Information))
+            {
+                var project = change.SourceId[(change.SourceId.LastIndexOf('/') + 1)..];
+                var outcome = status.ToString();
+                var code = (result as IStatusCodeHttpResult)?.StatusCode ?? 200;
+                var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                IngestorLogging.WebhookProcessed(log, change.EventId, change.ProviderKind, project,
+                    change.NativeId, change.SourceRevision, outcome, code, elapsed);
+            }
             return result;
         }
     }
