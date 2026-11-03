@@ -50,6 +50,14 @@ Use only the isolated `visioniq-lrn03-test-postgres` local database at `127.0.0.
 
 Review five approved ADO ticket→PR/commit links, confirm the reference is actually declared by ADO, and compare project/repository scoping and revert evidence; log any errors. Do not publish private ticket titles, source content or personal data. The synthetic `Five_known_ticket_fix_associations_are_explicit_and_not_falsely_verified` test proves deterministic behavior, not the Trello completion-evidence requirement.
 
+## Code review findings — 3 November 2026
+
+Code inspection confirms `PostgresTicketFixLinkStore.UpsertSourceAsync` persists source classification and evidence refs, while `RecordReviewAsync` appends reviewed decisions transactionally and checks for a reverted association. The store maintains source association, reviewed verdict and revert markers as distinct evidence dimensions. **No real PostgreSQL integration run has yet been observed for LRN-04.**
+
+**Potential gap — ingest ordering:** `RecordRevertAsync` updates only *existing* `ticket_fix_links` rows matching source, project, repository and original SHA. If a revert commit is processed **before** the corresponding ticket→commit claim exists, the UPDATE can affect zero rows; current `TicketFixProjectionSink` does not visibly retry that revert once the claim is subsequently created. Test reverse arrival order and checkpoint/replay behavior before signoff. This is a code-level risk, not a confirmed production failure.
+
+**Potential gap — scope:** The source-scoped SQL update requires an exact repository and project match. Verify that artifact URL identity normalization makes the PR/work-item association and revert-commit project/repository IDs equivalent in real data.
+
 ## Findings to verify
 
 - A commit-message `AB#1234` mention is **inferred**, not evidence that the commit fixed the ticket.
@@ -57,6 +65,16 @@ Review five approved ADO ticket→PR/commit links, confirm the reference is actu
 - Ambiguous abbreviated revert SHAs are not assigned automatically.
 - One source ticket can have multiple fix associations, and source identity scopes must not cross projects.
 - A failed raw archive prevents writing unbacked fix links.
+
+## Test gate A result register
+
+| Test | Executed result | Status |
+| --- | --- | --- |
+| Resolver focused xUnit (8 cases) | No user output yet | PENDING |
+| Projection sink focused xUnit (7 cases) | No user output yet | PENDING |
+| Out-of-order revert persistence | Not yet tested | OPEN RISK |
+| Isolated PostgreSQL review/replay/revert | Not yet tested | PENDING |
+| Five approved ADO reference checks | Not yet recorded | PENDING |
 
 ## Review log
 
