@@ -294,13 +294,35 @@ distinct from `source_revision_time`; all three consumers now carry the identica
 
 ## What was not independently verified
 
-- The new opt-in PostgreSQL integration test (`Reconcile_retracts_a_dropped_link_and_rejects_a_stale_replay`)
-  compiles but was not run against a live migrated database in this session (no `.env` credentials
-  were read, by design, throughout this review).
+- Update (sixth round, see §12 below): the opt-in PostgreSQL integration tests, including
+  `Reconcile_retracts_a_dropped_link_and_rejects_a_stale_replay`, have since been run against the
+  disposable `visioniq-lrn03-test-postgres` container (a locally-set test-only password for the
+  container's own restricted API role, never a read of any real `.env` credential) and pass.
 - The `/workitems` pagination residual risk in point 4 above is not verified against a live ADO
   organization.
 - No load/concurrency test was run against the `FOR UPDATE` locking in point 3; its correctness rests
   on Postgres's documented row-lock semantics, not on an observed race under load.
+
+## 12. Third-pass correction (sixth review round): revision freshness and lifecycle history
+
+A later, independent review of this design's implementation (run together with R4-04 and R1-06, as
+LRN-05 requires) found two more real problems in this area, detailed in full in
+[LRN-01-07-integration-review.md §7e](LRN-01-07-integration-review.md#7e-sixth-round-second-pass-correction-from-an-independent-review-of-r4-02r4-04r1-06-cross-checked-against-lrn-05):
+
+- **Finding #1**: §3's "current-state comparison" freshness guard (`source_revision_time` strictly
+  increasing) interacted badly with R1-06's always-re-check-active-PRs behavior, added after this
+  design was written — an open PR's `LastActivity` never advances, so every re-check after the first
+  was silently rejected forever. Fixed by also accepting an equal timestamp when the revision id
+  differs (a real content change at the same source timestamp), while still rejecting a true replay
+  (identical id and time) and any strictly older, out-of-order revision.
+- **Finding #4**: §7's "preserving historical evidence" intent was only partly met — the design's
+  `ended_at`/`retracted_at` columns are soft (never deleted) but are still current-state-only, so a
+  link that cycles through retract/relink more than once loses the record of the earlier cycle. Fixed
+  with a new, purely additive `evidence.ticket_fix_link_lifecycle_events` table that appends one row
+  per real retraction or relink, independent of and never replacing the existing summary columns.
+
+Both are fixed, verified against real PostgreSQL, and covered by new regression tests; see §7e for
+full detail and test names.
 
 ## Still open, unrelated to this design (per your last message, kept in the register)
 

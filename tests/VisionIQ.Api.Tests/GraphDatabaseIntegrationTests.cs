@@ -235,4 +235,71 @@ public sealed class GraphDatabaseIntegrationTests
 
         Assert.Empty(await graph.OutgoingAsync(from.NodeKey(), 10));
     }
+
+    [DatabaseFact("VISIONIQ_GRAPH_DB_INTEGRATION")]
+    public async Task Retracting_a_supersede_commit_does_not_hide_its_valid_replacement_sibling()
+    {
+        // Second-pass correction, Finding #2: a pull request's commit list changes from c1 to c2
+        // across two revisions (a force-push or an amended commit, not a revert). c1's association is
+        // retracted via normal ReconcileSourceAsync reconciliation -- never via RecordRevertAsync --
+        // because the source stopped asserting it, not because anyone reverted anything. c2's
+        // association is the valid, currently-asserted replacement for the exact same ticket/PR pair
+        // and must stay visible: including sibling.retracted_at in the sibling-suppression OR-clause
+        // previously hid it too, confusing "superseded by a newer revision" with "reverted".
+        var settings = Settings();
+        var project = "test-" + Guid.NewGuid().ToString("N");
+        var instance = "https://dev.azure.com/visioniq-ci";
+        var ticket = new EvidenceIdentity("azure_devops", instance, project, null,
+            "work_item_current", "123");
+        var pr = new EvidenceIdentity("azure_devops", instance, project, "repo",
+            "pull_request", "901");
+        var now = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await using (var db = new NpgsqlConnection(ConnectionString(settings)))
+        {
+            await db.OpenAsync();
+            await AddEvidenceAsync(db, ticket, "7", now);
+            await AddEvidenceAsync(db, pr, "1", now);
+            await AddEvidenceAsync(db, pr, "2", now.AddMinutes(1));
+        }
+
+        var sourceItemKey = pr.ItemKey();
+        var c1Sha = new string('1', 40);
+        var c2Sha = new string('2', 40);
+        var c1Claim = new TicketFixClaim(
+            instance, project, "123", "repo", "901", c1Sha,
+            TicketFixSourceClassification.Explicit, ["evidence:" + sourceItemKey + ":1"], []);
+        var c2Claim = c1Claim with
+        {
+            CommitSha = c2Sha, SourceEvidenceRefs = ["evidence:" + sourceItemKey + ":2"],
+        };
+        var key1 = c1Claim.AssociationKey();
+        var key2 = c2Claim.AssociationKey();
+
+        await using var fixes = new PostgresTicketFixLinkStore(settings);
+        // Revision 1: PR asserts c1 only.
+        await fixes.ReconcileSourceAsync(sourceItemKey, "rev1", now, isCompleteSnapshot: true, [c1Claim]);
+        // Revision 2 (newer, complete): PR now asserts c2 instead -- c1 is retracted as superseded,
+        // never reverted.
+        await fixes.ReconcileSourceAsync(sourceItemKey, "rev2", now.AddMinutes(1), isCompleteSnapshot: true, [c2Claim]);
+
+        await using (var db = new NpgsqlConnection(ConnectionString(settings)))
+        {
+            await db.OpenAsync();
+            await using var check = new NpgsqlCommand(
+                "SELECT retracted_at IS NOT NULL FROM evidence.ticket_fix_links WHERE association_key = @key", db);
+            check.Parameters.AddWithValue("key", key1);
+            Assert.True((bool)(await check.ExecuteScalarAsync())!, "c1 should be retracted as superseded");
+        }
+
+        var from = new GraphNode(ticket.ItemKey(), GraphNodeKind.WorkItem, "123");
+        var to = new GraphNode(pr.ItemKey(), GraphNodeKind.PullRequest, "901");
+        // The materialized edge's provenance is c2's (the current, valid) association.
+        var edge = new GraphAssertion(from, to, GraphRelationKind.TicketPr,
+            pr.ItemKey(), "2", GraphClassification.Explicit, GraphAssertionState.Active,
+            now.AddMinutes(1), key2);
+        await using var graph = new PostgresRelationshipGraphStore(settings);
+        await graph.SaveAsync(edge);
+
+        Assert.Single(await graph.OutgoingAsync(from.NodeKey(), 10));
+    }
 }

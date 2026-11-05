@@ -150,11 +150,15 @@ public sealed class TicketFixProjectionSinkTests
     }
 
     [Fact]
-    public async Task A_pr_titled_as_ados_own_revert_of_a_pr_seen_earlier_reverts_its_commits()
+    public async Task A_pr_titled_as_ados_own_revert_of_a_pr_seen_earlier_records_a_candidate_not_a_confirmed_revert()
     {
-        // Review R4-07: reproduces real ADO data (PR 38386 "KioskSpecific - Enable Tremble alarm on
-        // Beeston Double " merged as e158cff...; PR 38394 "Revert 'KioskSpecific - ... Double '"
-        // merged as a7c4aadf..., both linked to the same work item 110276).
+        // Review R4-07, second-pass correction (independent review): reproduces real ADO data (PR
+        // 38386 "KioskSpecific - Enable Tremble alarm on Beeston Double " merged as e158cff...; PR
+        // 38394 "Revert 'KioskSpecific - ... Double '" merged as a7c4aadf..., both linked to work item
+        // 110276). A title+SHA match is circumstantial, not proof one commit's diff reverses the
+        // other's -- so it is recorded as a candidate (a queryable evidence reference), never a
+        // confirmed revert that would hide the original fix with the same confidence as a literal
+        // "This reverts commit <sha>" message.
         var links = new RecordingLinkStore();
         var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
         var originalSha = new string('1', 40);
@@ -177,8 +181,12 @@ public sealed class TicketFixProjectionSinkTests
         await sink.WriteAsync("pull-requests", "source/original", original);
         await sink.WriteAsync("pull-requests", "source/revert", revert);
 
-        Assert.Equal((originalSha, revertSha), Assert.Single(links.Reverts));
-        Assert.Contains(links.Claims, claim => claim.PullRequestId == "38394" && claim.TicketId == "110276");
+        Assert.Empty(links.Reverts);
+        Assert.Contains(links.Claims, claim =>
+            claim.PullRequestId == "38386" && claim.TicketId == "110276" && claim.CommitSha == originalSha &&
+            claim.SourceEvidenceRefs.Any(reference =>
+                reference.StartsWith("candidate-revert:pr-title-match:pr38394:", StringComparison.Ordinal) &&
+                reference.EndsWith(revertSha, StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]

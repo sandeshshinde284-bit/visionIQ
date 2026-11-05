@@ -172,12 +172,19 @@ public sealed class TicketFixProjectionSink(
     }
 
     /// <summary>
-    /// Review R4-07: when this pull request's title is Azure DevOps' own
-    /// <c>Revert "&lt;original title&gt;"</c> and exactly one pull request with that exact title, in
-    /// the same project and repository, was seen earlier in this process, record a revert for every
+    /// Review R4-07/second-pass correction (independent review): when this pull request's title is
+    /// Azure DevOps' own <c>Revert "&lt;original title&gt;"</c> and exactly one pull request with that
+    /// exact title, in the same project and repository, was seen earlier in this process, with every
     /// pair of full Git SHAs between the two (the original's merge/iteration commits and this PR's
-    /// own). A title match alone never records a revert: both sides must also agree on a real commit
-    /// SHA, and an ambiguous title (more than one earlier match) resolves nothing.
+    /// own) agreeing -- record this as a <em>candidate</em>, not a confirmed, revert. A matching title
+    /// and SHA format is strong circumstantial evidence, not proof that one commit's diff actually
+    /// reverses the other's (unlike a <c>git revert</c>-authored "This reverts commit &lt;sha&gt;"
+    /// message, which is the commit's own literal statement). A candidate is recorded as an additional,
+    /// queryable evidence reference on the original ticket's own association -- visible to a human
+    /// reviewer -- without calling <see cref="ITicketFixLinkStore.RecordRevertAsync"/>, which would
+    /// hide the original fix with the same confidence as a literal revert. A title match alone never
+    /// records anything: both sides must also agree on a real commit SHA, and an ambiguous title (more
+    /// than one earlier match) resolves nothing.
     /// </summary>
     private async Task RecordTitleRevertAsync(PullRequestRecord pr, CancellationToken cancellationToken)
     {
@@ -195,17 +202,39 @@ public sealed class TicketFixProjectionSink(
         }
 
         var original = matches[0];
-        foreach (var originalSha in FixCommitCandidates(original))
+        var shaPairs = (
+            from originalSha in FixCommitCandidates(original)
+            from revertSha in FixCommitCandidates(pr)
+            where IsSha(originalSha) && IsSha(revertSha) &&
+                !string.Equals(originalSha, revertSha, StringComparison.OrdinalIgnoreCase)
+            select (originalSha, revertSha)).ToList();
+        if (shaPairs.Count == 0)
         {
-            foreach (var revertSha in FixCommitCandidates(pr))
+            return;
+        }
+
+        var revision = CanonicalEvidenceSink.ContentRevision(
+            original.Status + "@" + original.LastActivity.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            original);
+        var sourceKey = new EvidenceIdentity(
+            "azure_devops", sourceInstance, original.Project, original.RepositoryId,
+            "pull_request", original.Id.ToString(CultureInfo.InvariantCulture)).ItemKey();
+        var reference = "evidence:" + sourceKey + ":" + revision;
+        var completed = original.Status.Equals("completed", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var ticket in original.WorkItemIds.Where(id => id > 0).Distinct())
+        {
+            foreach (var (originalSha, revertSha) in shaPairs)
             {
-                if (IsSha(originalSha) && IsSha(revertSha) &&
-                    !string.Equals(originalSha, revertSha, StringComparison.OrdinalIgnoreCase))
-                {
-                    await links.RecordRevertAsync(
-                        sourceInstance, pr.Project, pr.RepositoryId,
-                        originalSha, revertSha, cancellationToken).ConfigureAwait(false);
-                }
+                var candidateEvidence = "candidate-revert:pr-title-match:pr" +
+                    pr.Id.ToString(CultureInfo.InvariantCulture) + ":" + revertSha;
+                var claim = new TicketFixClaim(
+                    sourceInstance, original.Project,
+                    ticket.ToString(CultureInfo.InvariantCulture), original.RepositoryId,
+                    original.Id.ToString(CultureInfo.InvariantCulture), originalSha,
+                    completed ? TicketFixSourceClassification.Explicit : TicketFixSourceClassification.Unknown,
+                    [reference, candidateEvidence], []);
+                await links.UpsertSourceAsync(claim, cancellationToken).ConfigureAwait(false);
             }
         }
     }

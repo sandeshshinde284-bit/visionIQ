@@ -179,6 +179,27 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
     }
 
     /// <summary>
+    /// Finding #4 (second-pass correction): appends one immutable row to
+    /// <c>evidence.ticket_fix_link_lifecycle_events</c> for a retraction or a relink (clearing a
+    /// retraction). Never updates or deletes a prior row, so a link that cycles through retract and
+    /// relink more than once keeps every transition on the record, not just the current state that
+    /// <c>ticket_fix_links.retracted_at</c> alone can show.
+    /// </summary>
+    private static async Task RecordLifecycleEventAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string associationKey, string eventType, string? reason, CancellationToken cancellationToken)
+    {
+        await using var insert = new NpgsqlCommand("""
+            INSERT INTO evidence.ticket_fix_link_lifecycle_events (association_key, event_type, reason)
+            VALUES (@key, @event_type, @reason)
+            """, connection, transaction);
+        insert.Parameters.AddWithValue("key", associationKey);
+        insert.Parameters.AddWithValue("event_type", eventType);
+        insert.Parameters.AddWithValue("reason", (object?)reason ?? DBNull.Value);
+        await insert.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// The write at the heart of <see cref="UpsertSourceAsync"/>, usable within a caller-owned
     /// transaction. Review R4-02 (second-pass correction): <paramref name="clearRetraction"/> must be
     /// decided by the caller from its own freshness check, never unconditionally -- an out-of-order
@@ -229,6 +250,22 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
             await LockRevertScopeAsync(connection, transaction, claim.SourceInstance,
                 claim.ProjectId, claim.RepositoryId!, claim.CommitSha!, cancellationToken);
         }
+
+        // Finding #4 (second-pass correction): capture whether this write will actually clear an
+        // existing retraction, so the transition can be appended to the lifecycle event log below --
+        // the CASE in @sql always re-writes retracted_at/retraction_reason to NULL when
+        // @clear_retraction is true, even when they were already NULL, so this is the only point
+        // that can tell a real transition from a no-op.
+        var wasRetracted = false;
+        if (clearRetraction)
+        {
+            await using var pre = new NpgsqlCommand(
+                "SELECT retracted_at IS NOT NULL FROM evidence.ticket_fix_links WHERE association_key = @key",
+                connection, transaction);
+            pre.Parameters.AddWithValue("key", key);
+            wasRetracted = await pre.ExecuteScalarAsync(cancellationToken) is true;
+        }
+
         await using (var command = new NpgsqlCommand(sql, connection, transaction))
         {
             command.Parameters.AddWithValue("key", key);
@@ -249,6 +286,12 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
                 Value = JsonSerializer.Serialize(claim.RevertCommitShas.Distinct(StringComparer.OrdinalIgnoreCase)),
             });
             await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (wasRetracted)
+        {
+            await RecordLifecycleEventAsync(connection, transaction, key, "cleared", null, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // Review R4-04: a brand-new claim may be created for a commit that already has (possibly
@@ -320,6 +363,16 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
     /// "this is now the current state". Compares the source's own revision time, never our processing
     /// clock, so detection time (when we noticed) stays independent of the source's actual change time.
     /// </summary>
+    /// <remarks>
+    /// Second-pass correction (independent review, cross-checked against R1-06): a pull request's
+    /// <c>LastActivity</c> (its only available ordering signal) is <c>ClosedDate ?? CreatedDate</c>, so
+    /// it never changes while the PR stays open -- but R1-06 re-enriches and re-checks every open PR
+    /// on every run regardless. With a strict "time must increase" guard, the *first* re-check of an
+    /// open PR is accepted and every one after it is silently rejected forever, even when a new commit
+    /// was pushed, because the time never moves. Accepting an equal time when the content-hash
+    /// revision id differs closes that gap while an out-of-order *older* revision (a real backfill
+    /// replay, where the time strictly decreases) is still rejected exactly as before.
+    /// </remarks>
     private static async Task<bool> AcceptRevisionAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
         string sourceItemKey, string sourceRevisionId, DateTimeOffset sourceRevisionTime,
@@ -334,6 +387,8 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
                 source_revision_time = EXCLUDED.source_revision_time,
                 updated_at = now()
             WHERE evidence.ticket_fix_link_sources.source_revision_time < EXCLUDED.source_revision_time
+               OR (evidence.ticket_fix_link_sources.source_revision_time = EXCLUDED.source_revision_time
+                   AND evidence.ticket_fix_link_sources.source_revision_id <> EXCLUDED.source_revision_id)
             RETURNING 1
             """, connection, transaction);
         guard.Parameters.AddWithValue("item", sourceItemKey);
@@ -417,6 +472,15 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
                     """, connection, transaction);
                 retract.Parameters.Add(new NpgsqlParameter("keys", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = retractable });
                 await retract.ExecuteNonQueryAsync(cancellationToken);
+
+                // Finding #4 (second-pass correction): append one event per newly-retracted
+                // association, so a later relink (which clears retracted_at) does not erase the
+                // fact that this retraction happened.
+                foreach (var retractedKey in retractable)
+                {
+                    await RecordLifecycleEventAsync(connection, transaction, retractedKey, "retracted",
+                        "missing_in_source", cancellationToken).ConfigureAwait(false);
+                }
             }
 
             // This source no longer vouches for these -- soft transition (never deleted), whether or

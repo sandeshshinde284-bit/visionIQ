@@ -206,11 +206,15 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
               -- this assertion's provenance row is a sibling (another of its commits, or the
               -- work-item-artifact row with no commit at all) that was never itself marked reverted.
               -- Once any row sharing the same (source, project, ticket, repository, pull request)
-              -- is reverted or disputed, the whole pull request stops counting as this ticket's fix.
-              -- Review R4-02: retracted_at hides the row the same way, unconditionally -- including a
-              -- previously verified association, once a complete, authoritative later source revision
-              -- establishes it is no longer asserted (kept visible in the ticket_fix_links row itself,
-              -- with its review history, for investigation; hidden only from current results).
+              -- is reverted or disputed, the whole pull request stops counting as this ticket's fix --
+              -- a revert or a dispute is evidence the PR's fix itself is wrong, which applies to every
+              -- commit the PR ever had.
+              -- Review R4-02 (second-pass correction, independent review): retracted_at is NOT included
+              -- in that sibling check. Retraction means only "this exact (ticket, PR, commit) row is no
+              -- longer currently asserted" -- for example the PR's commit list changed from c1 to c2 --
+              -- not that the PR's fix is wrong. Propagating it to siblings would hide a still-valid
+              -- replacement association (c2) just because the one it replaced (c1) was retracted.
+              -- retracted_at is still checked on the row's own association, just never on a sibling's.
               AND (latest.ticket_fix_association_key IS NULL
                    OR (fix.association_key IS NOT NULL
                        AND fix.review_status IS DISTINCT FROM 'disputed'
@@ -224,8 +228,7 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                              AND sibling.repository_id IS NOT DISTINCT FROM fix.repository_id
                              AND sibling.pull_request_id = fix.pull_request_id
                              AND (sibling.review_status = 'disputed'
-                                  OR jsonb_array_length(sibling.revert_commit_shas) > 0
-                                  OR sibling.retracted_at IS NOT NULL)))))
+                                  OR jsonb_array_length(sibling.revert_commit_shas) > 0)))))
             ORDER BY latest.relationship_key
             LIMIT @limit
             """;

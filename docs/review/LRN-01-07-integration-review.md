@@ -506,6 +506,109 @@ deliberate opt-out; the one test that exercises the real behavior is unaffected)
 test asserts the parameter has no default and that calling `retrieve()` without it raises
 `TypeError`; confirmed to fail against the pre-fix signature and pass with the fix.
 
+## 7e. Sixth round: second-pass correction from an independent review of R4-02/R4-04/R1-06, cross-checked against LRN-05
+
+A second, independent review of the R4-02 (link retraction), R4-04 (revert-of-revert) and R1-06
+(active-PR re-check) work flagged that these three features interact and must be tested together
+with LRN-05, not in isolation. Four findings were investigated; all four were confirmed and fixed.
+No unrelated refactoring was done, and nothing was merged or deployed — everything below stays
+uncommitted on `review/lrn-01-07-integration`.
+
+**Finding #1 (High) — active-PR revision freshness, confirmed.** `AcceptRevisionAsync`'s guard used
+a strict `source_revision_time < EXCLUDED.source_revision_time` comparison to reject out-of-order
+replays. R1-06 (fifth round, above) deliberately re-checks every open PR on every sync run regardless
+of its cursor, because an open PR's `LastActivity` (`ClosedDate ?? CreatedDate`) never changes while
+it stays open — but that is exactly the same timestamp `AcceptRevisionAsync` uses to decide whether a
+new revision is "newer". The combination meant the *first* re-check of an open PR after R4-02's
+retraction/reconciliation logic shipped was accepted, and every re-check after that was silently
+rejected forever, even when the PR's real content (a changed linked ticket, a new commit) had
+changed — exactly the cross-feature regression the second reviewer predicted. Reproduced directly
+against the disposable PostgreSQL container: a second reconciliation of the same source item, same
+`source_revision_time`, different (content-hash-derived) `source_revision_id`, was rejected
+(0 rows accepted). Fixed in `PostgresTicketFixLinkStore.AcceptRevisionAsync`
+([PostgresTicketFixLinkStore.cs](../../src/VisionIQ.Api/Features/TicketFixes/PostgresTicketFixLinkStore.cs))
+by also accepting when the time is equal but the revision id differs; a time that is strictly older,
+or a revision with an identical id and time (a true replay), is still rejected exactly as before.
+Verified against real PostgreSQL (content-changed-same-time → accepted; identical replay → rejected;
+strictly-older out-of-order revision → rejected), and with a new xUnit DB-integration test,
+`An_active_prs_recheck_is_accepted_when_content_changed_even_at_the_same_timestamp`
+([TicketFixDatabaseIntegrationTests.cs](../../tests/VisionIQ.Api.Tests/TicketFixDatabaseIntegrationTests.cs)),
+covering the accept case plus both the negative (identical replay) and out-of-order (older revision)
+cases the reviewer asked for; confirmed to fail against the pre-fix comparison and pass with the fix.
+
+**Finding #2 (High) — graph sibling suppression, confirmed.** `PostgresRelationshipGraphStore
+.OutgoingAsync`'s sibling-suppression `EXISTS` subquery (added in the fourth round for R4-01, to
+propagate a revert or a dispute from one commit's association row to its sibling rows for the same
+ticket/PR pair) also included `sibling.retracted_at IS NOT NULL` in its `OR` clause. A link is
+retracted whenever its source simply stops asserting it (R4-02 — e.g. a PR's commit list changes
+from an old commit to a replacement one after a force-push or amend), which is unrelated to a revert.
+Including it in the sibling check meant retracting the *old, superseded* commit's association wrongly
+hid the *new, currently valid* replacement association for the same ticket/PR pair too. Reproduced
+against real PostgreSQL: a valid replacement commit association was incorrectly suppressed once its
+superseded sibling was retracted. Fixed by removing `sibling.retracted_at IS NOT NULL` from the
+sibling-propagation clause in
+[PostgresRelationshipGraphStore.cs](../../src/VisionIQ.Api/Features/Graph/PostgresRelationshipGraphStore.cs)
+(the row's own `fix.retracted_at IS NULL` check, and the revert/dispute sibling-propagation R4-01
+relies on, are both untouched). Verified against real PostgreSQL (the valid replacement is now
+visible; a genuinely-reverted PR's sibling rows both still correctly stay hidden, confirming R4-01 is
+intact) and with a new xUnit DB-integration test,
+`Retracting_a_supersede_commit_does_not_hide_its_valid_replacement_sibling`
+([GraphDatabaseIntegrationTests.cs](../../tests/VisionIQ.Api.Tests/GraphDatabaseIntegrationTests.cs));
+confirmed to fail against the pre-fix `OR` clause and pass with the fix.
+
+**Finding #3 (High) — PR-title revert over-confidence, confirmed.** `RecordTitleRevertAsync`
+(`TicketFixProjectionSink`, from R4-07/second-pass-correction) called `RecordRevertAsync` — the same
+full-confidence call used for a literal `git revert`-style "This reverts commit &lt;sha&gt;" message —
+whenever a pull request's title matched ADO's own `Revert "..."` convention against an earlier,
+uniquely-titled PR, with SHA-shaped commit ids on both sides. A title match is circumstantial (titles
+are free text, can be edited, and the "revert" relationship it implies is a claim about the title, not
+a verified claim about the diff), so treating it as equally authoritative as an explicit revert
+message was over-confident and could wrongly suppress a verified fix. Fixed by rewriting
+`RecordTitleRevertAsync` in
+[TicketFixProjectionSink.cs](../../src/VisionIQ.Ingestor.Cli/TicketFixProjectionSink.cs) to stop
+calling `RecordRevertAsync` and instead append a `candidate-revert:pr-title-match:pr<id>:<sha>`
+marker as an additional evidence reference on the original ticket's claim, via the existing
+`UpsertSourceAsync` path — recorded and queryable, but never suppressing the original fix outright.
+Verified with the existing regression test, renamed to
+`A_pr_titled_as_ados_own_revert_of_a_pr_seen_earlier_records_a_candidate_not_a_confirmed_revert`
+([TicketFixProjectionSinkTests.cs](../../tests/VisionIQ.Ingestor.Tests/TicketFixProjectionSinkTests.cs)),
+updated to assert `links.Reverts` stays empty and the candidate marker is present; confirmed to fail
+against the pre-fix code (which asserted a confirmed revert pair) and pass with the fix.
+
+**Finding #4 (Medium) — historical retraction lifecycle, confirmed.** `ticket_fix_links.retracted_at`
+and `ticket_fix_link_source_associations.ended_at` each only record the *current* state of a
+transition. A link that is retracted, later relinked (clearing the retraction), then retracted again
+a second time left no trace that the first retraction ever happened — an auditor could see only
+where the association stands today, not the cycle it went through. Fixed by adding a purely additive,
+append-only `evidence.ticket_fix_link_lifecycle_events` table
+([20261105_0021_ticket_fix_link_lifecycle_events.py](../../db/migrations/versions/20261105_0021_ticket_fix_link_lifecycle_events.py))
+and a `RecordLifecycleEventAsync` helper in
+[PostgresTicketFixLinkStore.cs](../../src/VisionIQ.Api/Features/TicketFixes/PostgresTicketFixLinkStore.cs)
+that inserts one immutable `retracted` or `cleared` row per real transition (never on a no-op
+re-write) from `UpsertCoreAsync` (clearing) and `ReplaceSourceAssociationsAsync` (retracting); the
+existing current-state columns are unchanged and remain the fast path for "is this retracted right
+now". Verified against real PostgreSQL and with a new xUnit DB-integration test,
+`Repeated_retract_and_relink_cycles_leave_a_full_lifecycle_history`
+([TicketFixDatabaseIntegrationTests.cs](../../tests/VisionIQ.Api.Tests/TicketFixDatabaseIntegrationTests.cs)),
+which drives two full retract/relink cycles and asserts all three transitions
+(`retracted` → `cleared` → `retracted`) are present in order; confirmed to fail against the pre-fix
+code (zero event rows) and pass with the fix. The existing
+`Reconcile_retracts_a_dropped_link_and_rejects_a_stale_replay` test's cleanup was also updated to
+delete from the new table first, since it now has an `ON DELETE RESTRICT` foreign key to
+`ticket_fix_links`.
+
+**Verification summary for this round.** All four findings were reproduced against the disposable
+PostgreSQL test container before fixing, and every regression test listed above was confirmed to
+fail on the pre-fix code and pass with the fix in place (the same "red, then green" discipline used
+throughout this review). The full suites were re-run afterward with no regressions:
+`dotnet test VisionIQ.sln` — 456 passed, 15 skipped (opt-in DB-integration tests not relevant to this
+run), 0 failed; `python -m pytest` — 169 passed, 83 skipped (opt-in DB-integration tests), 0 failed.
+
+Nothing in this round is committed, pushed, merged, or deployed, per standing instruction — all
+changes remain as uncommitted edits on `review/lrn-01-07-integration`. There is accordingly no commit
+SHA to report for this round; one will exist once these changes are committed (by the project owner,
+as agreed).
+
 ## 8. Changes on the review branch
 
 Uncommitted, on `review/lrn-01-07-integration` (branched from `feature/learn-01-14-TEST` at `44ec036`).
