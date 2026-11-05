@@ -22,6 +22,19 @@ public sealed class TicketFixProjectionSink(
     private readonly string sourceInstance = adoOrganization.AbsoluteUri.TrimEnd('/');
 
     /// <summary>
+    /// Review R4-07: pull requests seen earlier in this sink's lifetime, by exact (project,
+    /// repository, title), so a later "Revert '&lt;title&gt;'" pull request can be resolved to the
+    /// commit(s) it reverts. A title is not a unique identifier the way a Git SHA is: when two
+    /// different pull requests in the same project and repository share the exact title, neither is
+    /// used as "the" original (ambiguous, so unresolved rather than guessed). Scoped to one process (a
+    /// full CLI sync, or one long-lived webhook host): a revert of a pull request from before this
+    /// process started, or from a run that never saw the original, is not resolved here. A persisted
+    /// title index would close that gap; not implemented without a migration (see the review's open
+    /// items).
+    /// </summary>
+    private readonly Dictionary<(string Project, string RepositoryId, string Title), List<PullRequestRecord>> pullRequestsByTitle = new();
+
+    /// <summary>
     /// Archives the complete source record before persisting any links derived
     /// from that record, so each association cites an existing canonical revision.
     /// </summary>
@@ -64,6 +77,7 @@ public sealed class TicketFixProjectionSink(
         var reference = "evidence:" + sourceKey + ":" + CanonicalEvidenceSink.ContentRevision(
             item.Revision.ToString(CultureInfo.InvariantCulture), item);
 
+        var claims = new List<TicketFixClaim>();
         foreach (var link in LinkExtractor.FromWorkItem(item))
         {
             if (link.ToKind is not (EntityKind.PullRequest or EntityKind.Commit))
@@ -73,14 +87,23 @@ public sealed class TicketFixProjectionSink(
 
             // B-11: the artifact URL itself states the repository ID; links without
             // that exact shape keep a null repository (never guessed from display text).
-            var claim = new TicketFixClaim(
+            claims.Add(new TicketFixClaim(
                 sourceInstance, item.Project,
                 item.Id.ToString(CultureInfo.InvariantCulture), link.ToRepositoryId,
                 link.ToKind == EntityKind.PullRequest ? link.ToId : null,
                 link.ToKind == EntityKind.Commit ? link.ToId : null,
-                TicketFixSourceClassification.Explicit, [reference], []);
-            await links.UpsertSourceAsync(claim, cancellationToken).ConfigureAwait(false);
+                TicketFixSourceClassification.Explicit, [reference], []));
         }
+
+        // Review R4-02: the work item's current revision is read in full or not at all
+        // (AdoWorkItemReader.ParseWorkItem never returns a partial Relations list), so this is always
+        // a complete snapshot of what this work item currently states -- including when claims is
+        // legitimately empty (every relation was removed). ChangedDate orders revisions of this same
+        // item; an out-of-order or replayed revision still records its claims as evidence but can
+        // never retract what a newer revision already established (PostgresTicketFixLinkStore).
+        await links.ReconcileSourceAsync(
+            sourceKey, item.Revision.ToString(CultureInfo.InvariantCulture), item.ChangedDate,
+            isCompleteSnapshot: true, claims, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -90,6 +113,27 @@ public sealed class TicketFixProjectionSink(
     private async Task ProjectPullRequestAsync(
         PullRequestRecord pr, CancellationToken cancellationToken)
     {
+        // Review R4-07: resolve before recording this PR's own claims, so an exact self-title match
+        // (impossible in practice, but kept defensive) can never record a PR as reverting itself.
+        await RecordTitleRevertAsync(pr, cancellationToken).ConfigureAwait(false);
+        var titleKey = (pr.Project, pr.RepositoryId, pr.Title);
+        if (!pullRequestsByTitle.TryGetValue(titleKey, out var sameTitle))
+        {
+            pullRequestsByTitle[titleKey] = sameTitle = [];
+        }
+
+        if (sameTitle.All(seen => seen.Id != pr.Id))
+        {
+            sameTitle.Add(pr);
+        }
+
+        // Review R4-03: a pull request that never merged changed nothing on the target branch, so its
+        // association is never stored as proof of a fix. The relationship ADO itself declared is kept
+        // (not discarded) as Unknown — associated development work, not yet a fix — because every
+        // reader that treats a link as a fix already requires Explicit or Inferred (see the enum's
+        // doc comment). The same claim upgrades to Explicit by itself once the PR completes.
+        var completed = pr.Status.Equals("completed", StringComparison.OrdinalIgnoreCase);
+
         // Must match the revision the canonical sink stored (B-9 content revision).
         var revision = CanonicalEvidenceSink.ContentRevision(
             pr.Status + "@" + pr.LastActivity.UtcDateTime.ToString("O", CultureInfo.InvariantCulture), pr);
@@ -97,26 +141,113 @@ public sealed class TicketFixProjectionSink(
             "azure_devops", sourceInstance, pr.Project, pr.RepositoryId,
             "pull_request", pr.Id.ToString(CultureInfo.InvariantCulture)).ItemKey();
         var reference = "evidence:" + sourceKey + ":" + revision;
-        var commits = pr.CommitIds
+        var commits = FixCommitCandidates(pr);
+
+        var claims = new List<TicketFixClaim>();
+        foreach (var ticket in pr.WorkItemIds.Where(id => id > 0).Distinct())
+        {
+            foreach (var sha in commits.Length == 0 ? new string?[] { null } : commits)
+            {
+                claims.Add(new TicketFixClaim(
+                    sourceInstance, pr.Project,
+                    ticket.ToString(CultureInfo.InvariantCulture), pr.RepositoryId,
+                    pr.Id.ToString(CultureInfo.InvariantCulture), sha,
+                    completed ? TicketFixSourceClassification.Explicit : TicketFixSourceClassification.Unknown,
+                    [reference], []));
+            }
+        }
+
+        // Review R4-02: WorkItemIds and CommitIds -- the only two fields claims are built from -- are
+        // read by AdoRepositorySource.EnrichAsync outside its gap-tolerant TryAsync calls, so a failed
+        // fetch of either throws and this method is never reached with a partial list; only the
+        // unrelated iterations/changed-files/threads/policies sub-fetches may report a gap. This is a
+        // complete snapshot, including when claims is legitimately empty.
+        // Known accepted limitation: the "/workitems" endpoint is read as a single page with no
+        // continuation-token handling in AdoRepositorySource; if Azure DevOps ever caps that response
+        // without signalling it, this would be treated as complete when it was not. Not independently
+        // verified against a live organization.
+        await links.ReconcileSourceAsync(
+            sourceKey, revision, pr.LastActivity, isCompleteSnapshot: true, claims, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Review R4-07/second-pass correction (independent review): when this pull request's title is
+    /// Azure DevOps' own <c>Revert "&lt;original title&gt;"</c> and exactly one pull request with that
+    /// exact title, in the same project and repository, was seen earlier in this process, with every
+    /// pair of full Git SHAs between the two (the original's merge/iteration commits and this PR's
+    /// own) agreeing -- record this as a <em>candidate</em>, not a confirmed, revert. A matching title
+    /// and SHA format is strong circumstantial evidence, not proof that one commit's diff actually
+    /// reverses the other's (unlike a <c>git revert</c>-authored "This reverts commit &lt;sha&gt;"
+    /// message, which is the commit's own literal statement). A candidate is recorded as an additional,
+    /// queryable evidence reference on the original ticket's own association -- visible to a human
+    /// reviewer -- without calling <see cref="ITicketFixLinkStore.RecordRevertAsync"/>, which would
+    /// hide the original fix with the same confidence as a literal revert. A title match alone never
+    /// records anything: both sides must also agree on a real commit SHA, and an ambiguous title (more
+    /// than one earlier match) resolves nothing.
+    /// </summary>
+    private async Task RecordTitleRevertAsync(PullRequestRecord pr, CancellationToken cancellationToken)
+    {
+        var originalTitle = LinkExtractor.QuotedRevertOriginalTitle(pr.Title);
+        if (originalTitle is null ||
+            !pullRequestsByTitle.TryGetValue((pr.Project, pr.RepositoryId, originalTitle), out var candidates))
+        {
+            return;
+        }
+
+        var matches = candidates.Where(candidate => candidate.Id != pr.Id).ToList();
+        if (matches.Count != 1)
+        {
+            return; // no earlier match, or an ambiguous title shared by several pull requests
+        }
+
+        var original = matches[0];
+        var shaPairs = (
+            from originalSha in FixCommitCandidates(original)
+            from revertSha in FixCommitCandidates(pr)
+            where IsSha(originalSha) && IsSha(revertSha) &&
+                !string.Equals(originalSha, revertSha, StringComparison.OrdinalIgnoreCase)
+            select (originalSha, revertSha)).ToList();
+        if (shaPairs.Count == 0)
+        {
+            return;
+        }
+
+        var revision = CanonicalEvidenceSink.ContentRevision(
+            original.Status + "@" + original.LastActivity.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            original);
+        var sourceKey = new EvidenceIdentity(
+            "azure_devops", sourceInstance, original.Project, original.RepositoryId,
+            "pull_request", original.Id.ToString(CultureInfo.InvariantCulture)).ItemKey();
+        var reference = "evidence:" + sourceKey + ":" + revision;
+        var completed = original.Status.Equals("completed", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var ticket in original.WorkItemIds.Where(id => id > 0).Distinct())
+        {
+            foreach (var (originalSha, revertSha) in shaPairs)
+            {
+                var candidateEvidence = "candidate-revert:pr-title-match:pr" +
+                    pr.Id.ToString(CultureInfo.InvariantCulture) + ":" + revertSha;
+                var claim = new TicketFixClaim(
+                    sourceInstance, original.Project,
+                    ticket.ToString(CultureInfo.InvariantCulture), original.RepositoryId,
+                    original.Id.ToString(CultureInfo.InvariantCulture), originalSha,
+                    completed ? TicketFixSourceClassification.Explicit : TicketFixSourceClassification.Unknown,
+                    [reference, candidateEvidence], []);
+                await links.UpsertSourceAsync(claim, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>The commit(s) a pull request actually put on the target branch: its merge commit once
+    /// completed, plus its iteration commits (used while still open, and as revert-SHA candidates).</summary>
+    private static string[] FixCommitCandidates(PullRequestRecord pr) =>
+        pr.CommitIds
             .Concat(pr.Status.Equals("completed", StringComparison.OrdinalIgnoreCase)
                 && pr.MergeCommitId is not null ? [pr.MergeCommitId] : [])
             .Where(sha => !string.IsNullOrWhiteSpace(sha))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-
-        foreach (var ticket in pr.WorkItemIds.Where(id => id > 0).Distinct())
-        {
-            foreach (var sha in commits.Length == 0 ? new string?[] { null } : commits)
-            {
-                var claim = new TicketFixClaim(
-                    sourceInstance, pr.Project,
-                    ticket.ToString(CultureInfo.InvariantCulture), pr.RepositoryId,
-                    pr.Id.ToString(CultureInfo.InvariantCulture), sha,
-                    TicketFixSourceClassification.Explicit, [reference], []);
-                await links.UpsertSourceAsync(claim, cancellationToken).ConfigureAwait(false);
-            }
-        }
-    }
 
     /// <summary>
     /// Stores explicit ticket references in commit messages, and marks complete

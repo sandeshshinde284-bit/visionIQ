@@ -160,8 +160,12 @@ public sealed class SyncRunner
         try
         {
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
-            var ids = await workItems.QueryIdsAsync(project, cursor?.At ?? request.Since, cancellationToken).ConfigureAwait(false);
-            var outcomes = await workItems.GetWorkItemsAsync(project, ids, cancellationToken).ConfigureAwait(false);
+            // Review R1-01: "asOf" is the instant the WIQL query itself was evaluated at. Passing it to
+            // the batch read too makes both calls agree on one snapshot, so an item changed while this
+            // (possibly long) query was running is read again next run instead of silently skipped.
+            var query = await workItems.QueryIdsAsync(project, cursor?.At ?? request.Since, cancellationToken).ConfigureAwait(false);
+            var ids = query.Ids;
+            var outcomes = await workItems.GetWorkItemsAsync(project, ids, query.AsOf, cancellationToken).ConfigureAwait(false);
             var open = await quarantine.OpenAsync(SourceId, scope, "work_item", cancellationToken).ConfigureAwait(false);
 
             var fresh = new List<WorkItemRecord>();
@@ -210,7 +214,11 @@ public sealed class SyncRunner
 
                 result.Links += await WriteLinksAsync(project, LinkExtractor.FromWorkItem(record), cancellationToken).ConfigureAwait(false);
                 result.Records++;
-                written.Add((record.ChangedDate, Text(record.Id)));
+                // Review R1-01 defense-in-depth: even though GetWorkItemsAsync was asked for field
+                // values as of the query's own snapshot, never let the saved checkpoint move past that
+                // snapshot. ChangedDate stored in the record itself is never clamped (real source data).
+                var checkpointAt = query.AsOf is { } asOf && record.ChangedDate > asOf ? asOf : record.ChangedDate;
+                written.Add((checkpointAt, Text(record.Id)));
             }
 
             if (ids.Count >= AdoWorkItemSource.WiqlLimit)
@@ -275,11 +283,19 @@ public sealed class SyncRunner
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
             var all = await repositories.GetPullRequestsAsync(project, repository, cancellationToken).ConfigureAwait(false);
 
-            // A pull request appears when it is created, and again (as a new version) when it is closed.
+            // Review R1-06: LastActivity (ClosedDate ?? CreatedDate) never changes while a PR stays
+            // active, so a new push, vote, comment or linked work item on an open PR was otherwise
+            // never picked up again after its creation until it closed or a webhook happened to fire.
+            // Every active PR is re-enriched and re-written on every run regardless of the cursor;
+            // ContentRevision hashes the PR's full fetched content (commits, threads, work items,
+            // policies), so a re-fetch of an unchanged active PR is a no-op at the evidence layer and
+            // only a genuine change produces a new revision. This trades some per-run cost (one
+            // re-enrich per currently-open PR) for actually-current data on open work.
             var fresh = all
-                .Where(item => cursor is null
-                    ? request.Since is null || item.LastActivity >= request.Since
-                    : cursor.IsNew(item.LastActivity, Text(item.Id)))
+                .Where(item => item.Status.Equals("active", StringComparison.OrdinalIgnoreCase)
+                    || (cursor is null
+                        ? request.Since is null || item.LastActivity >= request.Since
+                        : cursor.IsNew(item.LastActivity, Text(item.Id))))
                 .OrderBy(item => item.LastActivity)
                 .ThenBy(item => item.Id);
 
@@ -323,13 +339,19 @@ public sealed class SyncRunner
                 .OrderBy(item => item.CommitterDate)
                 .ThenBy(item => item.CommitId, StringComparer.Ordinal);
 
+            var now = time.GetUtcNow();
             foreach (var commit in fresh)
             {
                 var enriched = await commits.EnrichAsync(project, repository, commit, cancellationToken).ConfigureAwait(false);
                 await sink.WriteAsync("commits", Key(project, "commit", enriched.CommitId, null), enriched, cancellationToken).ConfigureAwait(false);
                 result.Links += await WriteLinksAsync(project, LinkExtractor.FromCommit(enriched), cancellationToken).ConfigureAwait(false);
                 result.Records++;
-                written.Add((enriched.CommitterDate, enriched.CommitId));
+                // Review R1-02: CommitterDate is the developer's own clock, set by their Git client, not
+                // a server timestamp. A future-dated commit must never move the checkpoint ahead of real
+                // time, or every later commit (with a correct date) would be filtered out as "already
+                // seen" by TimeCursor.IsNew forever. The stored record keeps the real, unclamped date.
+                var checkpointAt = enriched.CommitterDate > now ? now : enriched.CommitterDate;
+                written.Add((checkpointAt, enriched.CommitId));
             }
 
             registry.Register(SourceKind.AzureDevOpsRepos, "commits", CapabilityStatus.Supported);
@@ -435,6 +457,9 @@ public sealed class SyncRunner
 
         try
         {
+            // Review R1-04: everything written for this stream must be durable before the checkpoint
+            // moves past it, or a crash between the two loses records the next run will skip.
+            await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
             await checkpoints.SaveAsync(new SyncCheckpoint(SourceId, scope, cursor.Format(), time.GetUtcNow()), cancellationToken).ConfigureAwait(false);
             if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
             {

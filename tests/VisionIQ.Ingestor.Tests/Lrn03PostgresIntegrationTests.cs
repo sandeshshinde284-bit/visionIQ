@@ -19,14 +19,11 @@ public sealed class Lrn03PostgresIntegrationTests
             => Task.FromResult("gs://synthetic-lrn03-test/" + itemKey + "/" + contentSha256);
     }
 
-    [Fact]
+    // Explicit opt-in: never connect to a real DB during ordinary regression tests. Reported as
+    // SKIPPED (previously it returned early and was reported as PASSED without running).
+    [OptInFact("LRN03_TEST_DB")]
     public async Task Two_revisions_and_replays_stay_one_item_two_revisions()
     {
-        if (Environment.GetEnvironmentVariable("LRN03_TEST_DB") != "1")
-        {
-            // Explicit opt-in: never connect to a real DB during ordinary regression tests.
-            return;
-        }
 
         var host = Environment.GetEnvironmentVariable("DB_HOST");
         var port = Environment.GetEnvironmentVariable("DB_PORT");

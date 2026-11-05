@@ -92,8 +92,12 @@ def _git(root: Path, *args: str, check: bool = True) -> bytes:
     return result.stdout
 
 
-def _inventory(root: Path) -> tuple[str, tuple[GitFile, ...]]:
-    commit = _git(root, "rev-parse", "--verify", "HEAD^{commit}").decode("ascii").strip()
+def _inventory(root: Path, ref: str) -> tuple[str, tuple[GitFile, ...]]:
+    # Review R6-09: ref defaults to "HEAD" (current behavior), but callers may pass any committed
+    # ref/SHA so a historical fix commit can be scanned directly, not only the checkout's current
+    # HEAD. "^{commit}" dereferences a tag or other ref to the exact commit object; a bare SHA
+    # already is one.
+    commit = _git(root, "rev-parse", "--verify", f"{ref}^{{commit}}").decode("ascii").strip()
     output = _git(root, "ls-tree", "-rz", "--full-tree", commit)
     files: list[GitFile] = []
     for record in output.split(b"\x00"):
@@ -129,12 +133,18 @@ def scan_repository(
     registry: ParserRegistry | None = None,
     previous: RepositoryScan | None = None,
     max_source_bytes: int = 1_048_576,
+    commit: str = "HEAD",
 ) -> RepositoryScan:
     """Scan a committed Git revision without consulting network/ADO/database.
 
     No registered parser means honest file-level fallback. Each parser exception
     is isolated and marks the scan PARTIAL. The last COMPLETE snapshot is retained
     for callers to serve without replacing it with broken parser output.
+
+    Review R6-09: ``commit`` defaults to "HEAD" (unchanged default behavior). Passing an exact
+    SHA lets a caller scan a specific historical fix commit directly, instead of only ever being
+    able to scan the checkout's current HEAD; the checkout itself must already have that commit
+    (a shallow clone may not -- not handled here).
     """
     if max_source_bytes < 1:
         raise ValueError("max_source_bytes must be positive")
@@ -142,7 +152,7 @@ def scan_repository(
     root = Path(
         _git(root, "rev-parse", "--show-toplevel").decode("utf-8", errors="surrogateescape").strip()
     )
-    commit, files = _inventory(root)
+    resolved_commit, files = _inventory(root, commit)
     registry = registry or ParserRegistry()
     analyses: list[FileAnalysis] = []
     errors: list[str] = []
@@ -186,9 +196,19 @@ def scan_repository(
             attempted += 1
             try:
                 parsed = adapter.parse(item.path, text)
-            except IncompleteParseError as gap:
+            except (IncompleteParseError, RecursionError) as gap:
                 # N-16: keep file-level evidence and record why; the repository is not failed.
+                # Review R6-01: one deeply nested or generated file (thousands of nested blocks or
+                # operators) exceeds the recursive tree walk; that is a property of the file, not a
+                # parser crash, so it must not mark the whole repository PARTIAL forever. It still
+                # counts toward the systematic-gap threshold below.
                 grammar_gaps += 1
+                reason = (
+                    str(gap)
+                    if isinstance(gap, IncompleteParseError)
+                    else "Source nesting exceeds the parser's depth limit; "
+                    "file-level evidence only."
+                )
                 analyses.append(
                     FileAnalysis(
                         path=item.path,
@@ -196,7 +216,7 @@ def scan_repository(
                         symbol_analysis="UNAVAILABLE",
                         adapter_name=adapter.name,
                         adapter_version=adapter.version,
-                        diagnostics=(str(gap), *encoding_note),
+                        diagnostics=(reason, *encoding_note),
                     )
                 )
                 continue
@@ -242,7 +262,7 @@ def scan_repository(
             last_good = None
     return RepositoryScan(
         repo_root=str(root),
-        commit_sha=commit,
+        commit_sha=resolved_commit,
         status=status,
         files=files,
         analyses=tuple(analyses),

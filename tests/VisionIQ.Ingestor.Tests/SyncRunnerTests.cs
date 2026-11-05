@@ -1,3 +1,4 @@
+using VisionIQ.Ingestor.Ado;
 using VisionIQ.Ingestor.Checkpoints;
 using VisionIQ.Ingestor.Sources;
 using VisionIQ.Ingestor.Sync;
@@ -54,9 +55,119 @@ public sealed class SyncRunnerTests
         var report = await Runner(DemoAdo.Server(), checkpoints, second).RunAsync(All());
 
         Assert.True(report.AllSynced);
-        Assert.Empty(second.Items);
+        // Review R1-06: the demo fixture's still-open PR 78 is re-enriched and re-written on every
+        // run by design (its LastActivity never changes while active, so the cursor cannot be relied
+        // on to notice a new push/vote/comment); everything else is genuinely unchanged and absent.
+        var secondItem = Assert.Single(second.Items);
+        Assert.Equal("pull-requests", secondItem.Stream);
+        Assert.Equal(78, Assert.IsType<PullRequestRecord>(secondItem.Record).Id);
         var saved = await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items");
         Assert.Equal("2026-10-21T09:00:00.0000000Z|1240", saved!.Cursor);
+    }
+
+    [Fact]
+    public async Task Work_item_batch_read_is_pinned_to_the_wiql_querys_own_snapshot_time()
+    {
+        // Review R1-01: the batch read must ask for field values "as of" the exact instant the WIQL
+        // query itself was evaluated at, so a work item changed while that query was running cannot
+        // silently push the checkpoint past items the query never saw.
+        var handler = new FakeAdoHandler()
+            .On(System.Net.Http.HttpMethod.Post, "/_apis/wit/wiql", _ => FakeAdoHandler.Ok(
+                "{\"queryType\":\"flat\",\"asOf\":\"2026-10-28T09:00:00Z\",\"workItems\":[{\"id\":1234}]}"))
+            .Json(System.Net.Http.HttpMethod.Post, "/_apis/wit/workitemsbatch", "workitems-batch.json");
+        var sink = new MemorySink();
+
+        await Runner(handler, new InMemoryCheckpointStore(), sink).RunAsync(
+            new SyncRequest(new HashSet<SyncKind> { SyncKind.WorkItems }, null, IncludeRevisions: false));
+
+        var batchBody = handler.Bodies[handler.Requests.FindIndex(r => r.Contains("workitemsbatch", StringComparison.Ordinal))];
+        Assert.Contains("\"asOf\":\"2026-10-28T09:00:00.000Z\"", batchBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_work_item_newer_than_the_wiql_snapshot_never_advances_the_checkpoint_past_it()
+    {
+        // Review R1-01 defense-in-depth: even if Azure DevOps still returned a live ChangedDate beyond
+        // what "asOf" was asked for, the checkpoint itself must never move past the query's own
+        // snapshot, or a sibling item between the two times would be skipped by the next run.
+        const string asOf = "2026-10-28T09:00:00Z"; // the WIQL snapshot
+        const string pastSnapshot = "2026-10-28T09:05:00Z"; // this item's "live" ChangedDate, after asOf
+        var handler = new FakeAdoHandler()
+            .On(System.Net.Http.HttpMethod.Post, "/_apis/wit/wiql", _ => FakeAdoHandler.Ok(
+                "{\"queryType\":\"flat\",\"asOf\":\"" + asOf + "\",\"workItems\":[{\"id\":1234}]}"))
+            .On(System.Net.Http.HttpMethod.Post, "/_apis/wit/workitemsbatch", _ => FakeAdoHandler.Ok(
+                "{\"count\":1,\"value\":[{\"id\":1234,\"rev\":7,\"fields\":{"
+                + "\"System.WorkItemType\":\"Bug\",\"System.State\":\"Active\","
+                + "\"System.Title\":\"Still being edited\",\"System.ChangedDate\":\"" + pastSnapshot + "\"}}]}"));
+        var checkpoints = new InMemoryCheckpointStore();
+
+        await Runner(handler, checkpoints, new MemorySink()).RunAsync(
+            new SyncRequest(new HashSet<SyncKind> { SyncKind.WorkItems }, null, IncludeRevisions: false));
+
+        var saved = await checkpoints.GetAsync("contoso/ado", DemoAdo.Project + "/work-items");
+        Assert.NotNull(saved);
+        Assert.True(TimeCursor.Parse(saved!.Cursor)!.At <= DateTimeOffset.Parse(asOf),
+            $"checkpoint {saved.Cursor} must not move past the WIQL snapshot {asOf}");
+    }
+
+    [Fact]
+    public async Task A_future_dated_commit_never_permanently_stops_commit_ingestion()
+    {
+        // Review R1-02: CommitterDate comes from the developer's own Git client clock, not a server
+        // timestamp. One bad-clock commit must not push the checkpoint into the future, or every
+        // later (correctly dated) commit would be filtered out as "already seen" forever.
+        var now = new DateTimeOffset(2026, 10, 23, 0, 0, 0, TimeSpan.Zero);
+        var futureCommit = new string('9', 40);
+        var handler = new FakeAdoHandler()
+            .Json(System.Net.Http.HttpMethod.Get, "/_apis/git/repositories", "repositories.json")
+            .On(System.Net.Http.HttpMethod.Get, "/repositories/repo-1/commits", _ => FakeAdoHandler.Ok(
+                "{\"count\":1,\"value\":[{\"commitId\":\"" + futureCommit + "\",\"comment\":\"Clock skew\","
+                + "\"commentTruncated\":false,\"author\":{\"date\":\"2030-01-01T00:00:00Z\"},"
+                + "\"committer\":{\"date\":\"2030-01-01T00:00:00Z\"}}]}"))
+            .Json(System.Net.Http.HttpMethod.Get, "/changes", "commit-changes.json");
+        var checkpoints = new InMemoryCheckpointStore();
+        var runner = new SyncRunner(DemoAdo.Client(handler), checkpoints, new MemorySink(),
+            new SourceCapabilityRegistry(), new FixedTimeProvider(now));
+
+        await runner.RunAsync(new SyncRequest(new HashSet<SyncKind> { SyncKind.Commits }, null));
+
+        var saved = await checkpoints.GetAsync("contoso/ado", DemoAdo.Project + "/payments-service/commits");
+        Assert.NotNull(saved);
+        Assert.True(TimeCursor.Parse(saved!.Cursor)!.At <= now,
+            $"checkpoint {saved.Cursor} must not move past the current time {now:O}");
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    [Fact]
+    public async Task An_open_pull_request_is_re_checked_on_every_run_but_a_closed_one_is_not()
+    {
+        // Review R1-06: LastActivity (ClosedDate ?? CreatedDate) never changes while a PR stays
+        // active, so a new push/vote/comment on an open PR used to never be picked up again after
+        // its creation. PR 78 in the demo fixture is "active"; PR 77 is "completed".
+        var checkpoints = new InMemoryCheckpointStore();
+        var request = new SyncRequest(new HashSet<SyncKind> { SyncKind.PullRequests }, null);
+
+        static IEnumerable<int> PrIds(MemorySink sink) =>
+            sink.Items.Where(item => item.Stream == "pull-requests")
+                .Select(item => ((PullRequestRecord)item.Record).Id);
+
+        var first = new MemorySink();
+        await Runner(DemoAdo.Server(), checkpoints, first).RunAsync(request);
+        Assert.Equal(new[] { 77, 78 }, PrIds(first).Order());
+
+        var second = new MemorySink();
+        await Runner(DemoAdo.Server(), checkpoints, second).RunAsync(request);
+        var secondIds = PrIds(second).ToList();
+        Assert.Contains(78, secondIds); // still open: re-checked
+        Assert.DoesNotContain(77, secondIds); // closed and unchanged: not re-checked
+
+        var third = new MemorySink();
+        await Runner(DemoAdo.Server(), checkpoints, third).RunAsync(request);
+        Assert.Contains(78, PrIds(third));
     }
 
     [Fact]

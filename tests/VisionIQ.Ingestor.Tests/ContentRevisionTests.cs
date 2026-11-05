@@ -52,6 +52,13 @@ public sealed class ContentRevisionTests
 
         public Task<int> RecordRevertAsync(string sourceInstance, string projectId, string repositoryId, string originalCommitSha, string revertCommitSha, CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
+
+        public Task ReconcileSourceAsync(string sourceItemKey, string sourceRevisionId, DateTimeOffset sourceRevisionTime,
+            bool isCompleteSnapshot, IReadOnlyList<TicketFixClaim> claims, CancellationToken cancellationToken = default)
+        {
+            Claims.AddRange(claims);
+            return Task.CompletedTask;
+        }
     }
 
     private static CanonicalEvidenceSink Sink(ImmutableStore store) =>

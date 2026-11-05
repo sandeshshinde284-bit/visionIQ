@@ -65,6 +65,7 @@ def test_a_consistent_candidate_is_published_and_answers_carry_its_id_and_age() 
         HashingEmbedder(),
         "Barcode print fails after retry",
         [corpus.scope],
+        live_check=lambda key: True,
     )
     assert bundle.snapshot_id == result.snapshot_id and bundle.snapshot_age_seconds >= 0
 

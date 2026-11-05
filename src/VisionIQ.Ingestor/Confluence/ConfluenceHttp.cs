@@ -64,13 +64,27 @@ public sealed class ConfluenceHttp
         return new Uri(parameters.Count == 0 ? text : text + "?" + string.Join('&', parameters));
     }
 
-    /// <summary>Resolves a "next" link: absolute links are kept, site-relative paths are joined to the site root.</summary>
+    /// <summary>
+    /// Resolves a "next" link: site-relative paths are joined to the site root. Every request carries the
+    /// Confluence credential, so the resolved link must stay on the configured site (same scheme, host and
+    /// port); anything else, including a scheme-relative "//other-host/..." link, is refused (review R2-06).
+    /// </summary>
     public Uri Link(string link)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(link);
-        return Uri.TryCreate(link, UriKind.Absolute, out var absolute) && (absolute.Scheme == Uri.UriSchemeHttps || absolute.Scheme == Uri.UriSchemeHttp)
+        var resolved = Uri.TryCreate(link, UriKind.Absolute, out var absolute) && (absolute.Scheme == Uri.UriSchemeHttps || absolute.Scheme == Uri.UriSchemeHttp)
             ? absolute
             : new Uri(Options.SiteRoot, link);
+        var site = Options.SiteRoot;
+        if (!string.Equals(resolved.Scheme, site.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(resolved.Host, site.Host, StringComparison.OrdinalIgnoreCase) ||
+            resolved.Port != site.Port)
+        {
+            throw new InvalidOperationException(
+                "Confluence returned a paging link outside the configured site; refusing to send credentials to it.");
+        }
+
+        return resolved;
     }
 
     public Task<JsonDocument> GetAsync(Uri uri, CancellationToken cancellationToken = default)

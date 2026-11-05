@@ -12,12 +12,10 @@ namespace VisionIQ.Ingestor.Tests;
 /// </summary>
 public sealed class Lrn03GcsArchiveIntegrationTests
 {
-    [Fact]
+    // Reported as SKIPPED unless LRN03_TEST_GCS=1 (previously it threw and failed every plain run).
+    [OptInFact("LRN03_TEST_GCS")]
     public async Task Real_cloud_storage_archive_is_immutable_idempotent_and_exact()
     {
-        if (Environment.GetEnvironmentVariable("LRN03_TEST_GCS") != "1")
-            throw new InvalidOperationException("Real GCS test requires LRN03_TEST_GCS=1. Run only explicitly.");
-
         var bucket = Environment.GetEnvironmentVariable("GCS_EVIDENCE_BUCKET");
         if (string.IsNullOrWhiteSpace(bucket))
             throw new InvalidOperationException("GCS_EVIDENCE_BUCKET must be set to an approved isolated test bucket.");

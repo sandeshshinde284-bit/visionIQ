@@ -123,3 +123,37 @@ def test_the_adapter_itself_still_rejects_incomplete_parses() -> None:
 
     with pytest.raises(ValueError, match="could not fully parse"):
         CSharpTreeSitterAdapter().parse("Bad.cs", FIELD_CS)
+
+
+# Review R6-01: a deeply nested or generated file used to raise RecursionError in the recursive tree
+# walk, which marked the whole repository PARTIAL, and build_scan_evidence then refused every later
+# scan until that file changed. It is now a per-file downgrade, like a grammar gap.
+DEEP_CS = "public class Gen { void M(bool b) {\n" + "if (b) {\n" * 600 + "}\n" * 600 + "} }\n"
+DEEP_PY = "x = " + "-" * 3000 + "1\n"
+
+
+def test_a_deeply_nested_file_degrades_only_that_file(tmp_path: Path) -> None:
+    scan = _scan(
+        tmp_path,
+        {
+            "Cart.cs": GOOD_CS,
+            "Gen.cs": DEEP_CS,
+            "deep.py": DEEP_PY,
+            "ok.py": "def f():\n    return 1\n",
+        },
+    )
+
+    analyses = _by_path(scan)
+    assert scan.status == "COMPLETE", scan.errors
+    assert analyses["Cart.cs"].symbol_analysis == "AVAILABLE"
+    assert analyses["ok.py"].symbol_analysis == "AVAILABLE"
+    for path in ("Gen.cs", "deep.py"):
+        assert analyses[path].symbol_analysis == "UNAVAILABLE"
+        assert "depth limit" in analyses[path].diagnostics[0]
+    evidence = build_scan_evidence(
+        scan,
+        ScanEvidenceIdentity("https://github.com/approved/deep", "project-one", "repo-one"),
+        "https://github.com/approved/deep",
+        datetime(2026, 11, 4, tzinfo=UTC),
+    )
+    assert evidence.revision == scan.commit_sha.lower()

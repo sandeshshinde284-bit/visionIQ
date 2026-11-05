@@ -20,6 +20,17 @@ public interface IEvidenceTombstones
 {
     /// <summary>False when nothing changed (unknown item, already tombstoned, or a newer revision exists).</summary>
     Task<bool> TombstoneAsync(string itemKey, DateTimeOffset observedAt, string reason, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Review R1-03: item keys of the same external id and kind, stored under a different project than
+    /// <paramref name="currentProjectId"/>, not already tombstoned. A work item moved to another ADO
+    /// project stops matching its old project's WIQL filter, so this is the only way the old copy is
+    /// ever found again; used to tombstone it (reason "missing_in_source") once the item is observed
+    /// under its new project.
+    /// </summary>
+    Task<IReadOnlyList<string>> FindOtherProjectItemKeysAsync(
+        string provider, string sourceInstance, string kind, string externalId,
+        string currentProjectId, CancellationToken cancellationToken = default);
 }
 
 public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTombstones, IAsyncDisposable
@@ -87,6 +98,40 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTo
         command.Parameters.AddWithValue("at", observedAt);
         command.Parameters.AddWithValue("reason", reason);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    /// <summary>Review R1-03: finds the stored item(s) this external id used to live under, elsewhere.</summary>
+    public const string OtherProjectItemKeysSql = """
+        SELECT item_key FROM evidence.source_items
+        WHERE provider = @provider AND source_instance = @instance AND kind = @kind
+          AND external_id = @external_id AND project_id <> @project AND deleted_at IS NULL
+        """;
+
+    public async Task<IReadOnlyList<string>> FindOtherProjectItemKeysAsync(
+        string provider, string sourceInstance, string kind, string externalId,
+        string currentProjectId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceInstance);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(currentProjectId);
+
+        await using var connection = await source.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(OtherProjectItemKeysSql, connection);
+        command.Parameters.AddWithValue("provider", provider);
+        command.Parameters.AddWithValue("instance", sourceInstance);
+        command.Parameters.AddWithValue("kind", kind);
+        command.Parameters.AddWithValue("external_id", externalId);
+        command.Parameters.AddWithValue("project", currentProjectId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var keys = new List<string>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            keys.Add(reader.GetString(0));
+        }
+
+        return keys;
     }
 
     public async Task<EvidenceImportResult> SaveAsync(

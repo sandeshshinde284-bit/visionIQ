@@ -88,6 +88,7 @@ def ask(corpus: Corpus, query: str = QUERY, embedder=None, connect=None):
         embedder or HashingEmbedder(),
         query,
         [corpus.scope],
+        live_check=lambda key: True,
     )
 
 

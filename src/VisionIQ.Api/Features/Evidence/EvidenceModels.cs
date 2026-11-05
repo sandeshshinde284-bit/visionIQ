@@ -109,7 +109,10 @@ public static class EvidenceNormalizer
     private static readonly Dictionary<string, string[]> SafeFields = new(StringComparer.Ordinal)
     {
         // B-13: names must match the camelCase JSON the ingestor actually serializes.
-        ["work_item_current"] = ["state", "workItemType", "environmentStatus", "environmentSource"],
+        // The environment fields are copied only when they hold a value from the classifier's closed
+        // vocabulary (see ClosedVocabularies). environmentRaw is source text and is never copied.
+        ["work_item_current"] = ["state", "workItemType", "environment", "environmentStatus",
+            "environmentSource", "environmentReason"],
         ["work_item"] = ["state", "workItemType", "reason"],
         ["pull_request"] = ["status", "isDraft"],
         ["commit"] = [],
@@ -121,6 +124,32 @@ public static class EvidenceNormalizer
         ["design_page"] = ["status", "version"],
         ["file"] = ["changeType"],
     };
+
+    /// <summary>
+    /// Review D-01: fields whose values come from DefectEnvironmentClassifier. Any other value (for
+    /// example free text that reached the field) is dropped, so these fields can never carry source text.
+    /// environmentSource may list several sources joined by commas (a CONFLICT names every source).
+    /// </summary>
+    private static readonly Dictionary<string, HashSet<string>> ClosedVocabularies = new(StringComparer.Ordinal)
+    {
+        ["environment"] = new(StringComparer.Ordinal) { "PROD", "UAT", "TEST", "UNKNOWN", "CONFLICT" },
+        ["environmentStatus"] = new(StringComparer.Ordinal) { "verified", "candidate", "unknown", "conflict" },
+        ["environmentReason"] = new(StringComparer.Ordinal)
+        {
+            "matched", "not_configured", "no_value", "rules_invalid", "unmapped_value",
+            "sources_disagree", "candidates_disagree",
+        },
+        ["environmentSource"] = new(StringComparer.Ordinal)
+        {
+            "none", "field", "labels", "path", "title", "description",
+        },
+    };
+
+    private static bool InClosedVocabulary(string field, string text) =>
+        !ClosedVocabularies.TryGetValue(field, out var allowed) ||
+        (field == "environmentSource"
+            ? text.Split(',').All(allowed.Contains)
+            : allowed.Contains(text));
 
     public const string Version = "metadata-only-v1";
 
@@ -163,7 +192,9 @@ public static class EvidenceNormalizer
                 var text = value.GetString();
                 if (text is { Length: > 0 and <= 40 } &&
                     text.All(character => char.IsAsciiLetterOrDigit(character) ||
-                        character is '_' or '-' or ' '))
+                        character is '_' or '-' or ' ' or ',') &&
+                    (text.IndexOf(',') < 0 || field == "environmentSource") &&
+                    InClosedVocabulary(field, text))
                 {
                     result[field] = text;
                 }

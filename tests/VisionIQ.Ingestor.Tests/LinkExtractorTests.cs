@@ -64,6 +64,15 @@ public sealed class LinkExtractorTests
     [InlineData("step #1 of 3")]
     [InlineData("see PR #42 for context")]
     [InlineData("deployed on 2026-10-20 at 10:15, same day as the bug")]
+    // Review R4-05/R4-06: pull request references in other spellings, zero ids, and a revert
+    // marker followed by more hex than a SHA can hold are not links.
+    [InlineData("see pr #42 for context")]
+    [InlineData("see PR  #42 for context")]
+    [InlineData("pull request #812 follow-up")]
+    [InlineData("Pull Request	#812 follow-up")]
+    [InlineData("fixes AB#0")]
+    [InlineData("ticket #007")]
+    [InlineData("This reverts commit a1b2c3d4e5f60718293a4b5c6d7e8f9012345678ff.")]
     public void Noise_never_becomes_a_link(string message)
     {
         Assert.Empty(LinkExtractor.FromCommit(Commit(DemoAdo.Commit, message)));

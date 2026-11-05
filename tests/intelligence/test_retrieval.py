@@ -1,5 +1,7 @@
 """LRN-09 unit tests: signals, fusion, snippets and the abstention policy."""
 
+import pytest
+
 from app.knowledge.retrieval import Result, extract_signals, fuse, judge, snippet
 
 
@@ -73,7 +75,25 @@ def test_without_a_published_snapshot_nothing_is_searched():
         def fetchone(self):
             return None
 
-    bundle = retrieve(NoSnapshot, HashingEmbedder(), "barcode print fails", ["scope"])
+    bundle = retrieve(
+        NoSnapshot, HashingEmbedder(), "barcode print fails", ["scope"], live_check=lambda key: True
+    )
 
     assert bundle.status == "weak_evidence" and bundle.results == []
     assert "No knowledge snapshot" in bundle.reasons[0]
+
+
+def test_live_check_has_no_default_and_must_be_passed_explicitly():
+    """Review R2-01: a caller cannot accidentally omit the live access re-check and have it
+    silently skipped. Confluence restrictions and ADO project membership can both change after a
+    page was indexed; without this, a forgotten live_check would serve content whose stored ACL is
+    now stale."""
+    import inspect
+
+    from app.knowledge.retrieval import retrieve
+
+    parameter = inspect.signature(retrieve).parameters["live_check"]
+    assert parameter.default is inspect.Parameter.empty
+
+    with pytest.raises(TypeError, match="live_check"):
+        retrieve(lambda: None, object(), "query", ["scope"])  # type: ignore[call-arg]

@@ -129,6 +129,22 @@ public static partial class LinkExtractor
         return Stamp(Deduplicate(links), commit.CommitterDate);
     }
 
+    /// <summary>
+    /// Review R4-07: Azure DevOps' own "Revert" action titles the new pull request exactly
+    /// <c>Revert "&lt;original title&gt;"</c> (or single quotes) — confirmed against real ADO data
+    /// (e.g. PR "Revert 'KioskSpecific - Enable Tremble alarm on Beeston Double '" reverting the PR
+    /// titled exactly "KioskSpecific - Enable Tremble alarm on Beeston Double "). Returns the quoted
+    /// original title so the caller can look it up among pull requests already seen in the same
+    /// project and repository; a title match is weaker evidence than a full-SHA commit-message revert,
+    /// so the caller must still require matching Git SHAs before recording a revert.
+    /// </summary>
+    public static string? QuotedRevertOriginalTitle(string title)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+        var match = QuotedRevertTitle().Match(title);
+        return match.Success ? match.Groups["title"].Value : null;
+    }
+
     public static IReadOnlyList<SourceLink> FromBuild(BuildRecord build)
     {
         ArgumentNullException.ThrowIfNull(build);
@@ -201,17 +217,24 @@ public static partial class LinkExtractor
     [GeneratedRegex(@"^Merged PR (\d+):", RegexOptions.CultureInvariant | RegexOptions.Multiline)]
     private static partial Regex MergedPullRequest();
 
-    [GeneratedRegex(@"This reverts commit ([0-9a-fA-F]{7,40})", RegexOptions.CultureInvariant)]
+    // Review R4-06: \b stops a longer hex run from being cut down to a 40-character "SHA".
+    [GeneratedRegex(@"This reverts commit ([0-9a-fA-F]{7,40})\b", RegexOptions.CultureInvariant)]
     private static partial Regex RevertedCommit();
 
-    [GeneratedRegex(@"\bAB#(\d+)\b", RegexOptions.CultureInvariant)]
+    // Work item ids start at 1; "AB#0" is not a reference.
+    [GeneratedRegex(@"\bAB#([1-9]\d*)\b", RegexOptions.CultureInvariant)]
     private static partial Regex AzureBoardsMention();
 
     // "#1234" in a message, but not inside a word or URL ("page#55"), an HTML entity ("&#123;"),
-    // a pull request reference ("PR #12"), or a single digit ("#1").
-    [GeneratedRegex(@"(?<![\w&/#]|PR\s)#(\d{2,})\b", RegexOptions.CultureInvariant)]
+    // a pull request reference in any casing or spacing ("PR #12", "pr  #12", "pull request #12"),
+    // a single digit ("#1"), or a zero-padded number ("#007").
+    [GeneratedRegex(@"(?<![\w&/#]|(?i:\bPR|\bpull\s+request)\s+)#([1-9]\d+)\b", RegexOptions.CultureInvariant)]
     private static partial Regex WorkItemMention();
 
     [GeneratedRegex(@"^[0-9a-fA-F]{40}$", RegexOptions.CultureInvariant)]
     private static partial Regex FullSha();
+
+    // Bounded capture length: titles are short, so this cannot be used for catastrophic backtracking.
+    [GeneratedRegex(@"^Revert\s+[""'](?<title>.{1,400})[""']\s*$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex QuotedRevertTitle();
 }

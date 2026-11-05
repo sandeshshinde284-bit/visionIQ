@@ -76,6 +76,7 @@ def demo_history(corpus: Corpus) -> dict[str, str]:
 
 
 def ask(corpus: Corpus, query: str, **options):
+    options.setdefault("live_check", lambda key: True)
     return retrieve(
         lambda: psycopg.connect(conninfo("INTELLIGENCE")),
         HashingEmbedder(),
@@ -142,6 +143,7 @@ def test_the_live_check_hook_and_other_scopes_are_honoured() -> None:
         HashingEmbedder(),
         LIVE_DEFECT,
         ["ado-project:https://other/Secret"],
+        live_check=lambda key: True,
     )
 
     assert keys["printed"] not in {r.item_key for r in denied.results}

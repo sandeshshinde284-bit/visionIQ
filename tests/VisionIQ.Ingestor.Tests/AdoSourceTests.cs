@@ -11,9 +11,11 @@ public sealed class AdoSourceTests
         var handler = DemoAdo.Server();
         var source = new AdoWorkItemSource(DemoAdo.Client(handler));
 
-        var ids = await source.QueryIdsAsync(DemoAdo.Project, new DateTimeOffset(2026, 10, 20, 10, 15, 0, TimeSpan.Zero));
+        var result = await source.QueryIdsAsync(DemoAdo.Project, new DateTimeOffset(2026, 10, 20, 10, 15, 0, TimeSpan.Zero));
 
-        Assert.Equal(new[] { 1234, 1240 }, ids);
+        Assert.Equal(new[] { 1234, 1240 }, result.Ids);
+        // Review R1-01: the response's own "asOf" snapshot time is read back, not just the IDs.
+        Assert.Equal(new DateTimeOffset(2026, 10, 28, 9, 0, 0, TimeSpan.Zero), result.AsOf);
         Assert.Contains("timePrecision=true", handler.Requests.Single(), StringComparison.Ordinal);
         var query = JsonDocument.Parse(handler.Bodies.Single()!).RootElement.GetProperty("query").GetString();
         Assert.Contains("[System.ChangedDate] >= '2026-10-20T10:15:00.000Z'", query, StringComparison.Ordinal);

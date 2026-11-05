@@ -154,6 +154,11 @@ JOIN evidence.source_revisions AS r
  AND r.acl_verified AND r.acl_principals ?| %(scopes)s
 """
 
+# Review R6-02: symbol node ids are "path::Qualified.Name:LINE" (code_intelligence/graph.py). The
+# simple name is the last dotted part before ":LINE"; the old pattern '^.*[.:]' returned the line
+# number, so stack-frame symbols never matched. PostgreSQL ARE syntax, used with replacement '\1'.
+SYMBOL_NAME_PATTERN = r"^.*::(?:.*\.)?([^.:]+):[0-9]+$"
+
 CODE_PATH_SQL = f"""
 WITH wanted AS (
     SELECT lower(f) AS name FROM unnest(%(files)s::text[]) AS f
@@ -165,7 +170,7 @@ WITH wanted AS (
       ON a.to_node_key = sn.node_key AND a.relation_type = 'file_symbol'
     JOIN evidence.graph_nodes AS fn ON fn.node_key = a.from_node_key
     WHERE sn.node_kind = 'symbol'
-      AND regexp_replace(sn.native_id, '^.*[.:]', '') = ANY(%(symbols)s::text[])
+      AND regexp_replace(sn.native_id, '{SYMBOL_NAME_PATTERN}', '\\1') = ANY(%(symbols)s::text[])
 )
 SELECT t.item_key, count(DISTINCT w.name) AS matched,
        bool_or(jsonb_array_length(l.revert_commit_shas) > 0) AS reverted
@@ -181,6 +186,9 @@ JOIN LATERAL unnest(cs.paths) AS p(path) ON true
 JOIN wanted AS w ON lower(regexp_replace(p.path, '^.*/', '')) = w.name
 WHERE l.source_classification IN ('explicit', 'inferred')
   AND (l.review_status IS NULL OR l.review_status <> 'disputed')
+  -- Review R4-02: a complete, authoritative later source revision no longer asserting this link
+  -- excludes it here too, even if it was previously verified.
+  AND l.retracted_at IS NULL
 GROUP BY t.item_key
 ORDER BY matched DESC, t.item_key
 LIMIT %(limit)s
@@ -288,11 +296,20 @@ def retrieve(
     embedder: Embedder,
     query: str,
     scopes: Sequence[str],
+    live_check: Callable[[str], bool],
     limit: int = 10,
     exclude: Sequence[str] = (),
-    live_check: Callable[[str], bool] | None = None,
 ) -> EvidenceBundle:
-    """Run the hybrid retrieval for one caller. ``connect`` opens a DB connection per lane."""
+    """Run the hybrid retrieval for one caller. ``connect`` opens a DB connection per lane.
+
+    Review R2-01: ``live_check`` has no default. The stored ACL (``scopes``) only reflects what was
+    true at indexing time; Confluence page restrictions and ADO project membership can both change
+    afterward, including a restriction being *added* after a page was indexed. Without a live
+    re-check, a caller who forgets to pass one would silently serve content the asker may no
+    longer (or never did, if the stored ACL was wrong) have access to. Making this required
+    means that choice -- even a deliberate ``lambda key: True`` to skip it -- has to be made
+    visibly at the call site, not fallen into by omission.
+    """
     started = time.perf_counter()
     scopes = [s for s in scopes if s]
     clean = redact(query).text
@@ -412,7 +429,7 @@ def retrieve(
     results: list[Result] = []
     query_terms = list(signals.files) + list(signals.symbols) + list(signals.terms)
     for key in candidates:
-        if key not in readable or key not in chunks or (live_check and not live_check(key)):
+        if key not in readable or key not in chunks or not live_check(key):
             continue  # revoked, deleted, re-scoped since indexing, or denied live: never shown
         _, chunk_key, kind, section, content, chunk_revision, url = chunks[key]
         current_revision = readable[key][1]

@@ -111,6 +111,24 @@ public sealed class CanonicalEvidenceSink(
             throw new InvalidOperationException(
                 "Canonical evidence conflict: one native source revision (for example an ADO work-item revision) had different content.");
         }
+
+        // Review R1-03: a work item moved to another ADO project never matches its old project's WIQL
+        // filter again, so its old project's copy is never otherwise revisited. The moment it is
+        // observed under its new project, the old project's copy is tombstoned the same way an actual
+        // deletion is (N-2): hidden, never silently left stale and still readable by the old project's
+        // members.
+        if (datum.Kind == "work_item_current" && Tombstones is { } movedItemTombstones)
+        {
+            foreach (var kind in new[] { "work_item_current", "work_item" })
+            {
+                var stale = await movedItemTombstones.FindOtherProjectItemKeysAsync(
+                    datum.Provider, datum.Instance, kind, datum.Id, datum.Project, cancellationToken).ConfigureAwait(false);
+                foreach (var staleKey in stale)
+                {
+                    await movedItemTombstones.TombstoneAsync(staleKey, observed, "missing_in_source", cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
     }
 
     private sealed record Datum(

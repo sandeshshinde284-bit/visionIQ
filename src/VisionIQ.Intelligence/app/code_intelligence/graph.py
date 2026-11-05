@@ -152,6 +152,134 @@ def project_declared_dependencies(
     return tuple(output)
 
 
+def project_fix_change_edges(
+    connection_string: str,
+    scan_item_key: str,
+    project_id: str,
+    repository_id: str,
+    approved_ado_instance: str,
+) -> int:
+    """Review R7-01/R7-02: a direct edge from a commit or pull request to each file it changed
+    (evidence.fix_change_sets), independent of whether that exact revision was ever a scan's HEAD.
+
+    File node identity (``GraphCodeNode(scan_item_key, "file", path)``) is anchored to the
+    repository's own code-scan item, which is stable across every commit ever scanned for that
+    repository -- so this can be written for any historical fix once the repository has been
+    scanned at least once, without re-scanning that exact historical commit. Provenance is the
+    fix's own current ADO revision (never the scan's), fetched here so only a confirmed, still
+    current (not tombstoned) revision can be cited -- the same guard already used to bridge
+    ``commit_file`` edges to an ADO commit node above.
+    """
+    written = 0
+    with (
+        psycopg.connect(connection_string, connect_timeout=10) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            """
+            SELECT fcs.fix_kind, fcs.fix_id, fcs.paths, fcs.provenance_item_key,
+                   si.latest_revision_id, sr.source_updated_at
+            FROM evidence.fix_change_sets AS fcs
+            JOIN evidence.source_items AS si ON si.item_key = fcs.provenance_item_key
+            JOIN evidence.source_revisions AS sr
+              ON sr.item_key = si.item_key AND sr.provider_revision_id = si.latest_revision_id
+            WHERE fcs.source_instance = %s AND fcs.project_id = %s AND fcs.repository_id = %s
+              AND si.latest_revision_id IS NOT NULL AND si.deleted_at IS NULL
+            """,
+            (approved_ado_instance, project_id, repository_id),
+        )
+        rows = cursor.fetchall()
+
+        edges: list[tuple[GraphCodeEdge, str, str, object]] = []
+        for (
+            fix_kind,
+            fix_id,
+            paths,
+            provenance_item_key,
+            latest_revision_id,
+            source_updated_at,
+        ) in rows:
+            relation = "commit_changed_file" if fix_kind == "commit" else "pr_changed_file"
+            node_kind = "commit" if fix_kind == "commit" else "pull_request"
+            fix_node = GraphCodeNode(provenance_item_key, node_kind, fix_id)
+            for path in paths:
+                edges.append(
+                    (
+                        GraphCodeEdge(
+                            fix_node, GraphCodeNode(scan_item_key, "file", path), relation
+                        ),
+                        provenance_item_key,
+                        latest_revision_id,
+                        source_updated_at,
+                    )
+                )
+
+        nodes: dict[str, GraphCodeNode] = {}
+        for edge, _, _, _ in edges:
+            nodes[edge.source.key()] = edge.source
+            nodes[edge.target.key()] = edge.target
+        for key, node in nodes.items():
+            cursor.execute(
+                """
+                INSERT INTO evidence.graph_nodes (node_key, anchor_item_key, node_kind, native_id)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (node_key) DO NOTHING
+                """,
+                (key, node.anchor, node.kind, node.native_id),
+            )
+            cursor.execute(
+                "SELECT anchor_item_key, node_kind, native_id FROM evidence.graph_nodes "
+                "WHERE node_key = %s",
+                (key,),
+            )
+            if cursor.fetchone() != (node.anchor, node.kind, node.native_id):
+                raise ValueError("Graph node collision with immutable source identity")
+
+        for edge, provenance_item_key, provenance_revision_id, source_updated_at in edges:
+            relation_key = _hash(
+                edge.source.key(),
+                edge.target.key(),
+                edge.kind.title().replace("_", ""),
+                provenance_item_key,
+            )
+            assertion = _hash(relation_key, provenance_revision_id)
+            canonical_time = (
+                source_updated_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "0+00:00"
+            )
+            content = _hash(assertion, "Explicit", "Active", canonical_time, "")
+            cursor.execute(
+                """
+                INSERT INTO evidence.graph_assertions (
+                    assertion_key, relationship_key, from_node_key, to_node_key,
+                    relation_type, classification, assertion_state,
+                    provenance_item_key, provenance_revision_id,
+                    source_asserted_at, content_sha256
+                ) VALUES (
+                    %s, %s, %s, %s, %s, 'explicit', 'active', %s, %s, %s, %s
+                ) ON CONFLICT (assertion_key) DO NOTHING
+                """,
+                (
+                    assertion,
+                    relation_key,
+                    edge.source.key(),
+                    edge.target.key(),
+                    edge.kind,
+                    provenance_item_key,
+                    provenance_revision_id,
+                    source_updated_at,
+                    content,
+                ),
+            )
+            cursor.execute(
+                "SELECT content_sha256 FROM evidence.graph_assertions WHERE assertion_key = %s",
+                (assertion,),
+            )
+            if cursor.fetchone()[0] != content:
+                raise ValueError("Immutable structural graph assertion conflict")
+            written += 1
+    return written
+
+
 def project_rename_edges(
     scan: "RepositoryScan", evidence: "ScanEvidence", previous_commit: str | None
 ) -> tuple[GraphCodeEdge, ...]:

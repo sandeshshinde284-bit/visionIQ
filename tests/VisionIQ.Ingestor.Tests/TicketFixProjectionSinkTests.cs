@@ -128,6 +128,178 @@ public sealed class TicketFixProjectionSinkTests
     }
 
     [Fact]
+    public async Task An_abandoned_or_still_active_pr_is_kept_as_associated_work_never_as_a_fix()
+    {
+        // Review R4-03: confirmed against real ADO data (6 abandoned and 7 active PRs in the
+        // Genoa Kiosk org carry WorkItemIds, e.g. abandoned PR 38497 -> work items 116399/116556).
+        // The relationship ADO declared is kept, classified Unknown, so it is never mistaken for a
+        // fix by any reader (they all require Explicit or Inferred) but is not silently discarded.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var abandoned = PullRequest() with { Id = 38497, Status = "abandoned", WorkItemIds = [116399, 116556] };
+        var active = PullRequest() with { Id = 38241, Status = "active", WorkItemIds = [114985] };
+
+        await sink.WriteAsync("pull-requests", "source/abandoned", abandoned);
+        await sink.WriteAsync("pull-requests", "source/active", active);
+        Assert.NotEmpty(links.Claims);
+        Assert.All(links.Claims, claim => Assert.Equal(TicketFixSourceClassification.Unknown, claim.Classification));
+
+        // Once ADO reports it completed, the same association upgrades to Explicit (never downgrades).
+        await sink.WriteAsync("pull-requests", "source/completed", active with { Status = "completed" });
+        Assert.Contains(links.Claims, claim => claim.TicketId == "114985" && claim.Classification == TicketFixSourceClassification.Explicit);
+    }
+
+    [Fact]
+    public async Task A_pr_titled_as_ados_own_revert_of_a_pr_seen_earlier_records_a_candidate_not_a_confirmed_revert()
+    {
+        // Review R4-07, second-pass correction (independent review): reproduces real ADO data (PR
+        // 38386 "KioskSpecific - Enable Tremble alarm on Beeston Double " merged as e158cff...; PR
+        // 38394 "Revert 'KioskSpecific - ... Double '" merged as a7c4aadf..., both linked to work item
+        // 110276). A title+SHA match is circumstantial, not proof one commit's diff reverses the
+        // other's -- so it is recorded as a candidate (a queryable evidence reference), never a
+        // confirmed revert that would hide the original fix with the same confidence as a literal
+        // "This reverts commit <sha>" message.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var originalSha = new string('1', 40);
+        var revertSha = new string('2', 40);
+        var original = new PullRequestRecord(38386, "repo-id", "repo", "Project-A", "completed",
+            "KioskSpecific - Enable Tremble alarm on Beeston Double ", DateTimeOffset.UtcNow)
+        {
+            WorkItemIds = [110276],
+            CommitIds = [originalSha],
+            MergeCommitId = originalSha,
+        };
+        var revert = original with
+        {
+            Id = 38394,
+            Title = "Revert 'KioskSpecific - Enable Tremble alarm on Beeston Double '",
+            CommitIds = [revertSha],
+            MergeCommitId = revertSha,
+        };
+
+        await sink.WriteAsync("pull-requests", "source/original", original);
+        await sink.WriteAsync("pull-requests", "source/revert", revert);
+
+        Assert.Empty(links.Reverts);
+        Assert.Contains(links.Claims, claim =>
+            claim.PullRequestId == "38386" && claim.TicketId == "110276" && claim.CommitSha == originalSha &&
+            claim.SourceEvidenceRefs.Any(reference =>
+                reference.StartsWith("candidate-revert:pr-title-match:pr38394:", StringComparison.Ordinal) &&
+                reference.EndsWith(revertSha, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public async Task Two_pull_requests_sharing_the_same_title_are_never_guessed_as_the_revert_target()
+    {
+        // Feedback from a second review: a title is not a unique identifier like a Git SHA. If two
+        // different pull requests in the same repository happen to share the exact original title,
+        // neither is picked as "the" one that was reverted.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var titled = PullRequest() with { Title = "Shared title", CommitIds = [new string('1', 40)] };
+        var sameTitleAgain = titled with { Id = 43, CommitIds = [new string('3', 40)] };
+        var revert = titled with
+        {
+            Id = 44, Title = "Revert \"Shared title\"", CommitIds = [new string('4', 40)],
+        };
+
+        await sink.WriteAsync("pull-requests", "source/one", titled);
+        await sink.WriteAsync("pull-requests", "source/two", sameTitleAgain);
+        await sink.WriteAsync("pull-requests", "source/revert", revert);
+
+        Assert.Empty(links.Reverts);
+    }
+
+    [Fact]
+    public async Task A_revert_titled_pr_with_no_earlier_match_in_this_process_records_no_revert()
+    {
+        // The title alone is never enough; without a same-title pull request seen earlier
+        // (e.g. a different sync window, or a webhook host that just started), nothing is guessed.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var revert = PullRequest() with
+        {
+            Id = 38155, Title = "Revert back to the original html to image package",
+        };
+
+        await sink.WriteAsync("pull-requests", "source/revert-only", revert);
+
+        Assert.Empty(links.Reverts);
+        Assert.Contains(links.Claims, claim => claim.PullRequestId == "38155"); // still a normal explicit fix claim
+    }
+
+    [Fact]
+    public async Task Unlinking_a_ticket_from_a_prs_next_revision_retracts_it()
+    {
+        // Review R4-02: ADO states ticket 123 ↔ PR 42 at LastActivity T1, then a later revision of
+        // the same PR (T2) no longer lists ticket 123. The association must be retracted, not left
+        // stale -- but only once the sink has observed the newer, complete revision.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var t1 = DateTimeOffset.UtcNow.AddHours(-1);
+        var t2 = DateTimeOffset.UtcNow;
+        var withTicket = PullRequest() with { ClosedDate = t1 };
+        var withoutTicket = withTicket with { WorkItemIds = [456], ClosedDate = t2 };
+
+        await sink.WriteAsync("pull-requests", "source/pr-42-v1", withTicket);
+        var key = links.Claims.First(claim => claim.TicketId == "123").AssociationKey();
+        Assert.DoesNotContain(key, links.RetractedKeys);
+
+        await sink.WriteAsync("pull-requests", "source/pr-42-v2", withoutTicket);
+        Assert.Contains(key, links.RetractedKeys);
+    }
+
+    [Fact]
+    public async Task A_stale_replayed_pr_revision_never_reactivates_an_already_retracted_link()
+    {
+        // Review R4-02 (second-pass correction, the "most important issue" from a second review):
+        // revision 2 (newer) drops ticket 123 and correctly retracts it. Revision 1 (older) then
+        // arrives late (a backfill/replay). It must NOT reactivate the retraction, even though it
+        // still asserts ticket 123 as a claim -- the claim is recorded as historical evidence only.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var t1 = DateTimeOffset.UtcNow.AddHours(-2);
+        var t2 = DateTimeOffset.UtcNow.AddHours(-1);
+        var revision1 = PullRequest() with { WorkItemIds = [123], ClosedDate = t1 };
+        var revision2 = revision1 with { WorkItemIds = [456], ClosedDate = t2 };
+        var key = new TicketFixClaim(Organization.AbsoluteUri.TrimEnd('/'), revision1.Project,
+            "123", revision1.RepositoryId, revision1.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            revision1.CommitIds[0], TicketFixSourceClassification.Explicit, ["x"], [])
+            .AssociationKey();
+
+        await sink.WriteAsync("pull-requests", "source/pr-42-v1", revision1);
+        await sink.WriteAsync("pull-requests", "source/pr-42-v2", revision2);
+        Assert.Contains(key, links.RetractedKeys);
+
+        // revision1 replayed again (older than the already-accepted revision2)
+        await sink.WriteAsync("pull-requests", "source/pr-42-v1-replay", revision1);
+        Assert.Contains(key, links.RetractedKeys); // still retracted -- not reactivated
+    }
+
+    [Fact]
+    public async Task A_complete_snapshot_with_zero_links_still_retracts_everything_previously_asserted()
+    {
+        // Review R4-02: a legitimate "ADO now says this PR has no linked tickets at all" snapshot must
+        // retract every previously asserted association from this source, not be treated as a no-op
+        // because the current claim list happens to be empty.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var withTickets = PullRequest() with { ClosedDate = DateTimeOffset.UtcNow.AddHours(-1) };
+        var keys = withTickets.WorkItemIds.Select(id => new TicketFixClaim(
+            Organization.AbsoluteUri.TrimEnd('/'), withTickets.Project, id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            withTickets.RepositoryId, withTickets.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            withTickets.CommitIds[0], TicketFixSourceClassification.Explicit, ["x"], []).AssociationKey()).ToList();
+        await sink.WriteAsync("pull-requests", "source/pr-42-v1", withTickets);
+        Assert.All(keys, key => Assert.DoesNotContain(key, links.RetractedKeys));
+
+        var noLinks = withTickets with { WorkItemIds = [], ClosedDate = DateTimeOffset.UtcNow };
+        await sink.WriteAsync("pull-requests", "source/pr-42-v2", noLinks);
+
+        Assert.All(keys, key => Assert.Contains(key, links.RetractedKeys));
+    }
+
+    [Fact]
     public async Task Failed_canonical_archive_never_persists_unbacked_links()
     {
         var evidence = new RecordingEvidenceSink { Fail = true };
@@ -180,12 +352,55 @@ public sealed class TicketFixProjectionSinkTests
         public List<TicketFixClaim> Claims { get; } = [];
         public List<(string Original, string Reverting)> Reverts { get; } = [];
 
+        /// <summary>Review R4-02: a simplified in-memory mirror of PostgresTicketFixLinkStore's
+        /// revision-ordering and cross-source retraction rules, for sink-level wiring tests. The
+        /// authoritative behavior is verified separately, directly against PostgreSQL.</summary>
+        public HashSet<string> RetractedKeys { get; } = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, DateTimeOffset> acceptedRevisionTime = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> currentBySource = new(StringComparer.Ordinal);
+
         /// <summary>Records a source-declared candidate in memory.</summary>
         public Task<string> UpsertSourceAsync(TicketFixClaim claim,
             CancellationToken cancellationToken = default)
         {
             Claims.Add(claim);
+            RetractedKeys.Remove(claim.AssociationKey());
             return Task.FromResult(claim.AssociationKey());
+        }
+
+        public Task ReconcileSourceAsync(string sourceItemKey, string sourceRevisionId, DateTimeOffset sourceRevisionTime,
+            bool isCompleteSnapshot, IReadOnlyList<TicketFixClaim> claims, CancellationToken cancellationToken = default)
+        {
+            Claims.AddRange(claims);
+            var accepted = isCompleteSnapshot &&
+                (!acceptedRevisionTime.TryGetValue(sourceItemKey, out var last) || sourceRevisionTime > last);
+            if (!accepted)
+            {
+                return Task.CompletedTask;
+            }
+
+            acceptedRevisionTime[sourceItemKey] = sourceRevisionTime;
+            var keys = claims.Select(claim => claim.AssociationKey()).ToHashSet(StringComparer.Ordinal);
+            if (currentBySource.TryGetValue(sourceItemKey, out var previous))
+            {
+                foreach (var missing in previous.Except(keys))
+                {
+                    var stillAssertedElsewhere = currentBySource.Any(other =>
+                        other.Key != sourceItemKey && other.Value.Contains(missing));
+                    if (!stillAssertedElsewhere)
+                    {
+                        RetractedKeys.Add(missing);
+                    }
+                }
+            }
+
+            foreach (var key in keys)
+            {
+                RetractedKeys.Remove(key); // re-assertion always clears a prior retraction
+            }
+
+            currentBySource[sourceItemKey] = keys;
+            return Task.CompletedTask;
         }
 
         /// <summary>Records a full SHA revert for the scoped repository.</summary>
