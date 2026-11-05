@@ -115,6 +115,16 @@ public interface ITicketFixLinkStore
         TicketFixClaim claim, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Third-pass correction, Finding #1: identical to <see cref="UpsertSourceAsync"/> except it never
+    /// clears an existing retraction. For circumstantial or candidate evidence (e.g. a PR-title revert
+    /// match) that must never be able to resurrect an association a newer authoritative source has
+    /// already retracted -- unlike a direct, explicit source-stated claim, which is always fresh
+    /// evidence and may re-link.
+    /// </summary>
+    Task<string> UpsertCandidateEvidenceAsync(
+        TicketFixClaim claim, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Records a full-SHA, source-observed revert for existing links in the same
     /// provider, project and repository; never infers an ambiguous short SHA.
     /// </summary>
@@ -173,6 +183,24 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
         // fresh evidence and may clear a prior retraction (re-linking): it carries no revision-replay
         // risk, unlike the entity-level reconciliation in ReconcileSourceAsync below.
         var key = await UpsertCoreAsync(connection, transaction, claim, clearRetraction: true, cancellationToken)
+            .ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken);
+        return key;
+    }
+
+    /// <summary>
+    /// Third-pass correction, Finding #1: as <see cref="UpsertSourceAsync"/>, but never clears an
+    /// existing retraction -- for circumstantial/candidate evidence that must not be able to reactivate
+    /// an association a newer authoritative source has already retracted.
+    /// </summary>
+    public async Task<string> UpsertCandidateEvidenceAsync(
+        TicketFixClaim claim,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(claim);
+        await using var connection = await source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var key = await UpsertCoreAsync(connection, transaction, claim, clearRetraction: false, cancellationToken)
             .ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken);
         return key;

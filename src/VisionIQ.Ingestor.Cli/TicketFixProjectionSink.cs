@@ -234,7 +234,10 @@ public sealed class TicketFixProjectionSink(
                     original.Id.ToString(CultureInfo.InvariantCulture), originalSha,
                     completed ? TicketFixSourceClassification.Explicit : TicketFixSourceClassification.Unknown,
                     [reference, candidateEvidence], []);
-                await links.UpsertSourceAsync(claim, cancellationToken).ConfigureAwait(false);
+                // Third-pass correction, Finding #1: this is circumstantial title-match evidence, not a
+                // fresh authoritative claim -- it must never resurrect an association a newer, real
+                // reconciliation has already retracted.
+                await links.UpsertCandidateEvidenceAsync(claim, cancellationToken).ConfigureAwait(false);
             }
         }
     }
