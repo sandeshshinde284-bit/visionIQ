@@ -202,10 +202,30 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                   WHERE declared.to_node_key = latest.to_node_key
                     AND declared.relation_type = 'file_test'
                     AND declared.provenance_revision_id = scan.latest_revision_id))
+              -- Review R4-01: a pull request's own row (e.g. its merge commit) can be reverted while
+              -- this assertion's provenance row is a sibling (another of its commits, or the
+              -- work-item-artifact row with no commit at all) that was never itself marked reverted.
+              -- Once any row sharing the same (source, project, ticket, repository, pull request)
+              -- is reverted or disputed, the whole pull request stops counting as this ticket's fix.
+              -- Review R4-02: retracted_at hides the row the same way, unconditionally -- including a
+              -- previously verified association, once a complete, authoritative later source revision
+              -- establishes it is no longer asserted (kept visible in the ticket_fix_links row itself,
+              -- with its review history, for investigation; hidden only from current results).
               AND (latest.ticket_fix_association_key IS NULL
                    OR (fix.association_key IS NOT NULL
                        AND fix.review_status IS DISTINCT FROM 'disputed'
-                       AND jsonb_array_length(fix.revert_commit_shas) = 0))
+                       AND jsonb_array_length(fix.revert_commit_shas) = 0
+                       AND fix.retracted_at IS NULL
+                       AND (fix.pull_request_id IS NULL OR NOT EXISTS (
+                           SELECT 1 FROM evidence.ticket_fix_links sibling
+                           WHERE sibling.source_instance = fix.source_instance
+                             AND sibling.project_id = fix.project_id
+                             AND sibling.ticket_id = fix.ticket_id
+                             AND sibling.repository_id IS NOT DISTINCT FROM fix.repository_id
+                             AND sibling.pull_request_id = fix.pull_request_id
+                             AND (sibling.review_status = 'disputed'
+                                  OR jsonb_array_length(sibling.revert_commit_shas) > 0
+                                  OR sibling.retracted_at IS NOT NULL)))))
             ORDER BY latest.relationship_key
             LIMIT @limit
             """;

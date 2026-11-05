@@ -45,15 +45,23 @@ public sealed class DeletionTests
         Assert.Contains(stream.Notes, note => note.Contains("Recycle Bin", StringComparison.Ordinal));
     }
 
-    private sealed class Tombstones : IEvidenceTombstones
+    internal sealed class Tombstones : IEvidenceTombstones
     {
         public List<(string Key, string Reason)> Calls { get; } = [];
+
+        /// <summary>Review R1-03 tests: item keys to return as "stored under a different project".</summary>
+        public List<string> OtherProjectItemKeys { get; } = [];
 
         public Task<bool> TombstoneAsync(string itemKey, DateTimeOffset observedAt, string reason, CancellationToken cancellationToken = default)
         {
             Calls.Add((itemKey, reason));
             return Task.FromResult(true);
         }
+
+        public Task<IReadOnlyList<string>> FindOtherProjectItemKeysAsync(
+            string provider, string sourceInstance, string kind, string externalId,
+            string currentProjectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>(OtherProjectItemKeys);
     }
 
     private sealed class NoArchive : IRawEvidenceArchive

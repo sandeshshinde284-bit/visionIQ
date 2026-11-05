@@ -37,6 +37,10 @@ JOIN evidence.source_revisions AS r
   ON r.item_key = t.item_key AND r.provider_revision_id = t.latest_revision_id
 WHERE l.source_classification = 'explicit'
   AND (l.review_status IS NULL OR l.review_status <> 'disputed')
+  -- Review R4-02: a complete, authoritative later source revision no longer asserting this link
+  -- removes it from qualifying evidence, even if it was previously verified (kept in
+  -- evidence.ticket_fix_links with its review history for investigation, never erased here).
+  AND l.retracted_at IS NULL
   AND l.repository_id IS NOT NULL
   AND r.redacted_payload->>'workItemType' = ANY(%(defect_types)s)
 """

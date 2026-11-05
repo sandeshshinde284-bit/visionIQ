@@ -149,10 +149,50 @@ public sealed class CanonicalEvidenceSinkTests
         Assert.Equal(changed, Assert.Single(store.Rows).Envelope.SourceUpdatedAt);
     }
 
-    private static CanonicalEvidenceSink Sink(RecordingStore store) =>
+    private static CanonicalEvidenceSink Sink(RecordingStore store, IEvidenceTombstones? tombstones = null) =>
         new(new EvidenceIngestionService(new FakeArchive(), store),
             new Uri("https://dev.azure.com/contoso"), "contoso",
-            new Uri("https://contoso.atlassian.net/wiki"));
+            new Uri("https://contoso.atlassian.net/wiki"))
+        {
+            Tombstones = tombstones,
+        };
+
+    [Fact]
+    public async Task A_work_item_observed_under_a_new_project_tombstones_its_old_projects_copy()
+    {
+        // Review R1-03: a work item moved from project Alpha to project Beta stops matching Alpha's
+        // WIQL filter, so Alpha's copy is never otherwise revisited. Observing it under Beta must
+        // tombstone Alpha's stale copy (both the current item and its revision history), the same way
+        // an actual ADO deletion is tombstoned (N-2).
+        var store = new RecordingStore();
+        var tombstones = new DeletionTests.Tombstones();
+        tombstones.OtherProjectItemKeys.Add("stale-current-key");
+        var sink = Sink(store, tombstones);
+        var item = new WorkItemRecord(123, 2, "Bug", "Active", "Moved item", [], DateTimeOffset.UtcNow)
+        {
+            Project = "Beta",
+        };
+
+        await sink.WriteAsync("work-items", "contoso/ado/Beta/work-item/123", item);
+
+        Assert.Contains(tombstones.Calls, call => call.Key == "stale-current-key" && call.Reason == "missing_in_source");
+    }
+
+    [Fact]
+    public async Task No_cross_project_lookup_happens_without_a_tombstones_dependency()
+    {
+        // The optional dependency must stay optional: nothing throws when it is null.
+        var store = new RecordingStore();
+        var sink = Sink(store);
+        var item = new WorkItemRecord(123, 2, "Bug", "Active", "Moved item", [], DateTimeOffset.UtcNow)
+        {
+            Project = "Beta",
+        };
+
+        await sink.WriteAsync("work-items", "contoso/ado/Beta/work-item/123", item);
+
+        Assert.Single(store.Rows);
+    }
 
     private sealed class RecordingStore : IVersionedEvidenceStore
     {

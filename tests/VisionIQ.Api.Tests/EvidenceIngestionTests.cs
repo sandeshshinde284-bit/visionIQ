@@ -58,6 +58,34 @@ public sealed class EvidenceIngestionTests
     }
 
     [Fact]
+    public void Current_work_item_keeps_defect_environment_classification_but_not_raw_source_text()
+    {
+        // Review D-01: the PROD/UAT/TEST classification was computed by the ingestor but dropped
+        // by the allowlist, so canonical metadata could never be filtered by environment.
+        var payload = Encoding.UTF8.GetBytes(
+            """{"state":"Closed","workItemType":"Bug","environment":"PROD","environmentStatus":"verified","environmentSource":"field","environmentReason":"matched","environmentRaw":"Production - EU customer Acme"}""");
+        var normalized = EvidenceNormalizer.Redact("work_item_current", payload);
+        using var json = JsonDocument.Parse(normalized);
+        Assert.Equal("PROD", json.RootElement.GetProperty("environment").GetString());
+        Assert.Equal("verified", json.RootElement.GetProperty("environmentStatus").GetString());
+        Assert.Equal("field", json.RootElement.GetProperty("environmentSource").GetString());
+        Assert.Equal("matched", json.RootElement.GetProperty("environmentReason").GetString());
+        Assert.False(json.RootElement.TryGetProperty("environmentRaw", out _));
+        Assert.DoesNotContain("Acme", normalized, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("""{"environment":"CONFLICT","environmentSource":"field,labels","environmentReason":"sources_disagree"}""", "CONFLICT", "field,labels")]
+    [InlineData("""{"environment":"Prod EU","environmentSource":"field,secret","environmentReason":"customer said so"}""", null, null)]
+    public void Environment_fields_accept_only_the_classifier_vocabulary(string raw, string? environment, string? source)
+    {
+        using var json = JsonDocument.Parse(EvidenceNormalizer.Redact("work_item_current", Encoding.UTF8.GetBytes(raw)));
+        Assert.Equal(environment, json.RootElement.TryGetProperty("environment", out var e) ? e.GetString() : null);
+        Assert.Equal(source, json.RootElement.TryGetProperty("environmentSource", out var s) ? s.GetString() : null);
+        Assert.Equal(environment is null, !json.RootElement.TryGetProperty("environmentReason", out _));
+    }
+
+    [Fact]
     public void Unknown_kind_keeps_no_source_fields()
     {
         var normalized = EvidenceNormalizer.Redact(

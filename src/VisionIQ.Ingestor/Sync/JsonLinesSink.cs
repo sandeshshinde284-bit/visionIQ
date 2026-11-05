@@ -7,6 +7,12 @@ namespace VisionIQ.Ingestor.Sync;
 public interface IRecordSink
 {
     Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Makes every record written so far durable. Runners call this before saving a checkpoint.
+    /// Sinks that write synchronously and transactionally (the canonical database sink) need nothing.
+    /// </summary>
+    Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 /// <summary>
@@ -84,6 +90,19 @@ public sealed class JsonLinesSink : IRecordSink, IDisposable
 
         var line = JsonSerializer.Serialize(new { key, fetchedAt = time.GetUtcNow(), record }, Options);
         await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Review R1-04: pushes buffered lines to the file and the file to disk.</summary>
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        foreach (var writer in writers.Values)
+        {
+            await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+            if (writer.BaseStream is FileStream file)
+            {
+                file.Flush(flushToDisk: true);
+            }
+        }
     }
 
     public void Dispose()

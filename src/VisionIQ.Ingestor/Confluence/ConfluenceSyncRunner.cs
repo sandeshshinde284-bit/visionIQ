@@ -178,6 +178,8 @@ public sealed class ConfluenceSyncRunner
         {
             try
             {
+                // Review R1-04: written pages must be durable before the checkpoint moves past them.
+                await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
                 await checkpoints.SaveAsync(new SyncCheckpoint(SourceId, scope, next.Format(), time.GetUtcNow()), cancellationToken).ConfigureAwait(false);
             }
             catch (Exception error) when (error is not OperationCanceledException)

@@ -87,7 +87,9 @@ public static partial class ConfluenceText
     [GeneratedRegex(@"<ac:parameter\b[^>]*>.*?</ac:parameter>", RegexOptions.Singleline | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex MacroParameter();
 
-    [GeneratedRegex(@"<tr\b[^>]*>\s*<th\b[^>]*>(.*?)</th>\s*<td\b[^>]*>(.*?)</td>\s*</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
+    // Review R2-05: cell content may not cross a row, cell or table boundary, so a header row
+    // (<th>Name</th><th>Owner</th>) before the properties table cannot swallow the next row's key.
+    [GeneratedRegex(@"<tr\b[^>]*>\s*<th\b[^>]*>((?:(?!</?(?:t[rhd]|table)\b).)*?)</th>\s*<td\b[^>]*>((?:(?!</?(?:t[rhd]|table)\b).)*?)</td>\s*</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]
     private static partial Regex PropertyRow();
 
     [GeneratedRegex(@"<h([1-6])\b[^>]*>(.*?)</h\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 2000)]

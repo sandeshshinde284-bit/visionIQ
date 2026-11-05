@@ -1,5 +1,6 @@
 """LRN-07 committed-code relationship and PostgreSQL graph acceptance tests."""
 
+import hashlib
 import os
 from datetime import UTC, datetime
 
@@ -12,6 +13,7 @@ from app.code_intelligence.canonical import (
     build_scan_evidence,
 )
 from app.code_intelligence.graph import (
+    GraphCodeNode,
     persist_code_graph,
     project_declared_dependencies,
     project_scan_edges,
@@ -189,3 +191,130 @@ def test_code_graph_is_durable_idempotent_and_revision_bound() -> None:
             (evidence.item_key,),
         )
         assert cursor.fetchone()[0] == 3
+
+
+@pytest.mark.skipif(
+    os.environ.get("VISIONIQ_SCAN_DB_INTEGRATION") != "1",
+    reason="Requires disposable CI PostgreSQL and migration head 0020",
+)
+def test_fix_change_edges_reach_the_same_file_node_a_scan_would_use() -> None:
+    """Review R7-01/R7-02: a historical fix's changed file reaches the same file node identity
+    project_scan_edges uses for its commit_file edge, without needing that exact commit scanned."""
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+
+    from app.code_intelligence.graph import project_fix_change_edges
+
+    conninfo = make_conninfo(
+        "",
+        host=os.environ.get("DB_HOST", "127.0.0.1"),
+        port=int(os.environ.get("DB_PORT", "5432")),
+        dbname=os.environ.get("DB_NAME", "visioniq"),
+        user=os.environ.get("DB_API_USER", "visioniq_api"),
+        password=os.environ["DB_API_PASSWORD"],
+        sslmode="disable",
+    )
+    scan = _scan()
+    identity = ScanEvidenceIdentity(
+        "https://github.com/approved/graph-test",
+        "test-" + os.urandom(8).hex(),
+        "repo-" + os.urandom(8).hex(),
+    )
+    evidence = build_scan_evidence(
+        scan, identity, "https://github.com/approved/graph-test", datetime(2026, 10, 30, tzinfo=UTC)
+    )
+    PostgresScanEvidenceStore(conninfo).save(evidence, "gs://ci-fixture/" + evidence.item_key)
+    expected_file_node = GraphCodeNode(evidence.item_key, "file", "app.py").key()
+
+    ado_instance = "https://dev.azure.com/t" + os.urandom(6).hex()
+    historical_sha = "c" * 40  # a commit that was never the HEAD of any scan
+    commit_item_key = hashlib.sha256(
+        b"".join(
+            len(v).to_bytes(4, "little") + v.encode()
+            for v in (
+                "azure_devops",
+                ado_instance,
+                identity.project_id,
+                identity.repository_id,
+                "commit",
+                historical_sha,
+            )
+        )
+    ).hexdigest()
+    with psycopg.connect(conninfo) as db, db.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO evidence.source_items (item_key, provider, source_instance, project_id,
+                repository_id, kind, external_id, latest_revision_id, latest_source_updated_at,
+                first_observed_at, last_observed_at)
+            VALUES (%s, 'azure_devops', %s, %s, %s, 'commit', %s, %s, now(), now(), now())
+            ON CONFLICT (item_key) DO NOTHING
+            """,
+            (
+                commit_item_key,
+                ado_instance,
+                identity.project_id,
+                identity.repository_id,
+                historical_sha,
+                historical_sha,
+            ),
+        )
+        cursor.execute(
+            """
+            INSERT INTO evidence.source_revisions (item_key, provider_revision_id,
+                source_updated_at, observed_at, content_sha256, source_url,
+                retrieved_under_principal, redacted_payload, redaction_version,
+                normalizer_version, raw_snapshot_uri, archive_status, acl_verified, acl_principals)
+            VALUES (%s, %s, now(), now(), %s, %s, 't', '{}'::jsonb, 'v', 'v', %s,
+                    'ARCHIVED', true, '[]'::jsonb)
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                commit_item_key,
+                historical_sha,
+                "d" * 64,
+                f"{ado_instance}/{identity.project_id}/_git/repo/commit/{historical_sha}",
+                "mem://" + commit_item_key,
+            ),
+        )
+        cursor.execute(
+            """
+            INSERT INTO evidence.fix_change_sets (source_instance, project_id, repository_id,
+                fix_kind, fix_id, paths, truncated, provenance_item_key, observed_at)
+            VALUES (%s, %s, %s, 'commit', %s, %s, false, %s, now())
+            ON CONFLICT (source_instance, project_id, repository_id, fix_kind, fix_id)
+            DO UPDATE SET paths = EXCLUDED.paths
+            """,
+            (
+                ado_instance,
+                identity.project_id,
+                identity.repository_id,
+                historical_sha,
+                ["app.py"],
+                commit_item_key,
+            ),
+        )
+        db.commit()
+
+    written = project_fix_change_edges(
+        conninfo, evidence.item_key, identity.project_id, identity.repository_id, ado_instance
+    )
+    assert written == 1
+    # Idempotent: re-running does not duplicate the assertion.
+    assert (
+        project_fix_change_edges(
+            conninfo, evidence.item_key, identity.project_id, identity.repository_id, ado_instance
+        )
+        == 1
+    )
+
+    with psycopg.connect(conninfo) as db, db.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT to_node_key, relation_type FROM evidence.graph_assertions
+            WHERE provenance_item_key = %s
+            """,
+            (commit_item_key,),
+        )
+        rows = cursor.fetchall()
+        assert rows == [(expected_file_node, "commit_changed_file")]

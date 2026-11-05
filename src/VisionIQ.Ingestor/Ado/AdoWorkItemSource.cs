@@ -3,6 +3,9 @@ using System.Text.Json;
 
 namespace VisionIQ.Ingestor.Ado;
 
+/// <summary>Review R1-01: the IDs a WIQL query returned, and the exact instant it was evaluated at.</summary>
+public sealed record WorkItemQueryResult(IReadOnlyList<int> Ids, DateTimeOffset? AsOf);
+
 /// <summary>Reads work items, their relations and their revision history from Azure DevOps (S04-01).</summary>
 public sealed class AdoWorkItemSource
 {
@@ -27,8 +30,14 @@ public sealed class AdoWorkItemSource
         this.client = client;
     }
 
-    /// <summary>IDs of work items changed since the given point, oldest first.</summary>
-    public async Task<IReadOnlyList<int>> QueryIdsAsync(string project, DateTimeOffset? changedSince, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Review R1-01: IDs of work items changed since the given point, oldest first, plus the exact
+    /// instant ("asOf") Azure DevOps evaluated that query at. The query itself can run for a long time
+    /// against a large project; "asOf" is the one timestamp both this call and the following
+    /// <see cref="GetWorkItemsAsync"/> agree on, so a change that lands during that window is read
+    /// again next run instead of silently moving the checkpoint past it.
+    /// </summary>
+    public async Task<WorkItemQueryResult> QueryIdsAsync(string project, DateTimeOffset? changedSince, CancellationToken cancellationToken = default)
     {
         var uri = client.BuildUri(
             project,
@@ -38,14 +47,21 @@ public sealed class AdoWorkItemSource
             .PostJsonAsync(uri, new { query = AdoWorkItemReader.BuildWiql(project, changedSince) }, cancellationToken)
             .ConfigureAwait(false);
 
-        return JsonRead.Items(response.Root, "workItems")
+        var ids = JsonRead.Items(response.Root, "workItems")
             .Select(item => JsonRead.Int(item, "id"))
             .OfType<int>()
             .ToList();
+        return new WorkItemQueryResult(ids, JsonRead.Date(response.Root, "asOf"));
     }
 
-    /// <summary>Full work items with relations, in batches of 200. Deleted or inaccessible items come back as NOT SYNCED.</summary>
-    public async Task<IReadOnlyList<ReadOutcome>> GetWorkItemsAsync(string project, IReadOnlyList<int> ids, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Full work items with relations, in batches of 200. Deleted or inaccessible items come back as
+    /// NOT SYNCED. Review R1-01: when <paramref name="asOf"/> is given (from the WIQL query this batch
+    /// follows), Azure DevOps returns field values — including ChangedDate — exactly as they stood at
+    /// that instant, never a later live value, so the two calls read one consistent point in time.
+    /// </summary>
+    public async Task<IReadOnlyList<ReadOutcome>> GetWorkItemsAsync(
+        string project, IReadOnlyList<int> ids, DateTimeOffset? asOf = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(ids);
         var outcomes = new List<ReadOutcome>();
@@ -59,6 +75,11 @@ public sealed class AdoWorkItemSource
                 ["$expand"] = "Relations",
                 ["errorPolicy"] = "Omit",
             };
+            if (asOf is { } at)
+            {
+                body["asOf"] = at.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+            }
+
             using var response = await client.PostJsonAsync(uri, body, cancellationToken).ConfigureAwait(false);
             // Azure DevOps errorPolicy=Omit may silently remove an inaccessible ID.
             // Reconstruct results by requested identity, never by response index.

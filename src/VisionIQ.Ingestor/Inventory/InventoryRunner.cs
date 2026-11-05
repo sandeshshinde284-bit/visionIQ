@@ -84,9 +84,9 @@ public sealed class InventoryRunner
         var capped = false;
         try
         {
-            var ids = await new AdoWorkItemSource(client).QueryIdsAsync(project, null, cancellationToken).ConfigureAwait(false);
-            workItems = ids.Count;
-            capped = ids.Count >= AdoWorkItemSource.WiqlLimit;
+            var query = await new AdoWorkItemSource(client).QueryIdsAsync(project, null, cancellationToken).ConfigureAwait(false);
+            workItems = query.Ids.Count;
+            capped = query.Ids.Count >= AdoWorkItemSource.WiqlLimit;
         }
         catch (AdoSourceException error)
         {

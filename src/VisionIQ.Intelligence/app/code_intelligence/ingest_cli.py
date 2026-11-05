@@ -24,6 +24,7 @@ from app.code_intelligence.canonical import (
 )
 from app.code_intelligence.parsers import default_parser_registry
 from app.code_intelligence.relationships import ApprovedRepository, resolve_dependencies
+from app.code_intelligence.scanner import scan_repository
 from app.code_intelligence.snapshots import scan_with_recovery
 from app.logging_config import configure_from_environment
 
@@ -83,6 +84,14 @@ def main(args: list[str] | None = None) -> int:
             "repository's code readable to members of --project-id (the ADO project name)"
         ),
     )
+    parser.add_argument(
+        "--commit",
+        help=(
+            "Review R6-09: scan this exact committed Git SHA instead of the checkout's current "
+            "HEAD (the default when omitted). The checkout must already contain this commit. "
+            "Never uses or updates the --cache last-good state."
+        ),
+    )
     arguments = parser.parse_args(args)
 
     configure_from_environment()
@@ -115,7 +124,17 @@ def _run(arguments: argparse.Namespace, log) -> int:
     identity.item_key()
     repository = Path(arguments.repo).resolve()
     log.info("scan.started")
-    scan = scan_with_recovery(repository, arguments.cache, default_parser_registry())
+    if arguments.commit:
+        # Review R6-09: a historical fix commit, scanned directly. Never uses or updates the
+        # last-good cache: that cache tracks the checkout's own HEAD across restarts, and an
+        # arbitrary historical commit is unrelated to "the previous good state" of that HEAD --
+        # mixing them could resurrect a stale HEAD scan as "last good", or compare a historical
+        # commit's renames against the wrong baseline.
+        scan = scan_repository(
+            repository, registry=default_parser_registry(), commit=arguments.commit
+        )
+    else:
+        scan = scan_with_recovery(repository, arguments.cache, default_parser_registry())
     gaps = [a for a in scan.analyses if any("could not fully parse" in d for d in a.diagnostics)]
     for analysis in gaps:
         # N-16: visible, never silent. The diagnostic names the line, never the code.
@@ -210,6 +229,17 @@ def _run(arguments: argparse.Namespace, log) -> int:
             declared_dependencies=links,
         )
         log.info("graph.persisted", edges=edges, dependency_links=len(links))
+
+        # Review R7-01/R7-02: wires every known historical fix (evidence.fix_change_sets) for this
+        # repository to its changed files, not only the one commit this scan happened to run
+        # against. File node identity only needs this repository to have been scanned at all, so
+        # this call re-reconciles the full backlog on every scan -- self-healing, catches up fixes
+        # observed before the repository was ever scanned.
+        if ado_organization:
+            fix_edges = graph.project_fix_change_edges(
+                db, archived.item_key, identity.project_id, identity.repository_id, ado_organization
+            )
+            log.info("graph.fix_changes_persisted", edges=fix_edges)
     log.info("scan.finished", state=state, duration_ms=round((time.monotonic() - started) * 1000))
     return 0
 

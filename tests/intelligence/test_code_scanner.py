@@ -151,3 +151,36 @@ def test_source_size_guard_preserves_file_inventory(tmp_path: Path) -> None:
 def test_invalid_source_limit_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="positive"):
         scan_repository(make_repo(tmp_path), max_source_bytes=0)
+
+
+def test_an_exact_commit_can_be_scanned_without_checking_it_out(tmp_path: Path) -> None:
+    """Review R6-09: scan a historical commit directly, not only the checkout's current HEAD."""
+    repo = make_repo(tmp_path)
+    first_commit = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+    (repo / "src" / "second.py").write_text("def added_later():\n    return 2\n", encoding="utf-8")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "second")
+
+    current_head = scan_repository(repo)
+    assert (
+        current_head.commit_sha
+        == subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )
+    assert {file.path for file in current_head.files} >= {"src/hello.py", "src/second.py"}
+
+    historical = scan_repository(repo, commit=first_commit)
+    assert historical.commit_sha == first_commit
+    assert {file.path for file in historical.files} == {
+        "src/hello.py",
+        "src/unknown.foo",
+        "requirements.txt",
+    }
+    assert "src/second.py" not in {file.path for file in historical.files}
