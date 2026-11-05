@@ -503,6 +503,164 @@ public sealed class TicketFixDatabaseIntegrationTests
         }
     }
 
+    [DatabaseFact("VISIONIQ_TICKET_FIX_DB_INTEGRATION")]
+    public async Task Candidate_evidence_never_reactivates_an_already_retracted_association()
+    {
+        // Third-pass correction, Finding #1: UpsertCandidateEvidenceAsync (used for circumstantial
+        // evidence such as a PR-title revert match) must behave like UpsertSourceAsync in every way
+        // except one -- it must never clear retracted_at, even when re-asserting the exact same claim
+        // that was previously current. Contrast at the end: the direct, explicit path
+        // (UpsertSourceAsync) legitimately re-links the same claim, proving the distinction is real.
+        var options = Settings();
+        var source = "test-source-" + Guid.NewGuid().ToString("N");
+        var ticket = Guid.NewGuid().ToString("N");
+        var sourceItemKey = new string('6', 64);
+        var claim = new TicketFixClaim(
+            source, "test-project", ticket, "repo-one", "pr-cand", null,
+            TicketFixSourceClassification.Explicit, ["ado:pr_source"], []);
+        var key = claim.AssociationKey();
+
+        await using var store = new PostgresTicketFixLinkStore(options);
+        try
+        {
+            await store.ReconcileSourceAsync(sourceItemKey, "rev1", DateTimeOffset.UtcNow.AddHours(-2), isCompleteSnapshot: true, [claim]);
+            Assert.Null((await ReadRetractionAsync(options, key)).RetractedAt);
+
+            // A newer, authoritative snapshot drops it -- correctly retracted.
+            await store.ReconcileSourceAsync(sourceItemKey, "rev2", DateTimeOffset.UtcNow.AddHours(-1), isCompleteSnapshot: true, []);
+            Assert.NotNull((await ReadRetractionAsync(options, key)).RetractedAt);
+
+            // Circumstantial candidate evidence re-asserts the SAME claim -- must NOT reactivate it.
+            await store.UpsertCandidateEvidenceAsync(claim);
+            Assert.NotNull((await ReadRetractionAsync(options, key)).RetractedAt);
+
+            // Contrast: a direct, explicit claim (the normal path) legitimately re-links.
+            await store.UpsertSourceAsync(claim);
+            Assert.Null((await ReadRetractionAsync(options, key)).RetractedAt);
+        }
+        finally
+        {
+            await using var cleanup = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
+            {
+                Host = options.Host, Port = options.Port, Database = options.Name,
+                Username = options.User, Password = options.Password,
+            }.ConnectionString);
+            await cleanup.OpenAsync();
+            await using (var deleteAssoc = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_link_source_associations WHERE source_item_key = @item", cleanup))
+            {
+                deleteAssoc.Parameters.AddWithValue("item", sourceItemKey);
+                await deleteAssoc.ExecuteNonQueryAsync();
+            }
+            await using (var deleteSource = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_link_sources WHERE source_item_key = @item", cleanup))
+            {
+                deleteSource.Parameters.AddWithValue("item", sourceItemKey);
+                await deleteSource.ExecuteNonQueryAsync();
+            }
+            await using (var deleteEvents = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_link_lifecycle_events WHERE association_key = @key", cleanup))
+            {
+                deleteEvents.Parameters.AddWithValue("key", key);
+                await deleteEvents.ExecuteNonQueryAsync();
+            }
+            await using (var deleteLink = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_links WHERE source_instance = @source", cleanup))
+            {
+                deleteLink.Parameters.AddWithValue("source", source);
+                await deleteLink.ExecuteNonQueryAsync();
+            }
+        }
+    }
+
+    [DatabaseFact("VISIONIQ_TICKET_FIX_DB_INTEGRATION")]
+    public async Task An_older_delayed_revision_with_different_content_still_cannot_override_the_current_state()
+    {
+        // Third-pass correction, Finding #2: the equal-timestamp acceptance added for the earlier
+        // Finding #1 (an active PR re-checked at the same LastActivity but with a different content
+        // hash is accepted) must never be confused with a genuinely older, delayed snapshot that
+        // happens to carry different content (e.g. a different linked ticket) -- a different id alone
+        // is not sufficient; the incoming revision time must be newer, or exactly equal, to replace
+        // the current state. Anything strictly older is rejected regardless of what it claims.
+        var options = Settings();
+        var source = "test-source-" + Guid.NewGuid().ToString("N");
+        var ticketCurrent = Guid.NewGuid().ToString("N");
+        var ticketStale = Guid.NewGuid().ToString("N");
+        var sourceItemKey = new string('4', 64);
+        var current = new TicketFixClaim(
+            source, "test-project", ticketCurrent, "repo-one", "pr-order", null,
+            TicketFixSourceClassification.Explicit, ["ado:pr_source"], []);
+        // A delayed snapshot with entirely different content (a different linked ticket) -- not a
+        // replay of the same claim, so a naive "different id => accept" rule would wrongly let it in.
+        var stale = current with { TicketId = ticketStale };
+        var keyCurrent = current.AssociationKey();
+        var keyStale = stale.AssociationKey();
+        var t0 = DateTimeOffset.UtcNow.AddHours(-5);
+
+        await using var store = new PostgresTicketFixLinkStore(options);
+        try
+        {
+            await store.ReconcileSourceAsync(sourceItemKey, "rev-current", t0, isCompleteSnapshot: true, [current]);
+            Assert.Null((await ReadRetractionAsync(options, keyCurrent)).RetractedAt);
+
+            // The delayed snapshot's revision time is strictly OLDER than the one already recorded,
+            // even though its id and content both differ from the current state.
+            await store.ReconcileSourceAsync(
+                sourceItemKey, "rev-stale-delayed", t0.AddMinutes(-10), isCompleteSnapshot: true, [stale]);
+
+            // The current association must still stand, unretracted...
+            Assert.Null((await ReadRetractionAsync(options, keyCurrent)).RetractedAt);
+
+            // ...and the stale snapshot's own claim was recorded as historical evidence only -- never
+            // accepted as the new current state (provenance_status stays 'unreconciled', not
+            // 'reconciled', and it was never retracted either since it was never current to begin
+            // with).
+            await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
+            {
+                Host = options.Host, Port = options.Port, Database = options.Name,
+                Username = options.User, Password = options.Password,
+            }.ConnectionString);
+            await db.OpenAsync();
+            await using var query = new NpgsqlCommand(
+                "SELECT provenance_status FROM evidence.ticket_fix_links WHERE association_key = @key", db);
+            query.Parameters.AddWithValue("key", keyStale);
+            Assert.Equal("unreconciled", (string)(await query.ExecuteScalarAsync())!);
+        }
+        finally
+        {
+            await using var cleanup = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
+            {
+                Host = options.Host, Port = options.Port, Database = options.Name,
+                Username = options.User, Password = options.Password,
+            }.ConnectionString);
+            await cleanup.OpenAsync();
+            await using (var deleteAssoc = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_link_source_associations WHERE source_item_key = @item", cleanup))
+            {
+                deleteAssoc.Parameters.AddWithValue("item", sourceItemKey);
+                await deleteAssoc.ExecuteNonQueryAsync();
+            }
+            await using (var deleteSource = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_link_sources WHERE source_item_key = @item", cleanup))
+            {
+                deleteSource.Parameters.AddWithValue("item", sourceItemKey);
+                await deleteSource.ExecuteNonQueryAsync();
+            }
+            await using (var deleteEvents = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_link_lifecycle_events WHERE association_key = ANY(@keys)", cleanup))
+            {
+                deleteEvents.Parameters.AddWithValue("keys", new[] { keyCurrent, keyStale });
+                await deleteEvents.ExecuteNonQueryAsync();
+            }
+            await using (var deleteLink = new NpgsqlCommand(
+                "DELETE FROM evidence.ticket_fix_links WHERE source_instance = @source", cleanup))
+            {
+                deleteLink.Parameters.AddWithValue("source", source);
+                await deleteLink.ExecuteNonQueryAsync();
+            }
+        }
+    }
+
     private static DatabaseOptions Settings()
     {
         var password = Environment.GetEnvironmentVariable("DB_API_PASSWORD");

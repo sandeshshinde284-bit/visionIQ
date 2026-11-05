@@ -190,6 +190,61 @@ public sealed class TicketFixProjectionSinkTests
     }
 
     [Fact]
+    public async Task A_title_matched_candidate_revert_never_reactivates_a_link_a_newer_revision_already_retracted()
+    {
+        // Third-pass correction, Finding #1: UpsertSourceAsync (used by every direct, explicit
+        // source-stated claim) always clears a prior retraction -- correct for fresh evidence, but
+        // RecordTitleRevertAsync's candidate marker is circumstantial, not fresh authoritative evidence.
+        // If the ORIGINAL ticket/PR/commit association was already retracted by a newer, real ADO
+        // snapshot (the ticket was genuinely unlinked), a later title-matched "revert" candidate must
+        // never resurrect it.
+        var links = new RecordingLinkStore();
+        var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
+        var originalSha = new string('1', 40);
+        var revertSha = new string('2', 40);
+        var originalV1 = new PullRequestRecord(38386, "repo-id", "repo", "Project-A", "completed",
+            "KioskSpecific - Enable Tremble alarm on Beeston Double ", DateTimeOffset.UtcNow.AddHours(-2))
+        {
+            WorkItemIds = [110276],
+            CommitIds = [originalSha],
+            MergeCommitId = originalSha,
+            ClosedDate = DateTimeOffset.UtcNow.AddHours(-2),
+        };
+        var key = new TicketFixClaim(
+            Organization.AbsoluteUri.TrimEnd('/'), originalV1.Project, "110276", originalV1.RepositoryId,
+            originalV1.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), originalSha,
+            TicketFixSourceClassification.Explicit, ["x"], []).AssociationKey();
+
+        await sink.WriteAsync("pull-requests", "source/original-v1", originalV1);
+        Assert.DoesNotContain(key, links.RetractedKeys);
+
+        // A newer, authoritative revision of the SAME PR drops the ticket entirely -- correctly
+        // retracts the association (Review R4-02).
+        var originalV2 = originalV1 with { WorkItemIds = [], ClosedDate = DateTimeOffset.UtcNow.AddHours(-1) };
+        await sink.WriteAsync("pull-requests", "source/original-v2", originalV2);
+        Assert.Contains(key, links.RetractedKeys);
+
+        // A pull request titled as ADO's own revert of the original now arrives.
+        var revert = originalV1 with
+        {
+            Id = 38394,
+            Title = "Revert 'KioskSpecific - Enable Tremble alarm on Beeston Double '",
+            CommitIds = [revertSha],
+            MergeCommitId = revertSha,
+            ClosedDate = DateTimeOffset.UtcNow,
+        };
+        await sink.WriteAsync("pull-requests", "source/revert", revert);
+
+        // The candidate marker is still recorded as queryable evidence...
+        Assert.Contains(links.Claims, claim =>
+            claim.TicketId == "110276" && claim.CommitSha == originalSha &&
+            claim.SourceEvidenceRefs.Any(reference =>
+                reference.StartsWith("candidate-revert:pr-title-match:pr38394:", StringComparison.Ordinal)));
+        // ...but must NOT reactivate a retraction a newer, authoritative snapshot already established.
+        Assert.Contains(key, links.RetractedKeys);
+    }
+
+    [Fact]
     public async Task Two_pull_requests_sharing_the_same_title_are_never_guessed_as_the_revert_target()
     {
         // Feedback from a second review: a title is not a unique identifier like a Git SHA. If two
@@ -365,6 +420,15 @@ public sealed class TicketFixProjectionSinkTests
         {
             Claims.Add(claim);
             RetractedKeys.Remove(claim.AssociationKey());
+            return Task.FromResult(claim.AssociationKey());
+        }
+
+        /// <summary>Third-pass correction, Finding #1: records evidence without ever clearing a
+        /// retraction -- mirrors PostgresTicketFixLinkStore.UpsertCandidateEvidenceAsync.</summary>
+        public Task<string> UpsertCandidateEvidenceAsync(TicketFixClaim claim,
+            CancellationToken cancellationToken = default)
+        {
+            Claims.Add(claim);
             return Task.FromResult(claim.AssociationKey());
         }
 

@@ -136,6 +136,12 @@ public sealed class PullRequestEventTests
             return Task.FromResult(claim.AssociationKey());
         }
 
+        public Task<string> UpsertCandidateEvidenceAsync(TicketFixClaim claim, CancellationToken cancellationToken = default)
+        {
+            Upserted.Add(claim);
+            return Task.FromResult(claim.AssociationKey());
+        }
+
         public Task<int> RecordRevertAsync(string sourceInstance, string projectId, string repositoryId, string originalCommitSha, string revertCommitSha, CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
 

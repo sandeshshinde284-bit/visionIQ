@@ -609,6 +609,57 @@ changes remain as uncommitted edits on `review/lrn-01-07-integration`. There is 
 SHA to report for this round; one will exist once these changes are committed (by the project owner,
 as agreed).
 
+## 7f. Seventh round: third-pass correction, two more risks flagged against the sixth round's fixes
+
+After the sixth round (§7e) shipped, a further review of that round's own fixes raised two more risks,
+both confirmed and fixed. No unrelated refactoring; still nothing committed, pushed, merged, or
+deployed.
+
+**Risk #1 — candidate revert could reactivate a retracted link, confirmed.** `RecordTitleRevertAsync`'s
+fix in the sixth round stopped it from calling `RecordRevertAsync`, but it still called the public
+`UpsertSourceAsync`, which unconditionally clears `retracted_at` (correct for a direct, explicit,
+source-stated claim, but this candidate marker is neither). If the *original* ticket/PR/commit
+association had already been retracted by a newer, authoritative `ReconcileSourceAsync` snapshot (e.g.
+the ticket was genuinely unlinked from the PR), a later title-matched "revert" candidate would
+incorrectly resurrect it — reactivating a link current evidence says does not exist. Fixed by adding a
+dedicated `ITicketFixLinkStore.UpsertCandidateEvidenceAsync` method
+([PostgresTicketFixLinkStore.cs](../../src/VisionIQ.Api/Features/TicketFixes/PostgresTicketFixLinkStore.cs))
+— identical to `UpsertSourceAsync` except it always passes `clearRetraction: false` to the shared
+`UpsertCoreAsync` core — and switching `RecordTitleRevertAsync`
+([TicketFixProjectionSink.cs](../../src/VisionIQ.Ingestor.Cli/TicketFixProjectionSink.cs)) to call it
+instead. Verified with two new tests, both confirmed to fail against the pre-fix
+(`UpsertSourceAsync`-calling) code and pass with the fix: a sink-level test,
+`A_title_matched_candidate_revert_never_reactivates_a_link_a_newer_revision_already_retracted`
+([TicketFixProjectionSinkTests.cs](../../tests/VisionIQ.Ingestor.Tests/TicketFixProjectionSinkTests.cs)),
+and a real-PostgreSQL DB-integration test,
+`Candidate_evidence_never_reactivates_an_already_retracted_association`
+([TicketFixDatabaseIntegrationTests.cs](../../tests/VisionIQ.Api.Tests/TicketFixDatabaseIntegrationTests.cs)),
+which also contrasts the fix against the normal `UpsertSourceAsync` path (a direct, explicit claim
+still legitimately re-links).
+
+**Risk #2 — equal-timestamp acceptance could be confused with an older, delayed snapshot, not
+confirmed as a code defect, but a test was missing as asked.** The sixth round's `AcceptRevisionAsync`
+fix accepts an incoming revision when its timestamp exactly matches the one on file but its revision id
+differs (needed so an active PR's re-checks, whose `LastActivity` never advances, aren't rejected
+forever). Re-reading the guard's `WHERE` clause confirms it only takes that branch when the timestamps
+are *equal*; a revision whose timestamp is *strictly older* than the one on file is unconditionally
+rejected by the first `OR` branch regardless of its id or content, so a genuinely older, delayed
+snapshot cannot override the current state. No code change was needed, but — per the request — a
+dedicated regression test was added to lock this in and catch a future regression that widens the
+guard too far:
+`An_older_delayed_revision_with_different_content_still_cannot_override_the_current_state`
+([TicketFixDatabaseIntegrationTests.cs](../../tests/VisionIQ.Api.Tests/TicketFixDatabaseIntegrationTests.cs)).
+To prove the test is not vacuous, the guard was temporarily widened to a naive "any different revision
+id is accepted, regardless of time" rule and the test was confirmed to fail against it, then the
+correct guard was restored and the test passes again.
+
+**Verification summary for this round.** Both risks were investigated by reading the exact SQL/code
+path end to end and, for Risk #1, reproduced against the disposable PostgreSQL test container before
+fixing. All new/changed tests were confirmed red-then-green against real PostgreSQL. Full suites were
+re-run afterward with no regressions: `dotnet test VisionIQ.sln` — 457 passed, 17 skipped (opt-in
+DB-integration tests not relevant to this run), 0 failed; `python -m pytest` — 169 passed, 83 skipped,
+0 failed (no Python files changed this round). Nothing is committed, pushed, merged, or deployed.
+
 ## 8. Changes on the review branch
 
 Uncommitted, on `review/lrn-01-07-integration` (branched from `feature/learn-01-14-TEST` at `44ec036`).
