@@ -39,8 +39,7 @@ and *Pull request commented on*.
 | §8.12 evidence | Source/target commit, every iteration, cumulative changed files, review threads (no system messages), file-level patch fingerprint, branch-policy evaluations; unreadable parts are listed in `enrichmentGaps` |
 | Permissions | The PAT also needs *Code (read)* for iterations/threads and policy read for evaluations; otherwise those parts are recorded as unavailable |
 
-The scheduled sync reads a PR when it is created and when it closes; reviews and updates on open PRs arrive
-through these events. After this change each PR gets one new revision on its next sync (new fields).
+**Current scheduled behavior:** Every active PR is re-enriched on each delta, including title and reviewer updates even when the creation/closure cursor does not move. An unchanged active PR may appear in a new local JSONL run folder; canonical revision deduplication is a separate persistence test. Closed PRs use the ordinary cursor. Webhooks remain the near-real-time path, with reconciliation as the safety net.
 
 ## 2. Scheduled sync (the safety net)
 
@@ -54,3 +53,9 @@ Failed items never stop a run: each one is listed in `evidence.sync_quarantine` 
 resolved once read. The audit row records how many items were quarantined.
 
 Running these on a schedule (Cloud Run Jobs + Cloud Scheduler, or Pub/Sub delivery) is FND-06 infrastructure.
+
+## Acceptance scope (November 2026)
+
+A separately tested private company checkout demonstrated new PR detection, updated open PR titles, changed Task revisions, and seven-day reconciliation with unchanged checkpoint hash. Automated failure/quarantine/webhook tests and disposable PostgreSQL evidence replay tests passed. This **does not** prove a live deployed webhook or Scheduler/Cloud Run Job.
+
+ADO work items and builds are project-scoped; `ADO_REPOS` only narrows commit/PR streams. A Confluence `--since` filter does not prevent initial scanning of the configured space's permissions. JSONL intentionally withholds restricted/unknown-access pages and may return `Partial` (exit 2) without a checkpoint. Full-history import and live private GCS/Cloud SQL/Cloud Run validation remain **pending** under the acceptance/FND-06 work. See [LRN-05 validation](lrn05-backfill-currentness.md).
