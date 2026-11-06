@@ -127,6 +127,7 @@ public static class PullRequestLifecycle
             return Draft;
         }
 
+        // A reviewer who declined is not part of the outcome at all (not a rejection, not a pending vote).
         var votes = pullRequest.Reviewers.Where(reviewer => !reviewer.HasDeclined).ToList();
         if (votes.Any(reviewer => reviewer.Vote <= -10))
         {
@@ -138,6 +139,8 @@ public static class PullRequestLifecycle
             return WaitingForAuthor;
         }
 
+        // "Approved" requires every *required* reviewer to be at >=5, but at least one vote overall; a PR with
+        // zero reviewers isn't approved, it's just active.
         var required = votes.Where(reviewer => reviewer.IsRequired).ToList();
         var approvals = votes.Where(reviewer => reviewer.Vote >= 5).ToList();
         return approvals.Count > 0 && required.All(reviewer => reviewer.Vote >= 5) ? Approved : Active;
@@ -192,7 +195,6 @@ public sealed class AdoRepositorySource
         }
     }
 
-    /// <summary>Adds the work items and commits that Azure DevOps itself links to the pull request.</summary>
     /// <summary>
     /// LRN-12: re-fetches one PR (current state, reviewers and votes) for a webhook event and enriches it like the
     /// sync does. The repository and its project come from ADO's answer, never from the event.
@@ -252,11 +254,13 @@ public sealed class AdoRepositorySource
             previous = token;
             token = page.ContinuationToken;
         }
-        while (token is not null && token != previous);
+        while (token is not null && token != previous); // guards against a server returning the same token forever
 
         var gaps = new List<string>();
         var iterations = await TryAsync("iterations", gaps, () => GetIterationsAsync(project, basePath, cancellationToken)).ConfigureAwait(false);
         var latest = iterations?.Count > 0 ? iterations.Max(iteration => iteration.Id) : (int?)null;
+        // Distinguish "no iterations exist" (changes = empty list, a real fact) from "iterations couldn't be read"
+        // (changes = null, an unknown) so EnrichmentGaps stays the only source of truth for "unavailable".
         var changes = latest is { } last
             ? await TryAsync("changed files", gaps, () => GetChangedFilesAsync(project, basePath, last, cancellationToken)).ConfigureAwait(false)
             : iterations is null ? null : [];
@@ -424,7 +428,8 @@ public sealed class AdoRepositorySource
             return null;
         }
 
-        // An active pull request's lastMergeCommit is a preview merge, not a commit on the target branch.
+        // An active pull request's lastMergeCommit is a preview merge, not a commit on the target branch, so it
+        // would be misleading as "the merge commit" — only read it once the PR is actually completed.
         var mergeCommit = status == "completed" && JsonRead.Child(element, "lastMergeCommit") is { } merge
             ? JsonRead.String(merge, "commitId")
             : null;

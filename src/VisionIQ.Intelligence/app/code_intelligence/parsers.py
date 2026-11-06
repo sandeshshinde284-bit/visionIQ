@@ -83,6 +83,9 @@ class PythonAstAdapter:
                 )
 
             def visit_Call(self, node: ast.Call) -> None:
+                # Lexical only: for `obj.method()` we record "method", not the
+                # type of `obj`, since that needs type inference we don't do.
+                # This is why CallReference isn't a verified call graph edge.
                 name = None
                 if isinstance(node.func, ast.Name):
                     name = node.func.id

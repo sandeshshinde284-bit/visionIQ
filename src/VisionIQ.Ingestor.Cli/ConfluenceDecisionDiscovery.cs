@@ -65,6 +65,8 @@ internal static class ConfluenceDecisionDiscovery
                     }
                     catch (ConfluenceSourceException)
                     {
+                        // One page's label lookup failing (e.g. transient 5xx) shouldn't abort the
+                        // whole space scan; it's counted and surfaced as a non-zero exit instead.
                         labelFailures++;
                     }
                 }

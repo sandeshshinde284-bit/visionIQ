@@ -50,6 +50,8 @@ public sealed class SyncRunner
         ArgumentNullException.ThrowIfNull(request);
         using var scope = SyncRunLogging.BeginRun(log, request, "ado");
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        // Each project stream (work items, PRs, commits, builds) runs to completion independently.
+        // One failure doesn't cascade: we report the outcome per stream and continue.
         var report = await RunCoreAsync(request, cancellationToken).ConfigureAwait(false);
         report.RunId = request.RunId;
         SyncRunLogging.LogOutcome(log, report, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
@@ -152,6 +154,11 @@ public sealed class SyncRunner
 
     private async Task SyncWorkItemsAsync(string project, SyncRequest request, SyncReport report, CancellationToken cancellationToken)
     {
+        // Work items are the source of truth for what was broken and fixed. We need to:
+        // 1. Resume from the last checkpoint so we don't re-read everything each run
+        // 2. Capture every revision if requested (for audit trail)
+        // 3. Handle the 20k WIQL result limit by capping and retrying
+        // 4. Quarantine any items that fail to read so we can retry them without skipping forward
         var scope = project + "/work-items";
         var result = report.Add(SyncKind.WorkItems, scope);
         TimeCursor? cursor = null;
@@ -174,6 +181,9 @@ public sealed class SyncRunner
                 var outcome = outcomes[index];
                 // Outcomes are returned one per requested ID, in the requested order.
                 var nativeId = ids[index].ToString(CultureInfo.InvariantCulture);
+
+                // Check if this item was previously quarantined (failed before).
+                // If it's now readable, mark it as resolved and move forward.
                 if (outcome.Record is not null && open.Contains(nativeId))
                 {
                     await quarantine.ResolveAsync(SourceId, scope, "work_item", nativeId, time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
@@ -183,7 +193,9 @@ public sealed class SyncRunner
                 if (outcome.Record is null)
                 {
                     result.NotStored++;
-                    // G-1: list the failed item instead of stopping; the held checkpoint retries it next run.
+                    // Unreadable items go to quarantine. By NOT advancing the checkpoint past them,
+                    // we guarantee retry on the next run. The checkpoint tracks the *last written* item,
+                    // so skipped items are always re-queried. This is G-1: graceful degradation.
                     var failed = new QuarantinedItem(SourceId, scope, "work_item", nativeId, "not_readable",
                         outcome.NotSyncedReason ?? "A work item could not be read.", time.GetUtcNow());
                     await quarantine.AddAsync(failed, cancellationToken).ConfigureAwait(false);

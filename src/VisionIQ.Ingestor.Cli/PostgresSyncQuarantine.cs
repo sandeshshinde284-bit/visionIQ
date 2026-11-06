@@ -28,6 +28,8 @@ public sealed class PostgresSyncQuarantine : ISyncQuarantine, IAsyncDisposable
             resolved_at = NULL
         """;
 
+    // resolved_at IS NULL here matches AddSql's open-entry check: a row already resolved is left alone so a
+    // stale resolve (e.g. a retried request) can't clobber a more recent reopen.
     public const string ResolveSql = """
         UPDATE evidence.sync_quarantine SET resolved_at = @at
         WHERE source_id = @source AND scope = @scope AND item_kind = @kind AND native_id = @native
@@ -75,6 +77,8 @@ public sealed class PostgresSyncQuarantine : ISyncQuarantine, IAsyncDisposable
         command.Parameters.AddWithValue("kind", item.ItemKind);
         command.Parameters.AddWithValue("native", item.NativeId);
         command.Parameters.AddWithValue("code", item.ReasonCode);
+        // Truncate defensively rather than relying on the column's own limit — upstream failure messages
+        // (stack traces, raw API errors) are unbounded and we'd rather lose the tail than fail the insert.
         command.Parameters.AddWithValue("reason", item.Reason.Length <= 500 ? item.Reason : item.Reason[..500]);
         command.Parameters.AddWithValue("at", item.ObservedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);

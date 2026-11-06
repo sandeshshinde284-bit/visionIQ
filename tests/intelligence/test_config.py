@@ -14,7 +14,11 @@ def settings(**overrides: object) -> Settings:
     return Settings(_env_file=None, **values)
 
 
-def test_defaults_match_the_documented_local_setup() -> None:
+def test_defaults_match_the_documented_local_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Defaults only: the shell may hold DB_* overrides (e.g. the isolated test database).
+    for field in Settings.model_fields:
+        monkeypatch.delenv(field.upper(), raising=False)
+
     s = settings()
 
     assert (s.python_api_host, s.python_api_port) == ("127.0.0.1", 8000)

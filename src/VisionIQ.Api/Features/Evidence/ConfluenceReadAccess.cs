@@ -80,6 +80,9 @@ public sealed class ConfluencePageAccessVerifier(ConfluenceHttp confluence, ICon
             confluence.Options.Deployment != ConfluenceDeployment.Cloud ||
             !string.Equals(ConfluenceAccessPrincipals.Origin(identity.SourceInstance), site, StringComparison.Ordinal) ||
             !spaces.Contains(identity.ProjectId) ||
+            // The page ID is concatenated straight into the REST path below, so it is constrained to
+            // digits here rather than escaped — Confluence content IDs are always numeric, and this
+            // rejects anything else outright instead of trying to sanitize it.
             identity.ExternalId is not { Length: > 0 } pageId || !pageId.All(char.IsAsciiDigit) ||
             string.IsNullOrWhiteSpace(requester.PrincipalId))
         {
@@ -98,10 +101,14 @@ public sealed class ConfluencePageAccessVerifier(ConfluenceHttp confluence, ICon
                 return false;
             }
 
+            // Asking Confluence's own permission-check endpoint, rather than replaying a cached ACL,
+            // is the point of this verifier: space permissions, page restrictions and inherited
+            // ancestor restrictions are Confluence's rules, and they can change between syncs.
             using var answer = await confluence.PostJsonAsync(
                 confluence.Api("rest/api/content/" + pageId + "/permission/check"),
                 new { subject = new { type = "user", identifier = account }, operation = "read" },
                 cancellationToken).ConfigureAwait(false);
+            // Anything other than an explicit JSON `true` (missing field, string "true", null) denies.
             var granted = answer.RootElement.TryGetProperty("hasPermission", out var allowed) && allowed.ValueKind == JsonValueKind.True;
             if (!granted)
             {

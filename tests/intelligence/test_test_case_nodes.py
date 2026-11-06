@@ -95,6 +95,7 @@ def test_a_file_to_test_edge_is_traversable(tmp_path: Path) -> None:
         return make_conninfo(
             "",
             host=os.environ.get("DB_HOST", "127.0.0.1"),
+            port=int(os.environ.get("DB_PORT", "5432")),
             dbname=os.environ.get("DB_NAME", "visioniq"),
             user=os.environ[f"DB_{prefix}_USER"],
             password=os.environ[f"DB_{prefix}_PASSWORD"],

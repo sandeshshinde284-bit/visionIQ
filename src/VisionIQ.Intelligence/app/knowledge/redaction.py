@@ -71,6 +71,9 @@ def redact(text: str) -> Redacted:
         if n:
             counts[kind] = counts.get(kind, 0) + n
 
+    # Named patterns run first so a recognised secret is labelled specifically (e.g. "token");
+    # the generic opaque-string and card scans below only see what's left, so they can't relabel
+    # something already redacted.
     for kind, pattern, keep in _PATTERNS:
         replacement = (keep + f"[REDACTED:{kind}]") if keep else f"[REDACTED:{kind}]"
         text, n = pattern.subn(replacement, text)

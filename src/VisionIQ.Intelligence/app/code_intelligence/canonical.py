@@ -17,6 +17,8 @@ from urllib.parse import urlsplit
 from app.code_intelligence.scanner import RepositoryScan
 
 _MAX_BYTES = 10_485_760
+# Bump this if the normalization shape in build_scan_evidence changes, so
+# stored rows can be told apart from ones produced by an older normalizer.
 _NORMALIZER_VERSION = "metadata-only-v1"
 
 
@@ -59,6 +61,9 @@ class ScanEvidence:
     observed_at: datetime
     content_hash: str
     raw_json: bytes
+    # Deliberately a fixed placeholder, not a derived redaction: until a real
+    # redaction policy exists, the safe default is to reveal nothing from the
+    # scan rather than guess at what is safe to surface unredacted.
     redacted_json: str = '{"kind":"code_scan"}'
     acl_verified: bool = False
     acl_principals: tuple[str, ...] = ()
@@ -213,6 +218,8 @@ class GcsScanArchive:
         from google.api_core.exceptions import PreconditionFailed
 
         revision_digest = hashlib.sha256(evidence.revision.encode("utf-8")).hexdigest()
+        # Content-addressed path: re-ingesting the same bytes for the same
+        # revision writes to the same object name instead of duplicating it.
         name = f"raw/v1/{evidence.item_key}/{revision_digest}/{evidence.content_hash}.json"
         blob = self._storage_client().bucket(self._bucket_name).blob(name)
         # An identical content-addressed object may already be archived.

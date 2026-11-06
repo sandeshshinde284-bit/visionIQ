@@ -1,0 +1,42 @@
+{
+  "subscriptionId": "00000000-0000-0000-0000-00000000aaaa",
+  "notificationId": 1,
+  "id": "11111111-2222-4333-8444-555555555555",
+  "eventType": "workitem.updated",
+  "publisherId": "tfs",
+  "resource": {
+    "id": 31,
+    "workItemId": 4711,
+    "rev": 12,
+    "revisedBy": {
+      "id": "6a8f1e2b-0000-4000-8000-000000000001",
+      "uniqueName": "engineer@your-org.example",
+      "displayName": "Engineer"
+    },
+    "fields": {
+      "System.Rev": { "oldValue": 11, "newValue": 12 },
+      "System.State": { "oldValue": "New", "newValue": "In Progress" }
+    },
+    "revision": {
+      "id": 4711,
+      "rev": 12,
+      "fields": {
+        "System.TeamProject": "VisionIQ-Demo",
+        "System.WorkItemType": "Bug",
+        "System.State": "In Progress",
+        "System.Title": "Refund fails for partial captures",
+        "System.AssignedTo": {
+          "id": "6a8f1e2b-0000-4000-8000-000000000001",
+          "uniqueName": "engineer@your-org.example",
+          "displayName": "Engineer"
+        },
+        "System.Tags": "payments"
+      }
+    }
+  },
+  "resourceVersion": "1.0",
+  "resourceContainers": {
+    "collection": { "id": "c0ffee00-0000-4000-8000-000000000000", "baseUrl": "https://dev.azure.com/your-org/" },
+    "project": { "id": "deadbeef-0000-4000-8000-000000000000", "baseUrl": "https://dev.azure.com/your-org/" }
+  }
+}

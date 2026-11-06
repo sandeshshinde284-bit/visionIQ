@@ -177,12 +177,20 @@ public sealed class PostgresSourceChangeInbox : ISourceChangeInbox, IAsyncDispos
     public async Task<ChangeClaim> TryClaimAsync(
         SourceChangeNotification change, CancellationToken cancellationToken = default)
     {
+        // This is the heart of our at-least-once processing: every webhook or scheduled sync
+        // creates an entry here. If the same event arrives twice (webhook retry), we detect it
+        // and return success immediately (idempotent). If an event is being processed but the
+        // worker crashes, the lease expires and another worker picks it up (fault-tolerant).
+        // We also catch conflicts: same event ID but different source data (e.g., a rebuild of
+        // the webhook system with a different interpretation of the same change).
         ArgumentNullException.ThrowIfNull(change);
         change.Validate();
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         var token = Guid.NewGuid();
 
+        // Try to insert this event. If source_id + event_id already exists, do nothing and
+        // return null. This is our deduplication barrier.
         await using var insert = new NpgsqlCommand("""
             INSERT INTO evidence.source_change_inbox (
                 source_id, event_id, provider_kind, native_id, source_revision,

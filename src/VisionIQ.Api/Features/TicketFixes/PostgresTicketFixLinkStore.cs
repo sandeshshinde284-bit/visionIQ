@@ -176,6 +176,11 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
         TicketFixClaim claim,
         CancellationToken cancellationToken = default)
     {
+        // This is called for direct, authoritative source claims: e.g., when ADO tells us
+        // "this PR explicitly links this ticket" or "this commit appeared in this PR".
+        // These claims are trusted enough to resurrect a previously-retracted link (if the
+        // retraction is gone from the source). The guarantee is idempotency: calling this
+        // twice with the same claim produces the same result, and human reviews stay untouched.
         ArgumentNullException.ThrowIfNull(claim);
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);

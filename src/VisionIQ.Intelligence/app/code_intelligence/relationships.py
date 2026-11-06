@@ -137,6 +137,8 @@ def resolve_dependencies(
             if not analysis.path.endswith(".py"):
                 # Other languages have namespaces that aren't resolvable to
                 # source files without an approved language-specific strategy.
+                # (C# gets its own resolution below, via .csproj ProjectReference,
+                # since "using X.Y" has no 1:1 mapping to a file path.)
                 continue
             matches = [p for p in _python_targets(analysis.path, ref.target) if p in file_paths]
             output.append(

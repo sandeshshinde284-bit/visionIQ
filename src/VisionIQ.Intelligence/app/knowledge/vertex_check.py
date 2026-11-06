@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{'PASS' if step.passed else 'FAIL'}  {step.name}: {step.detail}")
         if step.fix:
             print(f"      fix: {step.fix}")
-    ok = len(steps) == 5 and all(s.passed for s in steps)
+    ok = len(steps) == 5 and all(s.passed for s in steps)  # 5: run_checks stops early on failure
     print("Vertex AI embeddings are ready for LRN-08." if ok else "Vertex AI is NOT ready yet.")
     if "--json" in args:
         print(json.dumps([asdict(s) for s in steps]))

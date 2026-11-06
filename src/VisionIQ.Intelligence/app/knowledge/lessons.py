@@ -146,6 +146,8 @@ def consolidate(
     # Work on copies: deciding must never change the caller's state.
     state = {p.pattern_id: replace(p, members=set(p.members)) for p in patterns}
     member_of = {key: p.pattern_id for p in patterns for key in p.members}
+    # A fixed, data-derived order (never insertion order) so two runs over the same evidence make
+    # identical decisions, including which pattern an ambiguous observation happens to join first.
     ordered = sorted(
         (o for o in observations if o.paths), key=lambda o: (o.scope, o.ticket_id, o.key)
     )

@@ -55,6 +55,12 @@ google-cloud-storage
 google-cloud-secret-manager
 # Cloud Logging: sends structured application logs to Google Cloud.
 google-cloud-logging
+# Pub/Sub: publishes outbox events and manages local emulator topics (FND-05).
+google-cloud-pubsub
+
+# --- Event contracts ---
+# JSON Schema: validates every event against the shared contracts/events schemas.
+jsonschema
 
 # --- Reliability and observability ---
 # Tenacity: retries transient failures such as temporary API errors.

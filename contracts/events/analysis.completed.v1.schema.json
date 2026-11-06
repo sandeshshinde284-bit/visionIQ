@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://visioniq.internal/schemas/events/analysis.completed.v1.schema.json",
+  "title": "analysis.completed v1 (S03-03)",
+  "description": "Produced by VisionIQ.Intelligence, consumed by VisionIQ.Api. Carries immutable IDs only; the API reads the stored result by ID.",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "event_type": { "const": "analysis.completed" },
+    "schema_version": { "const": 1 },
+    "producer": { "const": "VisionIQ.Intelligence" },
+    "run_id": { "$ref": "envelope.v1.schema.json#/$defs/uuid" },
+    "data": {
+      "type": "object",
+      "required": ["result_id", "result_state", "evidence_ids", "advice_ids", "reason_codes"],
+      "properties": {
+        "result_id": { "$ref": "envelope.v1.schema.json#/$defs/uuid" },
+        "result_state": { "enum": ["PUBLISHED", "PARTIAL", "BLOCKED"] },
+        "evidence_ids": {
+          "type": "array",
+          "items": { "$ref": "envelope.v1.schema.json#/$defs/identifier" },
+          "uniqueItems": true
+        },
+        "advice_ids": {
+          "type": "array",
+          "items": { "$ref": "envelope.v1.schema.json#/$defs/identifier" },
+          "uniqueItems": true
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,79}$" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "if": { "properties": { "result_state": { "enum": ["PARTIAL", "BLOCKED"] } } },
+      "then": { "properties": { "reason_codes": { "minItems": 1 } } }
+    }
+  },
+  "unevaluatedProperties": false
+}

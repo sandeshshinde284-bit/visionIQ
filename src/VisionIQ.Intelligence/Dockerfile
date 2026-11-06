@@ -18,6 +18,8 @@ COPY requirements-runtime.lock.txt ./requirements-runtime.lock.txt
 RUN pip install --require-hashes -r requirements-runtime.lock.txt
 
 COPY src/VisionIQ.Intelligence/app ./app
+# FND-05: shared event schemas and topic topology, validated on produce and consume.
+COPY contracts/events ./contracts/events
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 appuser

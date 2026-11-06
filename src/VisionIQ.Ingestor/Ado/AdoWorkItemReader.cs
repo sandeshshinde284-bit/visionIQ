@@ -127,6 +127,8 @@ public static class AdoWorkItemReader
     public static string BuildWiql(string projectName, DateTimeOffset? changedSince)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectName);
+        // The WIQL API takes a raw query string with no parameterization, so the project name is interpolated
+        // directly below; this whitelist is what stands between that and injecting arbitrary WIQL.
         if (!ProjectNamePattern.IsMatch(projectName))
         {
             throw new ArgumentException("Project name contains characters that are not allowed.", nameof(projectName));
@@ -139,6 +141,8 @@ public static class AdoWorkItemReader
                 + since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture) + "'";
         }
 
+        // Ordering by ChangedDate alone isn't a stable cursor (ties), so the ID tiebreaker guarantees the
+        // "resume from last changed date" paging logic upstream never skips or repeats an item.
         return query + " ORDER BY [System.ChangedDate] ASC, [System.Id] ASC";
     }
 
@@ -201,6 +205,7 @@ public static class AdoWorkItemReader
             return new ReadOutcome(null, "Changed date is not a valid timestamp.");
         }
 
+        // ADO stores tags as a single "; "-joined string, not an array.
         var tags = (JsonRead.String(fields, "System.Tags") ?? string.Empty)
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 

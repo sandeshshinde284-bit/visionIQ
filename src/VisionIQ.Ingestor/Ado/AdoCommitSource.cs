@@ -73,6 +73,7 @@ public sealed class AdoCommitSource
         ArgumentNullException.ThrowIfNull(commit);
         var basePath = "_apis/git/repositories/" + repository.Id + "/commits/" + commit.CommitId;
 
+        // The list endpoint truncates long commit messages; only pay for the extra per-commit call when it did.
         var comment = commit.Comment;
         if (commit.CommentTruncated)
         {
@@ -99,6 +100,8 @@ public sealed class AdoCommitSource
                 ]),
                 cancellationToken).ConfigureAwait(false);
             var page = JsonRead.Items(changes.Root, "changes").ToList();
+            // The changes API mixes in directory entries alongside file changes; both isFolder and gitObjectType
+            // are checked because neither flag is reliably present on every item shape ADO returns.
             files.AddRange(page
                 .Select(change => (Item: JsonRead.Child(change, "item"), Type: JsonRead.String(change, "changeType")))
                 .Where(change => change.Item is { } item

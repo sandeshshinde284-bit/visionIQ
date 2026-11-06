@@ -22,7 +22,12 @@ if TYPE_CHECKING:
 
 
 def _hash(*values: str) -> str:
-    """Hash length-prefixed UTF-8 values, matching the .NET graph contract."""
+    """Hash length-prefixed UTF-8 values, matching the .NET graph contract.
+
+    Length-prefixing (not just concatenation) matters: without it, ("ab", "c")
+    and ("a", "bc") would hash identically and collide as distinct node/edge
+    identities.
+    """
     blob = b"".join(
         struct.pack("<i", len(encoded)) + encoded
         for encoded in (value.encode("utf-8") for value in values)
@@ -40,6 +45,8 @@ class GraphCodeNode:
 
     def key(self) -> str:
         """Return a source-scoped key, not a global filename or symbol name."""
+        # anchor must be the evidence item_key (a sha256 hex digest) so a file or
+        # symbol node can never be addressed independent of its scan provenance.
         if len(self.anchor) != 64 or not self.native_id or len(self.native_id) > 2048:
             raise ValueError("Invalid source-bound graph node identity")
         return _hash(self.anchor, self.kind.title().replace("_", ""), self.native_id)
@@ -126,6 +133,8 @@ def project_declared_dependencies(
         ):
             target = GraphCodeNode(evidence.item_key, "file", link.target_path)
             if source.key() != target.key():
+                # Guards against a self-import (or an import resolved back to the
+                # same path) producing a meaningless self-loop edge.
                 output.append(GraphCodeEdge(source, target, "file_dependency"))
         elif (
             link.status == "DECLARED_TARGET_REPOSITORY"

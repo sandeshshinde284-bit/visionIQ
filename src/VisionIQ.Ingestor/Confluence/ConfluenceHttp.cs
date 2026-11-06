@@ -179,6 +179,9 @@ public sealed class ConfluenceHttp
                     continue;
                 }
 
+                // Everything else (401/403/404, or a 429/5xx that has exhausted its retries) is terminal:
+                // an auth or not-found error will not fix itself by retrying, so fail now with a message
+                // that points at the likely cause instead of looping.
                 Logging.IngestionLog.CallFailed(log, "Confluence", method, path, attempt + 1, "HTTP " + (int)response.StatusCode);
                 throw new ConfluenceSourceException(response.StatusCode, Describe(response.StatusCode));
             }

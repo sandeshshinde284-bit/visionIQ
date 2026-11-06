@@ -125,6 +125,9 @@ public static partial class DesignDecisionDetector
     {
         ArgumentNullException.ThrowIfNull(page);
         string? detectedBy = null;
+        // Checked in order of confidence: an explicit label is a deliberate human tag, a matching
+        // title is a naming convention that can false-positive, and the template-properties check
+        // only fires when neither of those already claimed the page.
         if (page.Labels.FirstOrDefault(DecisionLabels.Contains) is { } label)
         {
             detectedBy = "label:" + label.ToLowerInvariant();

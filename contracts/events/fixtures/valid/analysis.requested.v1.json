@@ -1,0 +1,21 @@
+{
+  "event_id": "3f1c2a9e-7b4d-4c1a-9a51-0d6c1e2f3a4b",
+  "event_type": "analysis.requested",
+  "schema_version": 1,
+  "occurred_at": "2026-11-02T09:15:00.123Z",
+  "producer": "VisionIQ.Api",
+  "tenant_id": "visioniq-dev",
+  "correlation_id": "8d2b6f10-5e3a-4f7c-b1d2-9a0e4c6b7f81",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "run_id": "8d2b6f10-5e3a-4f7c-b1d2-9a0e4c6b7f81",
+  "source_revision": "12",
+  "data": {
+    "project_id": "VisionIQ-Demo",
+    "ticket_id": "4711",
+    "ticket_revision": 12,
+    "repository_id": "demo-repo",
+    "base_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+    "analysis_mode": "brief",
+    "security_scope_id": "project:VisionIQ-Demo"
+  }
+}

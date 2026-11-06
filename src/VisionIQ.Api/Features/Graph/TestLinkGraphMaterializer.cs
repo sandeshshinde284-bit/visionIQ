@@ -17,6 +17,9 @@ namespace VisionIQ.Api.Features.Graph;
 public sealed class TestLinkGraphMaterializer : IAsyncDisposable
 {
     /// <summary>Test methods present in the latest scan whose qualified name equals the automated test name.</summary>
+    // native_id is "<file>::<qualified.method.name>:<line>"; the substring strips the file prefix and
+    // trailing line number so a line-number-only diff between scans never breaks the match. LIMIT 3 is
+    // enough to tell "exactly one" from "more than one" without scanning every hit in a large repo.
     public const string MappingSql = """
         SELECT DISTINCT n.node_key, n.anchor_item_key, n.native_id
         FROM evidence.graph_assertions declared

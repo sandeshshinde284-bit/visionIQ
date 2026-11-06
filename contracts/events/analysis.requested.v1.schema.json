@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://visioniq.internal/schemas/events/analysis.requested.v1.schema.json",
+  "title": "analysis.requested v1 (S03-02)",
+  "description": "Produced by VisionIQ.Api, consumed by VisionIQ.Intelligence: start a brief or deep analysis for one authorized ticket revision.",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "event_type": { "const": "analysis.requested" },
+    "schema_version": { "const": 1 },
+    "producer": { "const": "VisionIQ.Api" },
+    "run_id": { "$ref": "envelope.v1.schema.json#/$defs/uuid" },
+    "data": {
+      "type": "object",
+      "required": [
+        "project_id",
+        "ticket_id",
+        "ticket_revision",
+        "repository_id",
+        "base_commit_sha",
+        "analysis_mode",
+        "security_scope_id"
+      ],
+      "properties": {
+        "project_id": { "$ref": "envelope.v1.schema.json#/$defs/identifier" },
+        "ticket_id": { "$ref": "envelope.v1.schema.json#/$defs/identifier" },
+        "ticket_revision": { "type": "integer", "minimum": 1 },
+        "repository_id": { "$ref": "envelope.v1.schema.json#/$defs/identifier" },
+        "base_commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "analysis_mode": { "enum": ["brief", "deep"] },
+        "security_scope_id": { "$ref": "envelope.v1.schema.json#/$defs/identifier" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "unevaluatedProperties": false
+}

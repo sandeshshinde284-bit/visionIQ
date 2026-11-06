@@ -96,6 +96,8 @@ public sealed class EvidenceQueryService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(itemKey);
         ArgumentNullException.ThrowIfNull(requester);
+        // Item keys are always our own SHA-256 output (see EvidenceIdentity.ItemKey); anything else
+        // is a caller bug, not a legitimate lookup miss, so it throws instead of just returning null.
         if (itemKey.Length != 64 || !itemKey.All(Uri.IsHexDigit))
         {
             throw new ArgumentException("Evidence keys must be canonical SHA-256 values.", nameof(itemKey));

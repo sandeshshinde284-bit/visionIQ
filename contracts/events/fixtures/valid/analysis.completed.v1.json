@@ -1,0 +1,19 @@
+{
+  "event_id": "c5a7e0d2-1f3b-4e6a-8c9d-2b4f6a8c0e1d",
+  "event_type": "analysis.completed",
+  "schema_version": 1,
+  "occurred_at": "2026-11-02T09:15:42+00:00",
+  "producer": "VisionIQ.Intelligence",
+  "tenant_id": "visioniq-dev",
+  "correlation_id": "8d2b6f10-5e3a-4f7c-b1d2-9a0e4c6b7f81",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "run_id": "8d2b6f10-5e3a-4f7c-b1d2-9a0e4c6b7f81",
+  "source_revision": "12",
+  "data": {
+    "result_id": "e9b1d3f5-7a2c-4e8b-9d0f-1a3c5e7b9d2f",
+    "result_state": "PARTIAL",
+    "evidence_ids": ["ev:commit:0123456"],
+    "advice_ids": [],
+    "reason_codes": ["no_test_runner_configured"]
+  }
+}

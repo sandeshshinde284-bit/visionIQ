@@ -106,6 +106,8 @@ def _inventory(root: Path, ref: str) -> tuple[str, tuple[GitFile, ...]]:
         metadata, path_bytes = record.split(b"\t", maxsplit=1)
         mode, kind, sha = metadata.decode("ascii").split(" ")
         # Never follow symlinks or scan submodules; they are independent sources.
+        # (submodules show up as kind "commit" in ls-tree, not "blob", so the
+        # kind check alone already excludes them; mode 120000 drops symlinks.)
         if kind != "blob" or mode == "120000":
             continue
         path = path_bytes.decode("utf-8", errors="surrogateescape")

@@ -25,17 +25,9 @@ public static class DatabaseReadinessEndpoints
         {
             try
             {
-                var connectionString = new NpgsqlConnectionStringBuilder
-                {
-                    Host = options.Host,
-                    Port = options.Port,
-                    Database = options.Name,
-                    Username = options.User,
-                    Password = options.Password,
-                    Timeout = 3,
-                    CommandTimeout = 3,
-                };
-                connectionString["SSL Mode"] = options.SslMode;
+                var connectionString = options.CreateConnectionStringBuilder();
+                connectionString.Timeout = 3;
+                connectionString.CommandTimeout = 3;
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeout.CancelAfter(TimeSpan.FromSeconds(5));

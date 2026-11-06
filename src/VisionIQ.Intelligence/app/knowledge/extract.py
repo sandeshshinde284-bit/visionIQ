@@ -51,6 +51,8 @@ def extract(kind: str, record: dict) -> Document:
         )
     if kind == "pull_request":
         sections = [Section("Description", _text(record, "description"))]
+        # One section per review thread (not one big "reviews" blob) so a chunk that matches a
+        # specific thread cites that file/comment, not the whole PR.
         for thread in record.get("reviewThreads") or []:
             where = f" on {thread['filePath']}" if thread.get("filePath") else ""
             body = "\n\n".join(

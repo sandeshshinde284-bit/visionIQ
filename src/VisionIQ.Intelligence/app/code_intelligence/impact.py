@@ -58,6 +58,9 @@ def _diff_names(root: str, base: str, head: str) -> tuple[tuple[str, str | None,
 
 
 def _lines(root: str, commit: str, path: str | None, max_bytes: int) -> list[str] | None:
+    # None (not []) signals "can't compare lines" for oversized/binary/non-UTF-8
+    # content, so the caller falls back to FILE_ONLY confidence instead of
+    # diffing garbage or guessing at symbol overlap.
     if path is None:
         return []
     raw = _git(root, "show", f"{commit}:{path}")
@@ -99,6 +102,9 @@ def map_diff_to_symbols(
         for kind, _a1, _a2, b1, b2 in difflib.SequenceMatcher(
             None, old_lines, new_lines, autojunk=False
         ).get_opcodes():
+            # "delete" is intentionally excluded: a pure deletion has no
+            # corresponding new-file line range, so it can't be attributed to a
+            # symbol span in the new file (see module docstring).
             if kind in {"insert", "replace"}:
                 changed.update(range(b1 + 1, b2 + 1))
         analysis = indexed.get(new_path or "")

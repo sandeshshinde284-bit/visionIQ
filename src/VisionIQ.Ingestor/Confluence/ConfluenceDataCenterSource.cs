@@ -142,6 +142,9 @@ public sealed class ConfluenceDataCenterSource : IConfluenceSource
     {
         try
         {
+            // A bad/unapproved space key returns zero results from the content search below, which
+            // looks identical to "empty space". Probe the space endpoint first so the real cause
+            // (typo, or an account with no access) surfaces as a clear error instead of silence.
             using var document = await http.GetAsync(http.Api("rest/api/space/" + Uri.EscapeDataString(spaceKey)), cancellationToken).ConfigureAwait(false);
         }
         catch (ConfluenceSourceException error) when (error.IsNotFound)

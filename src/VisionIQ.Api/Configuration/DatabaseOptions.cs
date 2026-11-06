@@ -1,3 +1,5 @@
+using Npgsql;
+
 namespace VisionIQ.Api.Configuration;
 
 /// <summary>
@@ -23,6 +25,21 @@ public sealed record DatabaseOptions(
             User: Required(configuration["DB_API_USER"], "DB_API_USER"),
             Password: Required(configuration["DB_API_PASSWORD"], "DB_API_PASSWORD"),
             SslMode: ValueOrDefault(configuration["DB_SSL_MODE"], "prefer"));
+    }
+
+    /// <summary>Connection settings for the API runtime identity; callers may tighten timeouts.</summary>
+    public NpgsqlConnectionStringBuilder CreateConnectionStringBuilder()
+    {
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = Host,
+            Port = Port,
+            Database = Name,
+            Username = User,
+            Password = Password,
+        };
+        builder["SSL Mode"] = SslMode;
+        return builder;
     }
 
     /// <summary>Describes the target without ever including the password.</summary>

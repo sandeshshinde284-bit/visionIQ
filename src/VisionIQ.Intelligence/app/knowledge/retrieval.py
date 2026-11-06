@@ -22,7 +22,7 @@ from app.knowledge.embeddings import Embedder
 from app.knowledge.redaction import redact
 
 RRF_K = 60  # standard reciprocal-rank-fusion constant
-LANE_LIMIT = 50
+LANE_LIMIT = 50  # cap per lane before fusion, so one noisy lane can't dominate ranking or latency
 MIN_INFORMATIVE_TERMS = 3
 # Words too common to identify a defect: excluded from search terms and signal counting.
 _STOP = {

@@ -71,6 +71,8 @@ public sealed class ConfluenceCurrentAccessVerifier(
                 return false;
             }
 
+            // The viewer's only "space" is the one space access was already confirmed for above, so
+            // CanView's own space check is reduced to a formality here, not a second access decision.
             var trustedViewer = ConfluenceViewer.Create(
                 requester.PrincipalId, requester.GroupPrincipalIds, [identity.ProjectId]);
             return ConfluenceAccess.CanView(acl, trustedViewer);

@@ -1,0 +1,29 @@
+{
+  "description": "Pub/Sub topics and push subscriptions for FND-05 (S02-07, S02-08). Read by the local emulator setup and the cloud provisioning script; the .NET constants in Features/Events/EventTopology.cs must match.",
+  "retry": {
+    "max_delivery_attempts": 5,
+    "minimum_backoff_seconds": 10,
+    "maximum_backoff_seconds": 600,
+    "ack_deadline_seconds": 60,
+    "message_retention_seconds": 604800
+  },
+  "events": [
+    {
+      "event_type": "analysis.requested",
+      "schema_version": 1,
+      "topic": "visioniq-analysis-requested-v1",
+      "dead_letter_topic": "visioniq-analysis-requested-v1-dlq",
+      "subscription": "visioniq-intelligence-analysis-requested-v1",
+      "consumer": "intelligence"
+    },
+    {
+      "event_type": "analysis.completed",
+      "schema_version": 1,
+      "topic": "visioniq-analysis-completed-v1",
+      "dead_letter_topic": "visioniq-analysis-completed-v1-dlq",
+      "subscription": "visioniq-api-analysis-completed-v1",
+      "consumer": "api"
+    }
+  ],
+  "push_path": "/events/pubsub"
+}

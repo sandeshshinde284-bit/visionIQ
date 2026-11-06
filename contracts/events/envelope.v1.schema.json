@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://visioniq.internal/schemas/events/envelope.v1.schema.json",
+  "title": "VisionIQ event envelope v1 (S03-01)",
+  "description": "Every event exchanged between the .NET and Python services. Event-specific schemas narrow event_type, schema_version and data, and close the object with unevaluatedProperties.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "occurred_at",
+    "producer",
+    "tenant_id",
+    "correlation_id",
+    "trace_id",
+    "run_id",
+    "source_revision",
+    "data"
+  ],
+  "properties": {
+    "event_id": {
+      "description": "Unique per logical event; consumers deduplicate on it.",
+      "$ref": "#/$defs/uuid"
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[a-z]+(\\.[a-z_]+)+$"
+    },
+    "schema_version": {
+      "description": "Major version of the data contract. A consumer rejects versions it does not know.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "producer": {
+      "enum": ["VisionIQ.Api", "VisionIQ.Intelligence", "VisionIQ.Ingestor"]
+    },
+    "tenant_id": {
+      "description": "Tenant / security scope the event belongs to.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "correlation_id": {
+      "description": "Business correlation (usually the run). Stays the same for every event of one request.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+    },
+    "trace_id": {
+      "description": "W3C trace ID (32 lowercase hex), logged by every service that touches the event.",
+      "type": "string",
+      "pattern": "^(?!0{32})[0-9a-f]{32}$"
+    },
+    "run_id": {
+      "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+    },
+    "source_revision": {
+      "description": "Revision of the source artifact the event was derived from, when there is one.",
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:/-]{1,256}$"
+    }
+  }
+}

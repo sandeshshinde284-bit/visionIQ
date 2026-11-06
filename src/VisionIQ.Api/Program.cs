@@ -1,7 +1,10 @@
+using Npgsql;
 using VisionIQ.Api.Configuration;
+using VisionIQ.Api.Features.Events;
 using VisionIQ.Api.Features.Health;
 using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Api.Features.Graph;
+using VisionIQ.Api.Features.Pickup;
 using VisionIQ.Api.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -52,6 +55,23 @@ builder.Services.AddAdoEvidenceAccess(builder.Configuration);
 builder.Services.AddRelationshipGraph();
 // LRN-07 graph query API: exposed only when Entra ID and ADO access are fully configured.
 var graphApi = VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.AddGraphApi(builder.Services, builder.Configuration);
+
+builder.Services.AddSingleton(services =>
+    NpgsqlDataSource.Create(services.GetRequiredService<DatabaseOptions>().CreateConnectionStringBuilder().ConnectionString));
+
+// FND-05 events: the inbox and push endpoint are always on; publishing the outbox is opt-in.
+var eventing = EventingOptions.FromConfiguration(builder.Configuration);
+builder.Services.AddSingleton(eventing);
+builder.Services.AddSingleton<IInboundEventProcessor, PostgresInboundEventProcessor>();
+builder.Services.AddSingleton<IEventPublisher, PubSubEventPublisher>();
+if (eventing.DispatchEnabled)
+{
+    builder.Services.AddHostedService<OutboxDispatcher>();
+}
+
+// BRF-01 ticket pickup: off unless PICKUP_POLICY_FILE is set (then PICKUP_WEBHOOK_SECRET is required).
+var pickup = builder.Services.AddTicketPickup(builder.Configuration);
+
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
@@ -67,6 +87,16 @@ if (graphApi)
     app.UseAuthentication();
     app.UseAuthorization();
     VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.MapGraphApi(app);
+}
+app.MapPubSubPush();
+if (pickup is not null)
+{
+    app.MapAdoPickupWebhook();
+}
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapDevelopmentAnalysisRequests();
 }
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();

@@ -47,6 +47,10 @@ public sealed class ConfluenceCloudSource : IConfluenceSource
             next = links is { } nextLinks && JsonRead.String(nextLinks, "next") is { } link ? http.Link(link) : null;
         }
 
+        // v2's space-pages listing has no restrictions field, so each page needs its own v1 call.
+        // Sequential (not Task.WhenAll) on purpose: this is already the per-page request that most
+        // risks tripping Confluence's rate limit, so we let ConfluenceHttp's own retry/backoff
+        // handle 429s one request at a time rather than firing a burst.
         var withRestrictions = new List<ConfluencePage>(pages.Count);
         foreach (var page in pages)
         {

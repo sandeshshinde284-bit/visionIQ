@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Connections & Code Flow</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 20px; line-height: 1.6; }
+        figure { margin: 40px 0; }
+        figcaption { font-size: 14px; margin-top: 12px; color: #666; }
+        svg { max-width: 100%; height: auto; border: 1px solid #e0e0e0; padding: 10px; background: white; }
+        table { border-collapse: collapse; margin: 20px 0; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background: #f5f5f5; font-weight: bold; }
+        tr:nth-child(even) { background: #fafafa; }
+        .code { font-family: 'Courier New', monospace; font-size: 12px; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
+        .feature { color: #ff9500; font-weight: bold; }
+        .file { color: #0066cc; }
+        @media (prefers-color-scheme: dark) {
+            body { background: #1a1a1a; color: #e0e0e0; }
+            figcaption { color: #999; }
+            svg { background: #0a0a0a; border-color: #333; }
+            table { color: #e0e0e0; }
+            th, td { border-color: #444; }
+            th { background: #2a2a2a; }
+            tr:nth-child(even) { background: #151515; }
+            .code { background: #2a2a2a; border: 1px solid #444; }
+        }
+    </style>
+</head>
+<body>
+
+<h1>Code File Connections & Feature Map</h1>
+
+<figure>
+    <svg viewBox="0 0 1400 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="File dependency graph showing which files implement each LRN feature">
+        <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
+            </marker>
+            <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#ff9500" />
+            </marker>
+            <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#51cf66" />
+            </marker>
+        </defs>
+
+        <!-- Column headers -->
+        <text x="80" y="30" font-size="13" font-weight="bold" fill="currentColor">SOURCE READING</text>
+        <text x="350" y="30" font-size="13" font-weight="bold" fill="currentColor">LINK EXTRACTION</text>
+        <text x="650" y="30" font-size="13" font-weight="bold" fill="currentColor">ARCHIVAL</text>
+        <text x="950" y="30" font-size="13" font-weight="bold" fill="currentColor">SYNC & CURRENCY</text>
+        <text x="1250" y="30" font-size="13" font-weight="bold" fill="currentColor">GRAPH</text>
+
+        <!-- FEATURE: LRN-01 -->
+        <rect x="20" y="60" width="140" height="140" fill="none" stroke="#ff9500" stroke-width="2" rx="4"/>
+        <text x="90" y="80" font-size="12" font-weight="bold" text-anchor="middle" fill="#ff9500">LRN-01</text>
+        <text x="90" y="95" font-size="11" text-anchor="middle" fill="currentColor">History</text>
+        <text x="90" y="110" font-size="11" text-anchor="middle" fill="currentColor">Connectors</text>
+        <text x="25" y="135" font-size="9" fill="currentColor">• AdoWorkItemSource.cs</text>
+        <text x="25" y="150" font-size="9" fill="currentColor">• AdoRepositorySource.cs</text>
+        <text x="25" y="165" font-size="9" fill="currentColor">• AdoCommitSource.cs</text>
+        <text x="25" y="180" font-size="9" fill="currentColor">• AdoBuildSource.cs</text>
+        <text x="25" y="195" font-size="9" fill="currentColor">• SyncRunner.cs</text>
+
+        <!-- FEATURE: LRN-02 -->
+        <rect x="20" y="220" width="140" height="100" fill="none" stroke="#ff9500" stroke-width="2" rx="4"/>
+        <text x="90" y="240" font-size="12" font-weight="bold" text-anchor="middle" fill="#ff9500">LRN-02</text>
+        <text x="90" y="255" font-size="11" text-anchor="middle" fill="currentColor">Confluence</text>
+        <text x="90" y="270" font-size="11" text-anchor="middle" fill="currentColor">+ ACL</text>
+        <text x="25" y="295" font-size="9" fill="currentColor">• ConfluenceSyncRunner.cs</text>
+        <text x="25" y="310" font-size="9" fill="currentColor">• ConfluenceConnector.cs</text>
+
+        <!-- FEATURE: LRN-04 (Link Extraction) -->
+        <rect x="320" y="60" width="140" height="140" fill="none" stroke="#ff9500" stroke-width="2" rx="4"/>
+        <text x="390" y="80" font-size="12" font-weight="bold" text-anchor="middle" fill="#ff9500">LRN-04</text>
+        <text x="390" y="95" font-size="11" text-anchor="middle" fill="currentColor">Ticket-Fix</text>
+        <text x="390" y="110" font-size="11" text-anchor="middle" fill="currentColor">Links</text>
+        <text x="325" y="135" font-size="9" fill="currentColor">• LinkExtractor.cs</text>
+        <text x="325" y="150" font-size="9" fill="currentColor">• TicketFixClaim.cs</text>
+        <text x="325" y="165" font-size="9" fill="currentColor">• PostgresTicketFix</text>
+        <text x="325" y="180" font-size="9" fill="currentColor">  LinkStore.cs</text>
+        <text x="325" y="195" font-size="9" fill="currentColor">• LinkExtractor.FromXxx</text>
+
+        <!-- FEATURE: LRN-03 (Archival) -->
+        <rect x="620" y="60" width="140" height="140" fill="none" stroke="#ff9500" stroke-width="2" rx="4"/>
+        <text x="690" y="80" font-size="12" font-weight="bold" text-anchor="middle" fill="#ff9500">LRN-03</text>
+        <text x="690" y="95" font-size="11" text-anchor="middle" fill="currentColor">Versioned</text>
+        <text x="690" y="110" font-size="11" text-anchor="middle" fill="currentColor">Evidence</text>
+        <text x="625" y="135" font-size="9" fill="currentColor">• RawEvidenceArchive</text>
+        <text x="625" y="150" font-size="9" fill="currentColor">  .cs (GCS)</text>
+        <text x="625" y="165" font-size="9" fill="currentColor">• EvidenceRevision</text>
+        <text x="625" y="180" font-size="9" fill="currentColor">  Store.cs (PG)</text>
+        <text x="625" y="195" font-size="9" fill="currentColor">• Database schema</text>
+
+        <!-- FEATURE: LRN-05 (Sync) -->
+        <rect x="920" y="60" width="140" height="140" fill="none" stroke="#ff9500" stroke-width="2" rx="4"/>
+        <text x="990" y="80" font-size="12" font-weight="bold" text-anchor="middle" fill="#ff9500">LRN-05</text>
+        <text x="990" y="95" font-size="11" text-anchor="middle" fill="currentColor">Backfill &</text>
+        <text x="990" y="110" font-size="11" text-anchor="middle" fill="currentColor">Sync</text>
+        <text x="925" y="135" font-size="9" fill="currentColor">• SourceChangeProcessor</text>
+        <text x="925" y="150" font-size="9" fill="currentColor">  .cs (webhooks)</text>
+        <text x="925" y="165" font-size="9" fill="currentColor">• PostgresSourceChange</text>
+        <text x="925" y="180" font-size="9" fill="currentColor">  Inbox.cs (dedup)</text>
+        <text x="925" y="195" font-size="9" fill="currentColor">• SyncRunner.cs</text>
+
+        <!-- FEATURE: LRN-06, LRN-07 (Graph) -->
+        <rect x="1220" y="60" width="140" height="140" fill="none" stroke="#ff9500" stroke-width="2" rx="4"/>
+        <text x="1290" y="80" font-size="12" font-weight="bold" text-anchor="middle" fill="#ff9500">LRN-06/07</text>
+        <text x="1290" y="95" font-size="11" text-anchor="middle" fill="currentColor">Code Intel</text>
+        <text x="1290" y="110" font-size="11" text-anchor="middle" fill="currentColor">+ Graph</text>
+        <text x="1225" y="135" font-size="9" fill="currentColor">• CodeScanner.cs</text>
+        <text x="1225" y="150" font-size="9" fill="currentColor">• GraphBuilder.cs</text>
+        <text x="1225" y="165" font-size="9" fill="currentColor">• SymbolExtractor.cs</text>
+        <text x="1225" y="180" font-size="9" fill="currentColor">• ACL verification</text>
+
+        <!-- Data flows between features -->
+        <line x1="160" y1="130" x2="320" y2="130" stroke="#ff9500" stroke-width="2" marker-end="url(#arrow-orange)"/>
+        <text x="240" y="120" font-size="9" text-anchor="middle" fill="#ff9500">raw records</text>
+
+        <line x1="460" y1="130" x2="620" y2="130" stroke="#ff9500" stroke-width="2" marker-end="url(#arrow-orange)"/>
+        <text x="540" y="120" font-size="9" text-anchor="middle" fill="#ff9500">extracted links</text>
+
+        <line x1="760" y1="130" x2="920" y2="130" stroke="#ff9500" stroke-width="2" marker-end="url(#arrow-orange)"/>
+        <text x="840" y="120" font-size="9" text-anchor="middle" fill="#ff9500">versioned data</text>
+
+        <line x1="1060" y1="130" x2="1220" y2="130" stroke="#ff9500" stroke-width="2" marker-end="url(#arrow-orange)"/>
+        <text x="1140" y="120" font-size="9" text-anchor="middle" fill="#ff9500">current state</text>
+
+        <!-- Shared utilities box -->
+        <rect x="420" y="420" width="280" height="150" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4,4" rx="4"/>
+        <text x="560" y="440" font-size="11" font-weight="bold" fill="currentColor">Shared Utilities & Database</text>
+        <text x="430" y="460" font-size="9" fill="currentColor">• Checkpoints.cs (TimeCursor, load/save)</text>
+        <text x="430" y="475" font-size="9" fill="currentColor">• SyncQuarantine.cs (failed items retry)</text>
+        <text x="430" y="490" font-size="9" fill="currentColor">• AdoClient.cs (Azure DevOps API)</text>
+        <text x="430" y="505" font-size="9" fill="currentColor">• NpgsqlDataSource (PostgreSQL pool)</text>
+        <text x="430" y="520" font-size="9" fill="currentColor">• Google Cloud Storage client</text>
+        <text x="430" y="535" font-size="9" fill="currentColor">• Database schema + migrations</text>
+        <text x="430" y="550" font-size="9" fill="currentColor">• Logging + configuration</text>
+
+        <!-- Key patterns box -->
+        <rect x="50" y="420" width="350" height="150" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="225" y="440" font-size="11" font-weight="bold" fill="currentColor">Key Patterns Used Across Features</text>
+        <text x="60" y="460" font-size="9" fill="currentColor">• IRecordSink abstraction (writes to storage)</text>
+        <text x="60" y="475" font-size="9" fill="currentColor">• ICheckpointStore (resume logic)</text>
+        <text x="60" y="490" font-size="9" fill="currentColor">• ISyncQuarantine (retry management)</text>
+        <text x="60" y="505" font-size="9" fill="currentColor">• ISourceChangeInbox (webhook dedup)</text>
+        <text x="60" y="520" font-size="9" fill="currentColor">• Async/await (async processing)</text>
+        <text x="60" y="535" font-size="9" fill="currentColor">• Repository pattern (data access)</text>
+
+        <!-- Data storage box -->
+        <rect x="790" y="420" width="330" height="150" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="955" y="440" font-size="11" font-weight="bold" fill="currentColor">Data Storage (Multi-Tier)</text>
+        <text x="800" y="460" font-size="9" fill="currentColor">PostgreSQL (evidence schema):</text>
+        <text x="810" y="475" font-size="9" fill="currentColor">• evidence_revisions (identity + versions)</text>
+        <text x="810" y="490" font-size="9" fill="currentColor">• ticket_fix_links (associations)</text>
+        <text x="810" y="505" font-size="9" fill="currentColor">• source_change_inbox (webhook dedup)</text>
+        <text x="810" y="520" font-size="9" fill="currentColor">• sync_checkpoints (cursor state)</text>
+        <text x="800" y="540" font-size="9" fill="currentColor">Google Cloud Storage:</text>
+        <text x="810" y="555" font-size="9" fill="currentColor">• gs://bucket/raw/v1/{itemKey}/{hash}.json</text>
+    </svg>
+    <figcaption>File dependency map showing which .cs files implement each LRN feature (LRN-01 through LRN-07), shared utilities, patterns, and data storage layers.</figcaption>
+</figure>
+
+---
+
+## Feature-to-Files Mapping Table
+
+<table>
+<tr>
+    <th>Feature</th>
+    <th>Purpose</th>
+    <th>Key Files</th>
+    <th>Input</th>
+    <th>Output</th>
+</tr>
+<tr>
+    <td><span class="feature">LRN-01: History Connectors</span></td>
+    <td>Read Azure DevOps sources (work items, PRs, commits, builds)</td>
+    <td>
+        <span class="code">SyncRunner.cs</span><br/>
+        <span class="code">AdoWorkItemSource.cs</span><br/>
+        <span class="code">AdoRepositorySource.cs</span><br/>
+        <span class="code">AdoCommitSource.cs</span><br/>
+        <span class="code">AdoBuildSource.cs</span>
+    </td>
+    <td>ADO API + Checkpoint</td>
+    <td>Raw records + Cursor</td>
+</tr>
+<tr>
+    <td><span class="feature">LRN-02: Confluence</span></td>
+    <td>Import design docs with ACL enforcement</td>
+    <td>
+        <span class="code">ConfluenceSyncRunner.cs</span><br/>
+        <span class="code">ConfluenceConnector.cs</span>
+    </td>
+    <td>Confluence API + Permissions</td>
+    <td>Design docs + ACL metadata</td>
+</tr>
+<tr>
+    <td><span class="feature">LRN-03: Versioned Evidence</span></td>
+    <td>Immutable archival to PostgreSQL + Cloud Storage</td>
+    <td>
+        <span class="code">RawEvidenceArchive.cs</span><br/>
+        <span class="code">EvidenceRevisionStore.cs</span><br/>
+        <span class="code">PostgreSQL schema</span>
+    </td>
+    <td>Raw JSON records</td>
+    <td>Content-hash revisions + Archive URLs</td>
+</tr>
+<tr>
+    <td><span class="feature">LRN-04: Ticket-Fix Links</span></td>
+    <td>Link tickets to fixes; track reverts</td>
+    <td>
+        <span class="code">LinkExtractor.cs</span><br/>
+        <span class="code">PostgresTicketFixLinkStore.cs</span><br/>
+        <span class="code">TicketFixClaim.cs</span>
+    </td>
+    <td>Records from LRN-01-03</td>
+    <td>TicketFixClaim + Lifecycle events</td>
+</tr>
+<tr>
+    <td><span class="feature">LRN-05: Backfill & Sync</span></td>
+    <td>Keep evidence current: backfill, delta sync, webhooks, reconcile</td>
+    <td>
+        <span class="code">SyncRunner.cs</span><br/>
+        <span class="code">SourceChangeProcessor.cs</span><br/>
+        <span class="code">PostgresSourceChangeInbox.cs</span>
+    </td>
+    <td>Checkpoint + Webhooks</td>
+    <td>Updated records + Dedup inbox</td>
+</tr>
+<tr>
+    <td><span class="feature">LRN-06: Code Intelligence</span></td>
+    <td>Scan code for symbols, imports, dependencies</td>
+    <td>
+        <span class="code">CodeScanner.cs (Python)</span><br/>
+        <span class="code">SymbolExtractor.cs</span>
+    </td>
+    <td>Repository source code</td>
+    <td>Symbol graph + Dependencies</td>
+</tr>
+<tr>
+    <td><span class="feature">LRN-07: Relationship Graph</span></td>
+    <td>Build permission-aware graph: tickets→PRs→code</td>
+    <td>
+        <span class="code">GraphBuilder.cs</span><br/>
+        <span class="code">ACL verification logic</span>
+    </td>
+    <td>All evidence from LRN-01-06</td>
+    <td>Queryable graph with proof strength</td>
+</tr>
+</table>
+
+---
+
+## Code Execution Layers
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 1: Entry Points (CLI / API)                       │
+├─────────────────────────────────────────────────────────┤
+│ Program.cs → Dependency Injection → Service Creation    │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 2: Orchestration (SyncRunner)                     │
+├─────────────────────────────────────────────────────────┤
+│ SyncRunner.RunAsync()                                    │
+│  ├─ LoadCursorAsync() ← checkpoints store               │
+│  ├─ For each project:                                   │
+│  │  ├─ SyncWorkItemsAsync()                            │
+│  │  ├─ SyncPullRequestsAsync()                         │
+│  │  ├─ SyncCommitsAsync()                              │
+│  │  └─ SyncBuildsAsync()                               │
+│  └─ SaveCursorAsync() → checkpoints store               │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 3: Source Reading (LRN-01, LRN-02)               │
+├─────────────────────────────────────────────────────────┤
+│ AdoWorkItemSource.QueryIdsAsync() + GetWorkItemsAsync() │
+│ AdoRepositorySource.GetPullRequestsAsync()              │
+│ ConfluenceSyncRunner.SyncAsync()                         │
+│ Each returns structured records                          │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 4: Link Extraction (LRN-04)                       │
+├─────────────────────────────────────────────────────────┤
+│ LinkExtractor.FromWorkItem() / FromPullRequest()        │
+│ LinkExtractor.FromCommit() / FromBuild()                │
+│ Produces: TicketFixClaim[]                              │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 5: Archival (LRN-03)                              │
+├─────────────────────────────────────────────────────────┤
+│ RawEvidenceArchive.StoreAsync()                          │
+│  ├─ Compute SHA256(rawJSON)                             │
+│  ├─ Upload to Cloud Storage (content-addressed)         │
+│  └─ Return archive URL                                  │
+│ EvidenceRevisionStore.UpsertAsync()                      │
+│  └─ Store in PostgreSQL with revision metadata          │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 6: Persistence (PostgreSQL + Cloud Storage)       │
+├─────────────────────────────────────────────────────────┤
+│ Tables:                                                  │
+│  • evidence_revisions (identity + hash)                 │
+│  • ticket_fix_links (associations)                      │
+│  • source_change_inbox (webhook dedup)                  │
+│  • sync_checkpoints (cursor state)                      │
+│  • ticket_fix_link_lifecycle_events (audit)             │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 7: Query & Retrieval (LRN-06, LRN-07)            │
+├─────────────────────────────────────────────────────────┤
+│ GraphBuilder queries evidence tables                     │
+│ CodeScanner extracts symbols                            │
+│ ACL verification on traversal                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## File Organization by Function
+
+**Source Reading (src/VisionIQ.Ingestor/):**
+- `Sync/SyncRunner.cs` — Orchestrates all syncs
+- `Ado/AdoWorkItemSource.cs` — Work item queries + batch reads
+- `Ado/AdoRepositorySource.cs` — PR list + details
+- `Ado/AdoCommitSource.cs` — Commit reading
+- `Ado/AdoBuildSource.cs` — Build pipeline reading
+- `Checkpoints/` — Save/load cursor state
+- `Links/LinkExtractor.cs` — Extracts claims from records
+
+**Evidence Storage (src/VisionIQ.Api/Features/Evidence/):**
+- `RawEvidenceArchive.cs` — Cloud Storage (content-addressed)
+- `EvidenceRevisionStore.cs` — PostgreSQL versioning
+- `SourceChangeInbox.cs` — Webhook deduplication
+
+**Link Management (src/VisionIQ.Api/Features/TicketFixes/):**
+- `PostgresTicketFixLinkStore.cs` — Store claims + retraction lifecycle
+
+**Backfill & Sync (src/VisionIQ.Api/Features/Backfill/):**
+- `SourceChangeProcessor.cs` — Process webhooks with at-least-once semantics
+
+</body>
+</html>

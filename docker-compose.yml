@@ -1,4 +1,5 @@
-# Local development stack: PostgreSQL with pgvector, the .NET API and the Python Intelligence service.
+# Local development stack: PostgreSQL with pgvector, the Pub/Sub emulator, the .NET API and the Python
+# Intelligence service.
 # Everything:        docker compose up --build -d
 # Database only:     docker compose up -d postgres
 # Needs DB_LOCAL_PASSWORD in your .env (see .env.example).
@@ -24,6 +25,29 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  pubsub:
+    # FND-05: local Pub/Sub. Push subscriptions call the services by name; dead-lettering is not enforced
+    # by the emulator (cloud subscriptions get it from scripts/pubsub/provision-pubsub.ps1).
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    container_name: visioniq-pubsub
+    command: ["gcloud", "beta", "emulators", "pubsub", "start", "--host-port=0.0.0.0:8085", "--project=visioniq-local"]
+    ports:
+      - "127.0.0.1:8085:8085"
+
+  pubsub-init:
+    # Creates topics, dead-letter topics and push subscriptions from contracts/events/topology.json.
+    image: visioniq-intelligence:local
+    depends_on:
+      pubsub:
+        condition: service_started
+      intelligence:
+        condition: service_started
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PUBSUB_PROJECT_ID: visioniq-local
+    command: ["python", "-m", "app.events.emulator_setup"]
+    restart: "no"
 
   db-migrate:
     # Runs on both new and existing volumes, before app containers start.
@@ -67,6 +91,18 @@ services:
       DB_API_PASSWORD: ${DB_API_PASSWORD:?Set DB_API_PASSWORD in .env}
       DB_SSL_MODE: disable
       PYTHON_SERVICE_URL: http://intelligence:8000
+      TENANT_ID: ${TENANT_ID:-visioniq-dev}
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PUBSUB_PROJECT_ID: visioniq-local
+      EVENTS_DISPATCH_ENABLED: "true"
+      # BRF-01 ticket pickup: off while PICKUP_POLICY_FILE is empty (e.g. /app/config/pickup-policy.local.json).
+      PICKUP_POLICY_FILE: ${PICKUP_POLICY_FILE:-}
+      PICKUP_WEBHOOK_SECRET: ${PICKUP_WEBHOOK_SECRET:-}
+      PICKUP_SWEEP_INTERVAL_MINUTES: ${PICKUP_SWEEP_INTERVAL_MINUTES:-15}
+      ADO_ORG_URL: ${ADO_ORG_URL:-}
+      ADO_READ_PAT: ${ADO_READ_PAT:-}
+    volumes:
+      - ./config:/app/config:ro
     ports:
       - "127.0.0.1:5100:5100"
     healthcheck:
@@ -95,6 +131,10 @@ services:
       DB_INTELLIGENCE_USER: ${DB_INTELLIGENCE_USER:?Set DB_INTELLIGENCE_USER in .env}
       DB_INTELLIGENCE_PASSWORD: ${DB_INTELLIGENCE_PASSWORD:?Set DB_INTELLIGENCE_PASSWORD in .env}
       DB_SSL_MODE: disable
+      TENANT_ID: ${TENANT_ID:-visioniq-dev}
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PUBSUB_PROJECT_ID: visioniq-local
+      EVENTS_DISPATCH_ENABLED: "true"
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

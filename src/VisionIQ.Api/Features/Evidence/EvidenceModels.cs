@@ -26,6 +26,9 @@ public sealed record EvidenceIdentity(
             throw new ArgumentException("Source identity fields must be populated.");
         }
 
+        // Length-prefix each field instead of joining with a delimiter: a field value
+        // containing the delimiter would otherwise let two different identities collide
+        // on the same hash. A length of -1 distinguishes null (no repository) from "".
         using var stream = new MemoryStream();
         foreach (var value in values)
         {
@@ -59,11 +62,14 @@ public sealed record EvidenceAccess(bool Verified, IReadOnlyList<string> Princip
 {
     public string Json()
     {
+        // Dedupe and sort so storing the same ACL twice produces byte-identical JSON;
+        // that keeps re-ingesting unchanged access metadata from looking like a content change.
         var ids = PrincipalIds
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
+        // Unverified access must never leak principal names: store an empty list, not the raw input.
         return JsonSerializer.Serialize(Verified ? ids : Array.Empty<string>());
     }
 }

@@ -98,6 +98,9 @@ public sealed class ConfluenceSyncRunner
             var acls = ConfluenceAccess.ComputeAcls(pages);
             var byId = pages.ToDictionary(page => page.Id, StringComparer.Ordinal);
 
+            // ACLs are written for every page, not just the ones with fresh content: permissions can
+            // change (or go from unknown to known) without a new page version, so downstream access
+            // checks need the latest fingerprint even when there is nothing new to sync.
             foreach (var page in pages)
             {
                 var acl = acls[page.Id];

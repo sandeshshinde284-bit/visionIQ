@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Cloud.PubSub.V1" Version="3.38.0" />
     <PackageReference Include="Npgsql" Version="9.0.4" />
     <PackageReference Include="Google.Cloud.Storage.V1" Version="4.13.0" />
     <!-- LRN-07 graph API: Microsoft Entra ID token validation (never custom cryptography). -->

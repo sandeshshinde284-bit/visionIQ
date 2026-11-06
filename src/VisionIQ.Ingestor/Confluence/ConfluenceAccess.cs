@@ -88,6 +88,9 @@ public static class ConfluenceAccess
         brokenReason = null;
         var chain = new List<ConfluencePage> { page };
 
+        // Data Center returns the full ancestor list (root-down) with the page itself, so we can
+        // walk it directly. Cloud's v2 API gives only the immediate ParentId, so that case falls
+        // through to the one-hop-at-a-time walk below instead.
         if (page.AncestorIds.Count > 0)
         {
             // M-2: the same loop/depth protection as the parent walk below. A malformed or

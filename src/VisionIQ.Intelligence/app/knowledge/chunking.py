@@ -115,6 +115,7 @@ def chunk(
 ) -> list[Chunk]:
     """Deterministic, context-prefixed chunks of at most MAX_CHARS characters."""
     header = f"{kind_label}: {title}".strip()[:300]
+    # -40: margin for the "[section]" line and newlines wrapped around the body below.
     budget = MAX_CHARS - len(header) - 40
     chunks: list[Chunk] = []
     for section in sections:
@@ -131,6 +132,7 @@ def chunk(
             if current and len(current) + 2 + len(paragraph) > budget:
                 bodies.append(current)
                 tail = current[-OVERLAP_CHARS:]
+                # Drop the leading partial word so the overlap doesn't start mid-token.
                 tail = tail[tail.find(" ") + 1 :] if " " in tail else tail
                 current = (
                     f"{tail}\n\n{paragraph}"

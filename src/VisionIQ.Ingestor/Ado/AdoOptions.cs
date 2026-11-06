@@ -24,6 +24,8 @@ public sealed class AdoOptions
     {
         get
         {
+            // Two valid URL shapes carry the org name differently: legacy accounts use
+            // {org}.visualstudio.com, current accounts use dev.azure.com/{org}.
             var host = OrganizationUrl.Host;
             if (host.EndsWith(".visualstudio.com", StringComparison.OrdinalIgnoreCase))
             {

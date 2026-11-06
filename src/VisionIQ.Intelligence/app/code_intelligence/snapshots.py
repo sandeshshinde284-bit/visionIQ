@@ -46,6 +46,9 @@ def save_last_good(scan: RepositoryScan, cache_dir: str | Path) -> Path:
     try:
         if os.name != "nt":
             os.fchmod(fd, 0o600)
+        # Write-to-temp + fsync + rename: a crash mid-write leaves the old
+        # snapshot (or nothing) on disk, never a half-written JSON file that
+        # load_last_good would have to fail on.
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
             handle.flush()

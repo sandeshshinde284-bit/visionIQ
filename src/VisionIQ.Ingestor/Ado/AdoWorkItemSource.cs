@@ -12,6 +12,11 @@ public sealed class AdoWorkItemSource
     /// <summary>The most work-item IDs one WIQL query returns.</summary>
     public const int WiqlLimit = 20000;
 
+    // Two-phase approach: QueryIdsAsync gets IDs (fast, cached), then GetWorkItemsAsync
+    // fetches full records in batches of 200 (slow, but parallelizable). Both agree on
+    // snapshot time (asOf) so we read exactly one consistent view of the work items.
+    // This lets us query huge projects (100k+ items) without exploding memory or timeouts.
+
     private const int BatchSize = 200;
     private readonly AdoClient client;
 

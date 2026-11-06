@@ -33,6 +33,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv-broken-*/
 venv/
 env/
 .python-version.local
@@ -44,6 +45,10 @@ coverage.xml
 htmlcov/
 dist/
 build/
+
+# Local database backups
+test-backups/
+*.dump
 
 # ---------- Editors and IDEs ----------
 .idea/
@@ -70,3 +75,6 @@ pgdata/
 
 # ---------- Ingestion output (LRN-01) ----------
 artifacts/
+
+# BRF-01: local pickup policies may name real projects and repositories
+config/*.local.json

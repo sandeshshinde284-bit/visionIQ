@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LRN-01-05 Data Pipeline</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 20px; line-height: 1.6; }
+        figure { margin: 40px 0; }
+        figcaption { font-size: 14px; margin-top: 12px; color: #666; }
+        svg { max-width: 100%; height: auto; border: 1px solid #e0e0e0; padding: 10px; background: white; }
+        @media (prefers-color-scheme: dark) {
+            body { background: #1a1a1a; color: #e0e0e0; }
+            figcaption { color: #999; }
+            svg { background: #0a0a0a; border-color: #333; }
+        }
+    </style>
+</head>
+<body>
+
+<h1>LRN-01-05: The LEARN Pipeline</h1>
+
+<figure>
+    <svg viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Data flow from sources through five pipeline stages">
+        <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
+            </marker>
+            <marker id="arrow-highlight" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#ff9500" />
+            </marker>
+        </defs>
+
+        <!-- Title labels -->
+        <text x="50" y="25" font-size="14" font-weight="bold" fill="currentColor">SOURCES</text>
+        <text x="240" y="25" font-size="14" font-weight="bold" fill="currentColor">LINKS</text>
+        <text x="460" y="25" font-size="14" font-weight="bold" fill="currentColor">ARCHIVE</text>
+        <text x="720" y="25" font-size="14" font-weight="bold" fill="currentColor">SYNC</text>
+        <text x="1000" y="25" font-size="14" font-weight="bold" fill="currentColor">GRAPH</text>
+
+        <!-- Stage 1: Sources (LRN-01, LRN-02) -->
+        <rect x="20" y="50" width="120" height="60" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="80" y="75" font-size="12" text-anchor="middle" fill="currentColor">ADO</text>
+        <text x="80" y="90" font-size="11" text-anchor="middle" fill="currentColor">Work Items</text>
+        <text x="80" y="105" font-size="11" text-anchor="middle" fill="currentColor">PRs, Commits</text>
+
+        <rect x="20" y="130" width="120" height="60" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="80" y="155" font-size="12" text-anchor="middle" fill="currentColor">Confluence</text>
+        <text x="80" y="170" font-size="11" text-anchor="middle" fill="currentColor">Design Docs</text>
+        <text x="80" y="185" font-size="11" text-anchor="middle" fill="currentColor">+ ACL Check</text>
+
+        <!-- Arrow: Sources to Links (with checkpoint) -->
+        <line x1="140" y1="80" x2="200" y2="80" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="170" y="70" font-size="10" text-anchor="middle" fill="currentColor">checkpoint</text>
+        <text x="170" y="85" font-size="10" text-anchor="middle" fill="currentColor">resume</text>
+
+        <!-- Stage 2: Link Extraction (LRN-04) -->
+        <rect x="200" y="60" width="130" height="100" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="265" y="85" font-size="12" text-anchor="middle" fill="currentColor">Link Extractor</text>
+        <text x="265" y="105" font-size="10" text-anchor="middle" fill="currentColor">• Explicit: "fixes #456"</text>
+        <text x="265" y="120" font-size="10" text-anchor="middle" fill="currentColor">• Inferred: commit msg</text>
+        <text x="265" y="135" font-size="10" text-anchor="middle" fill="currentColor">• Reverts: title match</text>
+        <text x="265" y="150" font-size="10" text-anchor="middle" fill="currentColor">Classification: E/I/U</text>
+
+        <!-- Arrow: Links to Archive -->
+        <line x1="330" y1="110" x2="390" y2="110" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="360" y="100" font-size="10" text-anchor="middle" fill="currentColor">TicketFixClaim</text>
+
+        <!-- Stage 3: Archive (LRN-03) -->
+        <rect x="390" y="60" width="130" height="100" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="455" y="85" font-size="12" text-anchor="middle" fill="currentColor">Archive</text>
+        <text x="455" y="105" font-size="10" text-anchor="middle" fill="currentColor">PostgreSQL</text>
+        <text x="455" y="120" font-size="10" text-anchor="middle" fill="currentColor">• Identity</text>
+        <text x="455" y="135" font-size="10" text-anchor="middle" fill="currentColor">Cloud Storage</text>
+        <text x="455" y="150" font-size="10" text-anchor="middle" fill="currentColor">• SHA256 content</text>
+
+        <!-- Arrow: Archive to Sync (content hash) -->
+        <line x1="520" y1="110" x2="580" y2="110" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="550" y="100" font-size="10" text-anchor="middle" fill="currentColor">Revisions</text>
+
+        <!-- Stage 4: Currency (LRN-05) -->
+        <rect x="580" y="50" width="140" height="120" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="650" y="75" font-size="12" text-anchor="middle" fill="currentColor">Sync Strategies</text>
+        <text x="650" y="95" font-size="10" text-anchor="middle" fill="currentColor">1. Full Backfill</text>
+        <text x="650" y="110" font-size="10" text-anchor="middle" fill="currentColor">2. Delta (checkpoint)</text>
+        <text x="650" y="125" font-size="10" text-anchor="middle" fill="currentColor">3. Webhooks</text>
+        <text x="650" y="140" font-size="10" text-anchor="middle" fill="currentColor">(at-least-once)</text>
+        <text x="650" y="155" font-size="10" text-anchor="middle" fill="currentColor">4. Reconciliation</text>
+
+        <!-- Arrow: Sync to Graph -->
+        <line x1="720" y1="110" x2="780" y2="110" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="750" y="100" font-size="10" text-anchor="middle" fill="currentColor">Latest</text>
+
+        <!-- Stage 5: Graph (LRN-06, LRN-07) -->
+        <rect x="780" y="60" width="140" height="100" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="850" y="85" font-size="12" text-anchor="middle" fill="currentColor">Relationship Graph</text>
+        <text x="850" y="105" font-size="10" text-anchor="middle" fill="currentColor">Tickets → PRs</text>
+        <text x="850" y="120" font-size="10" text-anchor="middle" fill="currentColor">→ Commits → Code</text>
+        <text x="850" y="135" font-size="10" text-anchor="middle" fill="currentColor">+ ACL verify at read</text>
+
+        <!-- Quarantine flow (bottom) -->
+        <rect x="200" y="240" width="320" height="80" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4,4" rx="4"/>
+        <text x="360" y="260" font-size="11" font-weight="bold" fill="currentColor">Quarantine & Retry</text>
+        <text x="210" y="280" font-size="10" fill="currentColor">Unreadable items → Quarantine table</text>
+        <text x="210" y="295" font-size="10" fill="currentColor">Checkpoint NOT advanced → Retried next run</text>
+        <text x="210" y="310" font-size="10" fill="currentColor">Failed items never skip forward</text>
+
+        <!-- Arrow from Links to Quarantine -->
+        <line x1="265" y1="160" x2="265" y2="240" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+        <text x="280" y="200" font-size="10" fill="currentColor">failures</text>
+
+        <!-- Idempotency note -->
+        <rect x="780" y="240" width="140" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="850" y="260" font-size="11" font-weight="bold" fill="currentColor">Guarantees</text>
+        <text x="790" y="280" font-size="10" fill="currentColor">• Content-hash</text>
+        <text x="790" y="295" font-size="10" fill="currentColor">  deduplication</text>
+        <text x="790" y="310" font-size="10" fill="currentColor">• Append-only</text>
+
+        <!-- Bottom legend -->
+        <text x="20" y="360" font-size="9" fill="currentColor">Each stage processes in isolation. One failure doesn't cascade. Checkpoints enable resumption.</text>
+        <text x="20" y="375" font-size="9" fill="currentColor">Webhook events use at-least-once semantics with deduplication inbox.</text>
+    </svg>
+    <figcaption>LRN-01-05 data flows from sources through checkpoint-based sync, link extraction, immutable archival, currency strategies, and finally into a permission-aware graph. Failures are quarantined and retried, not skipped.</figcaption>
+</figure>
+
+<h2>Checkpoint and Cursor Mechanism</h2>
+
+<figure>
+    <svg viewBox="0 0 1000 350" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Checkpoint cursor mechanism showing resumption from last successful write">
+        <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
+            </marker>
+            <marker id="arrow-fail" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#ff6b6b" />
+            </marker>
+        </defs>
+
+        <!-- Query phase -->
+        <text x="50" y="25" font-size="12" font-weight="bold" fill="currentColor">QUERY</text>
+        <rect x="30" y="40" width="100" height="50" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="80" y="55" font-size="10" text-anchor="middle" fill="currentColor">ADO WIQL</text>
+        <text x="80" y="70" font-size="10" text-anchor="middle" fill="currentColor">Query</text>
+
+        <line x1="130" y1="65" x2="170" y2="65" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="150" y="55" font-size="9" fill="currentColor">cursor.At</text>
+        <text x="150" y="72" font-size="9" fill="currentColor">or Since</text>
+
+        <!-- Cursor loaded -->
+        <rect x="170" y="40" width="80" height="50" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="210" y="55" font-size="10" text-anchor="middle" fill="currentColor">Cursor:</text>
+        <text x="210" y="70" font-size="9" text-anchor="middle" fill="currentColor">(time, ID)</text>
+
+        <!-- Items returned -->
+        <line x1="250" y1="65" x2="290" y2="65" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="270" y="55" font-size="9" fill="currentColor">IDs changed</text>
+        <text x="270" y="72" font-size="9" fill="currentColor">since cursor</text>
+
+        <!-- Items list -->
+        <rect x="290" y="40" width="100" height="50" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="340" y="55" font-size="10" text-anchor="middle" fill="currentColor">Work Item</text>
+        <text x="340" y="70" font-size="10" text-anchor="middle" fill="currentColor">IDs</text>
+
+        <!-- Batch read -->
+        <text x="450" y="25" font-size="12" font-weight="bold" fill="currentColor">BATCH READ (snapshot)</text>
+        <line x1="390" y1="65" x2="430" y2="65" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="410" y="55" font-size="9" fill="currentColor">Same</text>
+        <text x="410" y="72" font-size="9" fill="currentColor">snapshot</text>
+
+        <rect x="430" y="40" width="120" height="50" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="490" y="55" font-size="10" text-anchor="middle" fill="currentColor">GetWorkItems</text>
+        <text x="490" y="70" font-size="10" text-anchor="middle" fill="currentColor">(query.AsOf)</text>
+
+        <!-- Items with data -->
+        <line x1="550" y1="65" x2="590" y2="65" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="570" y="55" font-size="9" fill="currentColor">Details</text>
+
+        <rect x="590" y="40" width="100" height="50" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="640" y="55" font-size="10" text-anchor="middle" fill="currentColor">Work Item</text>
+        <text x="640" y="70" font-size="10" text-anchor="middle" fill="currentColor">Records</text>
+
+        <!-- Write phase -->
+        <text x="50" y="130" font-size="12" font-weight="bold" fill="currentColor">WRITE & TRACK</text>
+
+        <rect x="30" y="145" width="110" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="85" y="165" font-size="10" text-anchor="middle" fill="currentColor">For each</text>
+        <text x="85" y="180" font-size="10" text-anchor="middle" fill="currentColor">record (ordered</text>
+        <text x="85" y="195" font-size="10" text-anchor="middle" fill="currentColor">by ChangedDate,</text>
+        <text x="85" y="210" font-size="10" text-anchor="middle" fill="currentColor">Id):</text>
+
+        <line x1="140" y1="185" x2="180" y2="185" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <rect x="180" y="145" width="100" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="230" y="165" font-size="10" text-anchor="middle" fill="currentColor">Sink</text>
+        <text x="230" y="180" font-size="10" text-anchor="middle" fill="currentColor">.WriteAsync</text>
+        <text x="230" y="195" font-size="10" text-anchor="middle" fill="currentColor">to storage</text>
+        <text x="230" y="210" font-size="10" text-anchor="middle" fill="currentColor">(durable)</text>
+
+        <line x1="280" y1="185" x2="320" y2="185" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <rect x="320" y="145" width="110" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="375" y="165" font-size="10" text-anchor="middle" fill="currentColor">Track in</text>
+        <text x="375" y="180" font-size="10" text-anchor="middle" fill="currentColor">written[]:</text>
+        <text x="375" y="195" font-size="10" text-anchor="middle" fill="currentColor">(time, ID)</text>
+        <text x="375" y="210" font-size="10" text-anchor="middle" fill="currentColor">of each</text>
+
+        <!-- Checkpoint phase -->
+        <text x="500" y="130" font-size="12" font-weight="bold" fill="currentColor">SAVE CHECKPOINT</text>
+
+        <rect x="500" y="145" width="100" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="550" y="165" font-size="10" text-anchor="middle" fill="currentColor">Flush all</text>
+        <text x="550" y="180" font-size="10" text-anchor="middle" fill="currentColor">writes to</text>
+        <text x="550" y="195" font-size="10" text-anchor="middle" fill="currentColor">storage</text>
+        <text x="550" y="210" font-size="10" text-anchor="middle" fill="currentColor">(durable)</text>
+
+        <line x1="600" y1="185" x2="640" y2="185" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="620" y="175" font-size="9" fill="currentColor">Success</text>
+
+        <rect x="640" y="145" width="120" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+        <text x="700" y="165" font-size="10" text-anchor="middle" fill="currentColor">Save Cursor:</text>
+        <text x="700" y="180" font-size="10" text-anchor="middle" fill="currentColor">Advance to</text>
+        <text x="700" y="195" font-size="10" text-anchor="middle" fill="currentColor">last written</text>
+        <text x="700" y="210" font-size="10" text-anchor="middle" fill="currentColor">(time, ID)</text>
+
+        <!-- Failure case -->
+        <line x1="420" y1="230" x2="420" y2="270" stroke="#ff6b6b" stroke-width="2" marker-end="url(#arrow-fail)"/>
+        <text x="435" y="255" font-size="9" fill="#ff6b6b">One item fails</text>
+
+        <rect x="380" y="270" width="80" height="50" fill="none" stroke="#ff6b6b" stroke-width="1.5" rx="3"/>
+        <text x="420" y="290" font-size="10" text-anchor="middle" fill="#ff6b6b">→ Quarantine</text>
+        <text x="420" y="305" font-size="10" text-anchor="middle" fill="#ff6b6b">(don't write)</text>
+
+        <line x1="460" y1="295" x2="500" y2="295" stroke="#ff6b6b" stroke-width="1.5" marker-end="url(#arrow-fail)"/>
+        <text x="480" y="285" font-size="9" fill="#ff6b6b">Checkpoint</text>
+        <text x="480" y="302" font-size="9" fill="#ff6b6b">NOT advanced</text>
+
+        <rect x="500" y="270" width="120" height="50" fill="none" stroke="#ff6b6b" stroke-width="1.5" rx="3"/>
+        <text x="560" y="290" font-size="10" text-anchor="middle" fill="#ff6b6b">→ Retry next</text>
+        <text x="560" y="305" font-size="10" text-anchor="middle" fill="#ff6b6b">run from same</text>
+
+        <!-- Bottom annotation -->
+        <text x="50" y="345" font-size="9" fill="currentColor" font-weight="bold">Key: Checkpoint is the (time, ID) of the LAST WRITTEN item, not queried items.</text>
+    </svg>
+    <figcaption>TimeCursor checkpoint mechanism: resume from last successful write, not from query time. Failed items stay at or before the checkpoint, guaranteeing retry without duplicate writes.</figcaption>
+</figure>
+
+<h2>Ticket-Fix Link Retraction State Transitions</h2>
+
+<figure>
+    <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="State machine for ticket-fix link lifecycle showing active and retracted states">
+        <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
+            </marker>
+            <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#ff9500" />
+            </marker>
+        </defs>
+
+        <!-- State 1: ACTIVE -->
+        <circle cx="150" cy="120" r="50" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="150" y="115" font-size="12" font-weight="bold" text-anchor="middle" fill="currentColor">ACTIVE</text>
+        <text x="150" y="132" font-size="10" text-anchor="middle" fill="currentColor">(no retraction)</text>
+
+        <!-- State 2: RETRACTED -->
+        <circle cx="750" cy="120" r="50" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="750" y="115" font-size="12" font-weight="bold" text-anchor="middle" fill="currentColor">RETRACTED</text>
+        <text x="750" y="132" font-size="10" text-anchor="middle" fill="currentColor">(retracted_at set)</text>
+
+        <!-- Arrow: ACTIVE → RETRACTED -->
+        <path d="M 200 110 Q 475 70 700 110" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="450" y="55" font-size="10" text-anchor="middle" fill="currentColor">ReconcileSourceAsync()</text>
+        <text x="450" y="70" font-size="10" text-anchor="middle" fill="currentColor">Link no longer in source</text>
+        <text x="450" y="85" font-size="10" text-anchor="middle" fill="currentColor">Set retracted_at = now()</text>
+
+        <!-- Arrow: RETRACTED → ACTIVE (explicit) -->
+        <path d="M 700 130 Q 475 180 200 130" fill="none" stroke="#ff9500" stroke-width="2" marker-end="url(#arrow-orange)"/>
+        <text x="450" y="200" font-size="10" text-anchor="middle" fill="#ff9500">UpsertSourceAsync()</text>
+        <text x="450" y="215" font-size="10" text-anchor="middle" fill="#ff9500">Fresh claim from ADO</text>
+        <text x="450" y="230" font-size="10" text-anchor="middle" fill="#ff9500">Clear retracted_at</text>
+
+        <!-- Arrow: RETRACTED → RETRACTED (candidate, no resurrection) -->
+        <path d="M 750 170 Q 850 200 750 230" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+        <text x="810" y="210" font-size="9" fill="currentColor">UpsertCandidate</text>
+        <text x="810" y="225" font-size="9" fill="currentColor">Evidence()</text>
+        <text x="810" y="240" font-size="9" fill="currentColor">clearRetraction</text>
+        <text x="810" y="255" font-size="9" fill="currentColor">=false</text>
+
+        <!-- Human review box -->
+        <rect x="300" y="290" width="300" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="450" y="310" font-size="11" font-weight="bold" fill="currentColor">Human Review (never cleared)</text>
+        <text x="310" y="330" font-size="10" fill="currentColor">• Verified ✓ or Disputed ✗</text>
+        <text x="310" y="347" font-size="10" fill="currentColor">• Persists across source updates</text>
+        <text x="310" y="364" font-size="10" fill="currentColor">• Explicit claims don't override</text>
+
+        <!-- Audit trail box -->
+        <rect x="20" y="290" width="260" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+        <text x="150" y="310" font-size="11" font-weight="bold" fill="currentColor">Lifecycle Events (append-only)</text>
+        <text x="30" y="330" font-size="10" fill="currentColor">• Every state change logged</text>
+        <text x="30" y="347" font-size="10" fill="currentColor">• Never deleted or rewritten</text>
+        <text x="30" y="364" font-size="10" fill="currentColor">• Full audit trail of link history</text>
+
+        <!-- Legend -->
+        <text x="50" y="25" font-size="11" fill="currentColor">Solid arrows: state transition</text>
+        <text x="50" y="45" font-size="11" fill="currentColor">Orange (explicit claims): can resurrect | Gray dashed (candidate): cannot resurrect</text>
+        <text x="50" y="380" font-size="9" fill="currentColor" font-style="italic">Keys: Only explicit (authoritative) source claims clear retractions. Candidate evidence (inferred links) respects prior retractions.</text>
+    </svg>
+    <figcaption>Ticket-fix link lifecycle: explicit claims from source (ADO) can resurrect retracted links; candidate/inferred evidence cannot. Human reviews (verified/disputed) persist unchanged. All transitions recorded immutably in lifecycle_events table.</figcaption>
+</figure>
+
+</body>
+</html>

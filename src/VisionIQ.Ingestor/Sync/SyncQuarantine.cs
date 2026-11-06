@@ -36,6 +36,8 @@ public sealed class InMemorySyncQuarantine : ISyncQuarantine
     {
         ArgumentNullException.ThrowIfNull(item);
         var key = (item.SourceId, item.Scope, item.ItemKind, item.NativeId);
+        // Only chain the attempt count while the previous entry is still open. A failure that shows up
+        // after the item was resolved is a fresh problem, not a continuation of the old one.
         var attempts = items.TryGetValue(key, out var existing) && existing.Resolved is null ? existing.Attempts + 1 : 1;
         items[key] = (item, attempts, null);
         return Task.CompletedTask;
@@ -44,6 +46,8 @@ public sealed class InMemorySyncQuarantine : ISyncQuarantine
     public Task ResolveAsync(string sourceId, string scope, string itemKind, string nativeId, DateTimeOffset resolvedAt, CancellationToken cancellationToken = default)
     {
         var key = (sourceId, scope, itemKind, nativeId);
+        // Guard against resolving twice: a later run finding the item readable again should reopen it via
+        // AddAsync, not silently push the resolved timestamp forward.
         if (items.TryGetValue(key, out var existing) && existing.Resolved is null)
         {
             items[key] = (existing.Item, existing.Attempts, resolvedAt);

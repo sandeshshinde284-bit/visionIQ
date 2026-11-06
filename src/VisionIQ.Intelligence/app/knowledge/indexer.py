@@ -146,6 +146,8 @@ def _index_item(
     sections = [type(s)(s.name, redact(s.text).text) for s in document.sections]
     chunks = chunk(item_key, revision, document.label, title, sections)
     # S12-11: only chunks whose text changed are re-embedded; unchanged ones keep their vector.
+    # Keyed by content_sha256, not chunk_key/index, so a chunk that merely shifted position
+    # (e.g. an earlier section grew) still matches its old vector instead of being re-embedded.
     known = {
         sha: _parse_vector(vector)
         for sha, vector in conn.execute(

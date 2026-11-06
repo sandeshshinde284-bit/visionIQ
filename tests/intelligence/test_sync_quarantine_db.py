@@ -30,6 +30,7 @@ ADD, RESOLVE, OPEN = _sql("AddSql"), _sql("ResolveSql"), _sql("OpenSql")
 def _connect():
     return psycopg.connect(
         host=os.environ.get("DB_HOST", "127.0.0.1"),
+        port=int(os.environ.get("DB_PORT", "5432")),
         dbname=os.environ.get("DB_NAME", "visioniq"),
         user=os.environ["DB_API_USER"],
         password=os.environ["DB_API_PASSWORD"],

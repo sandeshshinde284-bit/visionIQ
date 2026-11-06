@@ -27,6 +27,7 @@ UPSERT = re.sub(
 def _connect(prefix: str):
     return psycopg.connect(
         host=os.environ.get("DB_HOST", "127.0.0.1"),
+        port=int(os.environ.get("DB_PORT", "5432")),
         dbname=os.environ.get("DB_NAME", "visioniq"),
         user=os.environ[f"DB_{prefix}_USER"],
         password=os.environ[f"DB_{prefix}_PASSWORD"],

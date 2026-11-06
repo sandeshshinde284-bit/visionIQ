@@ -57,6 +57,7 @@ public static class TicketFixResolver
         ArgumentNullException.ThrowIfNull(pullRequests);
         ArgumentNullException.ThrowIfNull(commits);
 
+        // Sorted for deterministic candidate order (stable diffs/tests), not because ADO returns them that way.
         var sourcePrs = pullRequests.Where(pr => string.Equals(pr.Project, projectId, StringComparison.Ordinal))
             .OrderBy(pr => pr.RepositoryId, StringComparer.Ordinal)
             .ThenBy(pr => pr.Id)

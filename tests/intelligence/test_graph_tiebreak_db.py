@@ -43,6 +43,7 @@ def test_equal_time_tie_prefers_the_current_evidence_revision(current_sorts_lowe
     current_key, old_key = (keys[0], keys[1]) if current_sorts_lower else (keys[1], keys[0])
     connection = psycopg.connect(
         host=os.environ.get("DB_HOST", "127.0.0.1"),
+        port=int(os.environ.get("DB_PORT", "5432")),
         dbname=os.environ.get("DB_NAME", "visioniq"),
         user=os.environ["DB_API_USER"],
         password=os.environ["DB_API_PASSWORD"],

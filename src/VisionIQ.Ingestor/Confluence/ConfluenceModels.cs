@@ -99,6 +99,10 @@ public sealed record ConfluencePageAcl(string PageId, string SpaceKey, bool Comp
     {
         get
         {
+            // Levels/users/groups arrive in whatever order the Confluence API happened to return them,
+            // so everything is sorted before hashing — otherwise the fingerprint would churn between
+            // runs with no actual permission change, and every downstream consumer would see spurious
+            // "ACL changed" events.
             var canonical = SpaceKey + "|" + Complete + "|" + string.Join(
                 ";",
                 Levels.OrderBy(level => level.PageId, StringComparer.Ordinal).Select(level =>

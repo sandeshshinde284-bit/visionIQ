@@ -34,7 +34,12 @@ class ParserResult:
 
 
 class ParserAdapter(Protocol):
-    """Review and test implementations before registering them."""
+    """Review and test implementations before registering them.
+
+    A Protocol rather than an ABC: adapters (stdlib ast, tree-sitter, future
+    ones) come from different libraries with their own class hierarchies, so
+    structural typing avoids forcing them through a shared base class.
+    """
 
     name: str
     version: str
@@ -62,6 +67,8 @@ class ParserRegistry:
             self._by_extension[extension] = adapter
 
     def for_path(self, path: str) -> ParserAdapter | None:
+        # Matched by file extension only, never by shebang/content sniffing -
+        # extension-based routing is what keeps "no code execution" true here.
         name = path.rsplit("/", maxsplit=1)[-1].lower()
         if "." not in name:
             return None

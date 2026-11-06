@@ -152,6 +152,9 @@ def _run(arguments: argparse.Namespace, log) -> int:
         duration_ms=round((time.monotonic() - started) * 1000),
     )
     if scan.status != "COMPLETE":
+        # Distinct exit code from both success (0) and an unhandled exception
+        # (non-zero via main's raise) so a calling job can tell "nothing new
+        # was ingested, last-good evidence untouched" apart from a real failure.
         log.warning("scan.partial", reasons=list(scan.errors[:20]), last_good_kept=True)
         return 2
 

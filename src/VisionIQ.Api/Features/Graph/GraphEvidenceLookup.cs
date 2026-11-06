@@ -49,6 +49,9 @@ internal sealed class GraphEvidenceLookup(NpgsqlDataSource source)
     public static bool TryParseReference(string value, out string itemKey, out string revision)
     {
         itemKey = revision = string.Empty;
+        // Fixed layout: "evidence:" (9 chars) + 64-hex item key + ':' + revision. The item key is
+        // always exactly 64 hex chars (a SHA-256), so its end and the following ':' are at fixed
+        // offsets -- no need to search for a separator that could also appear inside the revision.
         if (value is null || !value.StartsWith("evidence:", StringComparison.Ordinal) || value.Length < 9 + 64 + 2 || value[73] != ':')
         {
             return false;

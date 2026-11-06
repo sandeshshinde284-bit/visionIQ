@@ -5,7 +5,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api import readiness
+from app import db
 from app.config import Settings
 from app.main import create_app
 
@@ -41,7 +41,7 @@ def test_intelligence_ready_uses_only_its_runtime_db_identity(
         values.update(kwargs)
         return FakeConnection()
 
-    monkeypatch.setattr(readiness.psycopg, "connect", fake_connect)
+    monkeypatch.setattr(db.psycopg, "connect", fake_connect)
     with TestClient(create_app(test_settings)) as client:
         response = client.get("/ready")
 
@@ -61,7 +61,7 @@ def test_database_failure_is_503_without_leaking_provider_errors(
         """Simulate a failure containing confidential provider details."""
         raise RuntimeError("password: should-never-be-exposed")
 
-    monkeypatch.setattr(readiness.psycopg, "connect", fake_failure)
+    monkeypatch.setattr(db.psycopg, "connect", fake_failure)
     with TestClient(create_app(test_settings)) as client:
         response = client.get("/ready")
 

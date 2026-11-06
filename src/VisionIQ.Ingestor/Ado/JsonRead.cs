@@ -25,6 +25,7 @@ internal static class JsonRead
             return number;
         }
 
+        // Some ADO fields (e.g. work item IDs in certain responses) come back as numeric strings rather than JSON numbers.
         return value.ValueKind == JsonValueKind.String
             && int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed

@@ -51,6 +51,8 @@ JOIN LATERAL (
                         WHERE c.entry_key = x.entry_key AND NOT EXISTS (
                             SELECT 1 FROM knowledge.chunk_embeddings AS ce
                             WHERE ce.chunk_key = c.chunk_key AND ce.model_id = x.model_id))
+    -- Prefer an entry matching the item's CURRENT revision/content; otherwise take the most
+    -- recently indexed stale entry (still served, so the item isn't dropped while it reindexes).
     ORDER BY (x.provider_revision_id = r.provider_revision_id
               AND x.source_content_sha256 = r.content_sha256) DESC, x.indexed_at DESC
     LIMIT 1

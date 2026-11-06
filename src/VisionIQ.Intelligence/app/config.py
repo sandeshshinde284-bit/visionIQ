@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     db_intelligence_user: str | None = None
     db_intelligence_password: SecretStr | None = None
 
+    # FND-05 eventing. Publishing needs a project; PUBSUB_EMULATOR_HOST (read by the Google client
+    # itself) points it at the local emulator instead of Google Cloud.
+    tenant_id: str = Field(default="visioniq-dev", pattern=r"^[A-Za-z0-9_.:-]{1,128}$")
+    pubsub_project_id: str | None = None
+    events_dispatch_enabled: bool = False
+    events_dispatch_interval_seconds: float = Field(default=2.0, gt=0, le=60)
+    event_contracts_dir: Path | None = None
+
     @model_validator(mode="after")
     def select_runtime_role(self) -> "Settings":
         # Ignore generic DB_* credentials; these may belong to the migration account.

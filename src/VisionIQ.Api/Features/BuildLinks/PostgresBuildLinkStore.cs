@@ -23,6 +23,9 @@ public interface IBuildLinkStore
 
 public sealed class PostgresBuildLinkStore : IBuildLinkStore, IAsyncDisposable
 {
+    // The WHERE guard compares the source's own asserted-at time, never observed_at/wall-clock, so a
+    // replayed or out-of-order sync of an older build revision can touch observed_at but can never
+    // clobber a link a newer revision already recorded.
     public const string UpsertSql = """
         INSERT INTO evidence.build_links (source_instance, project_id, build_id, repository_id,
             commit_sha, pull_request_id, evidence_ref, source_asserted_at)

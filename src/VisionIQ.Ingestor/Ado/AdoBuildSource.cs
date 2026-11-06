@@ -81,7 +81,7 @@ public sealed class AdoBuildSource
             previous = token;
             token = response.ContinuationToken;
         }
-        while (token is not null && token != previous);
+        while (token is not null && token != previous); // guards against a server returning the same token forever
 
         return results;
     }
@@ -120,6 +120,7 @@ public sealed class AdoBuildSource
             RepositoryId = JsonRead.Child(element, "repository") is { } repository ? JsonRead.String(repository, "id") : null,
             QueueTime = JsonRead.Date(element, "queueTime"),
             StartTime = JsonRead.Date(element, "startTime"),
+            // "pr.number" (with the literal dot) is the actual JSON key ADO uses inside triggerInfo for PR-triggered builds.
             PullRequestNumber = JsonRead.Child(element, "triggerInfo") is { } trigger ? JsonRead.Int(trigger, "pr.number") : null,
         };
     }

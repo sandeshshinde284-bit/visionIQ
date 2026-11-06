@@ -40,6 +40,8 @@ public sealed class AdoTeamProjectMembership(AdoClient client, TimeSpan? cacheFo
 
         if (!cache.TryGetValue(project, out var entry) || entry.Expires <= time.GetUtcNow())
         {
+            // A fetch failure throws out of ReadMembersAsync before the cache is written, so a bad read is never
+            // cached and can't quietly grant or deny access for the TTL window.
             entry = (time.GetUtcNow() + ttl, await ReadMembersAsync(project, cancellationToken).ConfigureAwait(false));
             cache[project] = entry;
         }
@@ -66,6 +68,7 @@ public sealed class AdoTeamProjectMembership(AdoClient client, TimeSpan? cacheFo
                     continue;
                 }
 
+                // Callers may pass either the identity GUID or the unique name (email); index both so either lookup hits.
                 foreach (var name in new[] { JsonRead.String(identity, "id"), JsonRead.String(identity, "uniqueName") })
                 {
                     if (!string.IsNullOrWhiteSpace(name))
@@ -98,6 +101,8 @@ public sealed class AdoTeamProjectMembership(AdoClient client, TimeSpan? cacheFo
             }
         }
 
+        // Fail closed: an unbounded team/membership list almost certainly means something is wrong (loop, huge
+        // org), and silently truncating here could let someone who isn't actually a member pass the check.
         throw new AdoSourceException(null, "Project membership has more pages than allowed; access is denied.");
     }
 }

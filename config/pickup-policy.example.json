@@ -1,0 +1,29 @@
+{
+  // BRF-01 ticket pickup policy (decision D05). Copy to pickup-policy.local.json, adjust, and point
+  // PICKUP_POLICY_FILE at it. Changing the rules? Bump policy_revision: runs are unique per
+  // (project, ticket, revision, policy_revision).
+  "policy_revision": "2026-11-05.1",
+  // Only webhooks from this organization are accepted. Omit to accept any (not recommended).
+  "organization_url": "https://dev.azure.com/your-org/",
+  // VisionIQ's own ADO identities (id or unique name): their updates never trigger a run.
+  "bot_identities": ["visioniq-bot@your-org.example"],
+  "projects": [
+    {
+      "project": "VisionIQ-Demo",
+      // Optional; required when the project name has spaces or other characters outside A-Z a-z 0-9 _ . : / -
+      "project_id": "VisionIQ-Demo",
+      "defect_types": ["Bug"],
+      "enhancement_types": ["User Story", "Feature"],
+      // A run starts when an item moves INTO one of these states (not on later edits while in it).
+      "pickup_states": ["In Progress"],
+      "require_assignee": true,
+      "excluded_tags": ["visioniq-skip"],
+      // Repository and branch the brief analyses; the branch head is resolved in ADO at pickup.
+      "repository_id": "demo-repo",
+      "branch": "main",
+      // Optional: pin the commit instead of resolving the branch (useful locally without ADO access).
+      "base_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+      "security_scope_id": "project:VisionIQ-Demo"
+    }
+  ]
+}

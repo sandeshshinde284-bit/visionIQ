@@ -75,6 +75,7 @@ public sealed class AdoClient
         this.http = http;
         Options = options;
         this.delay = delay ?? Task.Delay;
+        // ADO's Basic auth scheme expects "user:pat"; the PAT carries all the identity, so the username is left empty.
         authorization = Convert.ToBase64String(Encoding.ASCII.GetBytes(":" + options.PersonalAccessToken));
     }
 
@@ -86,6 +87,7 @@ public sealed class AdoClient
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         var root = Options.OrganizationUrl.AbsoluteUri.TrimEnd('/');
+        // Project names can contain spaces/unicode and ADO routes on the segment, so it must be escaped like any other value.
         var prefix = project is null ? root : root + "/" + Uri.EscapeDataString(project);
         var parameters = new List<string>();
         if (query is not null)
@@ -96,6 +98,8 @@ public sealed class AdoClient
             }
         }
 
+        // api-version is mandatory on every ADO REST call (unversioned calls are rejected), so it's appended here once
+        // rather than trusted to every caller.
         parameters.Add("api-version=" + Uri.EscapeDataString(apiVersion ?? Options.ApiVersion));
         return new Uri(prefix + "/" + path.TrimStart('/') + "?" + string.Join('&', parameters));
     }
@@ -110,6 +114,8 @@ public sealed class AdoClient
 
     private async Task<AdoResponse> SendAsync(Func<HttpRequestMessage> createRequest, CancellationToken cancellationToken)
     {
+        // No upper bound here by design: every branch below either returns, throws, or loops back after a bounded
+        // retry check against Options.MaxRetries, so this can't actually spin forever.
         for (var attempt = 0; ; attempt++)
         {
             using var request = createRequest();
@@ -231,6 +237,8 @@ public sealed class AdoClient
             return TimeSpan.Zero;
         }
 
+        // ADO's Retry-After can be generous (or a past date, yielding a negative delta above); cap it so one
+        // throttled call can't stall an ingestion run for minutes.
         return value > TimeSpan.FromSeconds(60) ? TimeSpan.FromSeconds(60) : value;
     }
 

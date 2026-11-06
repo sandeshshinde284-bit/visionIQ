@@ -33,6 +33,11 @@ public interface IEvidenceTombstones
         string currentProjectId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// PostgreSQL-backed implementation of the versioned evidence store: items and revisions are
+/// append-only (no UPDATE ever changes revision content), so every write here is an INSERT or
+/// a careful conditional UPDATE of "latest" pointers, never an overwrite of stored history.
+/// </summary>
 public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTombstones, IAsyncDisposable
 {
     private readonly NpgsqlDataSource source;
@@ -154,6 +159,9 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTo
                     GREATEST(evidence.source_items.last_observed_at, EXCLUDED.last_observed_at)
             RETURNING (xmax = 0)
             """;
+        // xmax = 0 is Postgres's own tell for "this row was just INSERTed, not touched by the
+        // ON CONFLICT branch" -- that's how Created vs. NewRevision is decided below without a
+        // separate round trip.
 
         await using var itemCommand = new NpgsqlCommand(itemSql, connection, transaction);
         itemCommand.Parameters.AddWithValue("key", evidence.ItemKey);

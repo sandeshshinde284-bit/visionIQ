@@ -19,6 +19,8 @@ public sealed class EvidenceIngestionService(
         ArgumentNullException.ThrowIfNull(input.Access);
 
         var key = input.Identity.ItemKey();
+        // HTTPS-only and a non-empty retrieval principal are the only provenance guarantees
+        // we get for free; without them a bad or spoofed source link could masquerade as evidence.
         if (string.IsNullOrWhiteSpace(input.ProviderRevisionId) ||
             string.IsNullOrWhiteSpace(input.RetrievedUnderPrincipal) ||
             string.IsNullOrWhiteSpace(input.SourceUrl) ||
@@ -29,6 +31,8 @@ public sealed class EvidenceIngestionService(
                 "Evidence requires native revision, authenticated source, and HTTPS source URL.");
         }
 
+        // 10 MiB keeps a single bad payload from blowing out the archive/DB round trip;
+        // nothing we ingest today legitimately approaches that size.
         if (input.RawJson is not { Length: > 0 and <= 10_485_760 })
         {
             throw new ArgumentException("Evidence raw JSON must be between 1 byte and 10 MiB.");
