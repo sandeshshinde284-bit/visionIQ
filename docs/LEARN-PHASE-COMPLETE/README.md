@@ -1,7 +1,8 @@
 # LEARN Phase Documentation (LRN-01 through LRN-07)
 
-**Status:** ✅ **COMPLETE** — All features implemented, tested, and accepted  
-**Last Updated:** November 5, 2026
+**Status (9 Nov 2026):** LRN-01–07 implementation documentation; **not fully E2E accepted**. Real-source, DB and cloud acceptance remain partly open. Authentication and per-user ACL work is deferred.
+
+**Next wave:** LRN-08–13. See the [agreed execution and acceptance sequence](../phase1-learn-integration-plan.md#agreed-execution-sequence--move-to-lrn-0813).
 
 ---
 
@@ -14,12 +15,12 @@ The LEARN phase is VisionIQ's foundation: reading approved engineering history, 
 | Feature | Purpose | Status |
 |---------|---------|--------|
 | **[LRN-01: History Connectors](LRN-01-HISTORY-CONNECTORS/)** | Read Azure DevOps history (work items, PRs, commits, builds) | ✅ Complete |
-| **[LRN-02: Confluence](LRN-02-CONFLUENCE/)** | Import design decisions with ACL enforcement | ✅ Complete |
+| **[LRN-02: Confluence](LRN-02-CONFLUENCE/)** | Confluence page ingestion; ADR/ACL-specific functionality deferred | Code present; acceptance partial |
 | **[LRN-03: Versioned Evidence](LRN-03-VERSIONED-EVIDENCE/)** | Store evidence immutably in PostgreSQL + Cloud Storage | ✅ Complete |
 | **[LRN-04: Ticket-Fix Links](LRN-04-TICKET-FIX-LINKS/)** | Link tickets to their fixes; track reverts | ✅ Complete |
 | **[LRN-05: Backfill & Sync](LRN-05-BACKFILL-AND-SYNC/)** | Full backfill + incremental sync + webhooks | ✅ Complete |
 | **[LRN-06: Code Intelligence](LRN-06-CODE-INTELLIGENCE/)** | Scan code for symbols, imports, dependencies | ✅ Complete |
-| **[LRN-07: Relationship Graph](LRN-07-RELATIONSHIP-GRAPH/)** | Build permission-aware graph: tickets→PRs→code→symbols | ✅ Complete |
+| **[LRN-07: Relationship Graph](LRN-07-RELATIONSHIP-GRAPH/)** | Evidence-backed graph: tickets→PRs→commits→files→symbols/tests; internal inspection | Code and focused CI verified; real-data E2E pending |
 
 ---
 
@@ -59,12 +60,12 @@ Reads approved Azure DevOps sources:
 ### LRN-02: Confluence
 [📂 LRN-02 Folder](LRN-02-CONFLUENCE/)
 
-Imports design decisions with live ACL checking:
-- Pages + versions + ancestor restrictions
-- Re-checks permissions at retrieval time (fail-closed)
-- Detects incomplete/restricted pages
+Ingests approved Confluence pages and versions. The former ADR-specific discovery,
+live per-user access checks and restricted-page ACL classification were removed
+from the active implementation. They are tracked for separate rework; do not
+interpret the older linked feature documentation as proof of these behaviors.
 
-**Key concepts:** ACL snapshots, fail-closed design, live permission re-check
+**Key concepts:** Page version evidence, source scope, explicitly deferred per-user permissions
 
 **Read:** [LRN-02 README](LRN-02-CONFLUENCE/README.md)
 
@@ -132,13 +133,17 @@ Scans code without executing it:
 ### LRN-07: Relationship Graph
 [📂 LRN-07 Folder](LRN-07-RELATIONSHIP-GRAPH/)
 
-Permission-aware graph:
-- Nodes: tickets, PRs, commits, files, symbols
-- Edges: explicit/inferred/verified with proof
-- Bounded traversal (depth 1-3, max 100 nodes)
-- Access re-checked for every neighbor
+Evidence-backed graph for trusted internal/local use:
+- Nodes: tickets, PRs, commits, files, symbols and tests
+- Typed assertions and exact source-revision provenance
+- Bounded traversal, missing-link detection, and latest-active relationships
+- Reversions, retractions, renames and source tombstones retained/filtered appropriately
+- Public Graph HTTP API disabled; end-user ACL enforcement deferred
 
-**Key concepts:** Proof strength, active/disputed/retracted edges, fail-closed access
+**Key concepts:** Proof strength, active/disputed/retracted edges, source/project boundaries,
+trusted local inspection (not an authenticated user-facing API).
+
+**Current implementation guide:** [LRN-07 local graph validation](../lrn07-hackathon-graph-validation.md)
 
 **Read:** [LRN-07 README](LRN-07-RELATIONSHIP-GRAPH/README.md)
 
@@ -155,27 +160,36 @@ Permission-aware graph:
 
 ## Acceptance Status
 
-| Feature | Code | Tests | Real Source | Cloud | Status |
-|---------|------|-------|------------|-------|--------|
-| LRN-01 | ✅ | ✅ | ✅ | 🔮 | ✅ Complete |
-| LRN-02 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Complete* |
-| LRN-03 | ✅ | ✅ | ✅ | 🔮 | ✅ Complete |
-| LRN-04 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Complete* |
-| LRN-05 | ✅ | ✅ | 🔮 | 🔮 | ✅ Code OK* |
-| LRN-06 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Code OK* |
-| LRN-07 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Code OK* |
+**Do not infer a complete live end-to-end test from passing unit tests.**
+Previous status entries were too optimistic. Track per-story evidence in the
+relevant test report and keep skipped/blocked gates explicitly open.
 
-✅ Complete | 🔮 Pending | ⚠️ Partial | * See feature README for specific status
+| Story group | Current verified scope | Still required |
+| --- | --- | --- |
+| LRN-01–05 | Implemented source and canonical evidence paths; test coverage | Outstanding real-source/DB integrations and cloud handoff where applicable |
+| LRN-06 | Commit-pinned parsing and dependency implementation | Approved source-backed scan and integration verification |
+| LRN-07 | Graph persistence/traversal implementation; focused CI and local inspector tests | Actual ticket → PR → commit → file → symbol/test E2E, renames/reverts and multi-project evidence |
+| LRN-08–13 | Next implementation/testing wave | Local canonical acceptance, indexed retrieval, lessons and PR event lifecycle |
+| LRN-14 | After demo | Separate later scope |
+
+**Sequence:** (0) Review incoming auth-cleanup push → (1) record remaining
+LRN-01–07 acceptance gaps without rebuilding completed features →
+(2) implement/test LRN-08–13 locally → (3) run full LRN-01–13 E2E →
+(4) deploy/validate manually on Google Cloud →
+(5) final evidence review and LEARN acceptance. LRN-14 is after demo.
+
+See [Phase 1 LEARN integration and acceptance plan](../phase1-learn-integration-plan.md)
+for detailed gates, single-run commands and deferred security decisions.
 
 ---
 
 ## Key Design Principles
 
 1. **No time-proximity inference** — Links come from explicit references or authoritative evidence only
-2. **Live ACL re-check** — Every read of controlled evidence re-verifies permissions
+2. **Access scope** — Honor approved source/project boundaries; live per-user ACL checks are deferred, not claimed as implemented
 3. **Content-hash identity** — Revisions identified by hash; changes create new revisions
 4. **Append-only audit** — No overwrites; lifecycle events are immutable
-5. **Fail-closed** — When in doubt (permissions, ACL), deny access
+5. **Internal-only graph access** — Public Graph API remains disabled until an authenticated interface is safely implemented
 6. **Weak evidence → partial result** — Never invent certainty
 
 ---
@@ -222,6 +236,4 @@ See [Review & Audit](../REVIEW-AND-AUDIT/) for:
 
 ---
 
-**Status Summary:**  
-✅ All LRN-01–07 features implemented and verified  
-🔮 Cloud deployment (FND-06) and real-source acceptance still pending
+**Status Summary:** LRN-01–07 source implementation exists and focused checks run; complete real-data E2E and cloud acceptance remain pending. Continue LRN-08–13 while tracking unverified gates explicitly.
