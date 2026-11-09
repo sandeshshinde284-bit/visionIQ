@@ -419,14 +419,14 @@ def probe_index(argv: list[str]) -> int:
             embedder = from_environment()
             if embedder.model_id != model:
                 raise ValueError('Query embedding model differs from published model')
-            with conn.transaction():
-                conn.execute('SET TRANSACTION READ ONLY')
-                lexical = search.keyword(conn, query, list(scopes), limit=100, match='any')
-                semantic = search.vector(conn, embedder, query, list(scopes), limit=100)
-                wrong_scope = search.keyword(
-                    conn, query, ['ado-project:https://invalid.example.test/denied'],
-                    limit=100, match='any',
-                )
+            # Probe executes SELECT-only operations. The search.vector helper
+            # creates its own transaction for pgvector's SET LOCAL tuning.
+            lexical = search.keyword(conn, query, list(scopes), limit=100, match='any')
+            semantic = search.vector(conn, embedder, query, list(scopes), limit=100)
+            wrong_scope = search.keyword(
+                conn, query, ['ado-project:https://invalid.example.test/denied'],
+                limit=100, match='any',
+            )
             report = {
                 'keyword_found': any(h.item_key == args.item_key for h in lexical),
                 'vector_found': any(h.item_key == args.item_key for h in semantic),
