@@ -7,6 +7,7 @@ A unit/integration result is never represented as full story acceptance.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import argparse
 import json
 import os
@@ -14,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import uuid
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,23 +155,90 @@ def historical_lesson(db, fixture: dict, ticket_ids: list[str]) -> bool:
         return cur.fetchone() is not None
 
 
+@contextmanager
+def isolated_fixture_database(env: dict, run_dir: Path, runner, suite: str):
+    """Use a disposable LOCAL database for synthetic tests that publish snapshots.
+
+    Synthetic HashingEmbedder snapshots must not move the pointer serving real
+    ADO/Gemini evidence. The operator's configured DB and Docker volume are not
+    dropped or reset.
+    """
+    if env.get('DB_TARGET', 'local').strip().lower() != 'local':
+        raise ValueError('Synthetic database integration is local-only')
+    if env.get('DB_HOST', 'localhost').strip().lower() not in ('localhost', '127.0.0.1', '::1'):
+        raise ValueError('Synthetic database integration requires loopback PostgreSQL')
+    if not env.get('DB_LOCAL_USER') or not env.get('DB_LOCAL_PASSWORD'):
+        raise ValueError('DB_LOCAL_USER and DB_LOCAL_PASSWORD are required for test DB setup')
+    import psycopg
+    from psycopg import sql
+
+    dbname = 'visioniq_e2e_' + uuid.uuid4().hex[:16]
+    test_env = dict(env)
+    test_env.update({
+        'DB_NAME': dbname,
+        'DB_LOCAL_NAME': dbname,
+        'DB_TARGET': 'local',
+        'DB_SSL_MODE': 'disable',
+        'VISIONIQ_DB_INTEGRATION': '1',
+    })
+
+    def admin_connection():
+        return psycopg.connect(
+            host=env.get('DB_HOST', 'localhost'),
+            port=int(env.get('DB_PORT', '5432')),
+            dbname='postgres',
+            user=env['DB_LOCAL_USER'],
+            password=env['DB_LOCAL_PASSWORD'],
+            connect_timeout=10,
+            autocommit=True,
+        )
+
+    created = False
+    try:
+        with admin_connection() as admin:
+            admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(dbname)))
+            created = True
+        for action in ('migrate', 'roles'):
+            rc = runner.run_command(
+                [sys.executable, '-m', 'db.manage', action],
+                test_env, run_dir / f'{suite}-isolated-db-{action}.log')
+            if rc != 0:
+                raise RuntimeError(f'Isolated database {action} failed (exit={rc})')
+        yield test_env
+    finally:
+        if created:
+            with admin_connection() as admin:
+                # Only the database uniquely created in THIS context may be
+                # dropped, including if a pytest subprocess left connections.
+                admin.execute(
+                    sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(dbname)))
+
+
 def run_pytest(path: str, env: dict, run_dir: Path, runner, name: str, results: list) -> bool:
-    """Reject zero-collected and skipped suites even when pytest exits zero."""
+    """Reject skipped suites; isolate synthetic database fixture side effects."""
     add = runner.result_add
     target = ROOT / path
     if not target.is_file():
         add_blocked(results, add, int(re.search(r'LRN-(\d+)', name).group(1)), f'Missing {path}')
         return False
     log = run_dir / (Path(path).stem + '.log')
-    rc = runner.run_command([sys.executable, '-m', 'pytest', '-q', '-r', 'a', str(target)], env, log)
+    try:
+        with isolated_fixture_database(env, run_dir, runner, Path(path).stem) as test_env:
+            rc = runner.run_command(
+                [sys.executable, '-m', 'pytest', '-q', '-r', 'a', str(target)], test_env, log)
+    except Exception as exc:
+        add(results, name, 'FAIL',
+            f'Isolated DB fixture setup or test failed ({type(exc).__name__}); '
+            f'see {Path(path).stem}-isolated-db-*.log and {log.name}')
+        return False
     message = log.read_text(encoding='utf-8', errors='replace') if log.is_file() else ''
     match = re.search(r'(\d+) passed', message)
     passed = int(match.group(1)) if match else 0
     clean = rc == 0 and passed > 0 and not re.search(r'\d+ (?:skipped|failed|error)', message)
     add(results, name, 'PASS' if clean else 'FAIL',
-        f'pytest exit={rc}, passed={passed}; {log.name}; database fixture tests, not live external acceptance')
+        f'pytest exit={rc}, passed={passed}; {log.name}; '
+        'isolated local database fixtures, not live external acceptance')
     return clean
-
 
 def run_dotnet_pr_event_tests(env: dict, run_dir: Path, runner, results: list) -> bool:
     add = runner.result_add
@@ -214,22 +283,35 @@ def run_stage_b(args: Any, env: dict, run_dir: Path, fixture: dict,
             add_blocked(results, add, n, 'Knowledge writes not approved. Interactive: type KNOWLEDGE; noninteractive: -ApproveKnowledgeWrites')
         return
 
-    # Index first as a dependency for retrieval even when LRN-09 is selected individually.
+    # Functional acceptance indexes the selected source fixture, not an unbounded
+    # historical backfill. Bulk refresh stays available through index_cli alone.
     need_index = 8 in chosen or 9 in chosen or 10 in chosen or 11 in chosen or 13 in chosen
     indexed = False
     if need_index:
         if not (INTELLIGENCE / 'app' / 'knowledge' / 'index_cli.py').is_file():
             add_blocked(results, add, 8, 'index_cli.py missing from local checkout')
         else:
-            rc = runner.run_command([sys.executable, '-m', 'app.knowledge.index_cli'],
-                                    pyenv, run_dir / 'lrn08-index.log')
             try:
                 with runner.canonical_connection(env) as db:
-                    row = index_snapshot(db, fixture)
-                indexed = rc == 0 and row is not None and row[2] > 0 and row[2] == row[3]
-                add(results, 'LRN-08 actual index and published fixture snapshot', 'PASS' if indexed else 'FAIL',
-                    f'CLI exit={rc}; fixture chunks/vectors={(row[2], row[3]) if row else None}; '
-                    f'model={row[1] if row else "none"}; see lrn08-index.log')
+                    fixture_key = source_key(db, fixture)
+                if fixture_key is None:
+                    add_blocked(
+                        results, add, 8,
+                        'Selected ADO work item is absent from canonical evidence; '
+                        'check the ingestion date window or reuse a previously ingested record')
+                else:
+                    rc = runner.run_command(
+                        [sys.executable, '-m', 'app.knowledge.index_cli', '--only', fixture_key],
+                        pyenv, run_dir / 'lrn08-index.log')
+                    with runner.canonical_connection(env) as db:
+                        row = index_snapshot(db, fixture)
+                    indexed = rc == 0 and row is not None and row[2] > 0 and row[2] == row[3]
+                    add(
+                        results, 'LRN-08 actual index and published fixture snapshot',
+                        'PASS' if indexed else 'FAIL',
+                        f'Fixture-only index; CLI exit={rc}; '
+                        f'fixture chunks/vectors={(row[2], row[3]) if row else None}; '
+                        f'model={row[1] if row else "none"}; see lrn08-index.log')
             except Exception as exc:
                 add(results, 'LRN-08 actual index and published fixture snapshot', 'FAIL',
                     f'Index assertion unavailable ({type(exc).__name__}); see lrn08-index.log')
