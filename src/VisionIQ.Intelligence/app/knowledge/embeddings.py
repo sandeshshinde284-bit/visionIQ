@@ -83,6 +83,7 @@ class VertexGeminiEmbedder:
         batch_size: int = 1,
         session=None,
         max_retries: int = 5,
+        request_timeout: int = 60,
         sleep=time.sleep,
     ) -> None:
         if dimension != DIMENSION:
@@ -98,7 +99,8 @@ class VertexGeminiEmbedder:
             f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/"
             f"{location}/publishers/google/models/{model}:predict"
         )
-        self.max_retries = max_retries
+        self.max_retries = max(1, max_retries)
+        self.request_timeout = max(10, request_timeout)
         self.sleep = sleep
         if session is None:
             # Imported lazily: google-auth is only needed when Vertex is actually used, so the
@@ -119,7 +121,7 @@ class VertexGeminiEmbedder:
             "parameters": {"outputDimensionality": self.dimension, "autoTruncate": False},
         }
         for attempt in range(self.max_retries + 1):
-            response = self.session.post(self.url, json=body, timeout=60)
+            response = self.session.post(self.url, json=body, timeout=self.request_timeout)
             if response.status_code in (429, 500, 502, 503, 504) and attempt < self.max_retries:
                 self.sleep(min(60.0, 2.0**attempt))
                 continue
@@ -169,6 +171,8 @@ def vertex_from_environment() -> VertexGeminiEmbedder:
         model=setting("EMBEDDING_MODEL", "gemini-embedding-001"),
         dimension=int(setting("EMBEDDING_DIMENSION", str(DIMENSION))),
         batch_size=int(setting("EMBEDDING_BATCH_SIZE", "1")),
+        request_timeout=int(setting("EMBEDDING_REQUEST_TIMEOUT", "60")),
+        max_retries=int(setting("EMBEDDING_MAX_RETRIES", "5")),
     )
 
 
