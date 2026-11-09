@@ -79,7 +79,7 @@ def load_approved_code_scans(
         remote = _normalized_remote(origin)
         if remote is None or source_url != origin:
             continue
-        if len(revision) not in (40, 64) or any(c not in "0123456789abcdefABCDEF" for c in revision):
+        if len(revision) not in (40, 64) or any(\n            c not in "0123456789abcdefABCDEF" for c in revision\n        ):
             continue
         identity = ScanEvidenceIdentity(origin, project_id, repository_id)
         if identity.item_key() != item_key:
