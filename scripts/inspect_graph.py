@@ -233,13 +233,12 @@ def main() -> int:
         parser.error("--max-nodes must be between 1 and 100")
     try:
         settings = database_settings(os.environ)
-        with psycopg.connect(**settings) as db:
-            with db.transaction():
-                db.execute("SET TRANSACTION READ ONLY")
-                result = inspect(
-                    db, args.source_instance, args.project, args.work_item_id,
-                    {args.project, *args.allow_project}, args.depth, args.max_nodes,
-                )
+        with psycopg.connect(**settings) as db, db.transaction():
+            db.execute("SET TRANSACTION READ ONLY")
+            result = inspect(
+                db, args.source_instance, args.project, args.work_item_id,
+                {args.project, *args.allow_project}, args.depth, args.max_nodes,
+            )
         print(json.dumps(result, indent=2))
         return 0
     except (ValueError, psycopg.Error) as error:
