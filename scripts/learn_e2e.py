@@ -1491,35 +1491,83 @@ def run_lrn05_webhook_delivery_test(env: dict, run_dir: Path, fixture: dict, res
 
 
 def run_graph_path_validation(env: dict, fixture: dict, results: list):
-    """Check persistence of a real 3-hop draft-development path, not proof of a merged fix."""
-    anchor_type, anchor_id = fixture_anchor(fixture)
+    """Verify actual canonical relationships, not a count of unrelated ID collisions.
+
+    Uses the same latest-active, tombstone-aware graph assertions as the trusted
+    local inspector. PR/commit IDs must match the operator's approved fixture.
+    A draft PR link is a declared association, not a verified historical fix.
+    """
+    from inspect_graph import inspect
+
+    _, anchor_id = fixture_anchor(fixture)
     try:
+        approved = {
+            fixture["project"],
+            *(p.strip() for p in env.get("ADO_PROJECTS", "").split(",") if p.strip()),
+        }
         with canonical_connection(env) as db:
-            with db.cursor() as cur:
-                cur.execute("""SELECT COUNT(*)
-                               FROM evidence.graph_nodes b
-                               JOIN evidence.graph_assertions a ON a.from_node_key=b.node_key
-                               JOIN evidence.graph_nodes p ON p.node_key=a.to_node_key
-                               JOIN evidence.graph_assertions f ON f.from_node_key=p.node_key
-                               JOIN evidence.graph_nodes file ON file.node_key=f.to_node_key
-                               JOIN evidence.graph_assertions symbol ON symbol.from_node_key=file.node_key
-                               JOIN evidence.graph_nodes sym ON sym.node_key=symbol.to_node_key
-                               JOIN evidence.source_items bi ON bi.item_key=b.anchor_item_key
-                               JOIN evidence.source_items pi ON pi.item_key=p.anchor_item_key
-                               WHERE b.native_id=%s AND p.native_id=%s
-                                 AND bi.provider='azure_devops' AND bi.source_instance=%s
-                                 AND bi.project_id=%s AND pi.repository_id=%s
-                                 AND a.relation_type='ticket_pr' AND f.relation_type='pr_changed_file'
-                                 AND symbol.relation_type IN ('file_symbol','file_test')
-                                 AND a.assertion_state='active' AND f.assertion_state='active'
-                                 AND symbol.assertion_state='active'""",
-                            (str(anchor_id), str(fixture["pull_request_id"]), fixture["organization_url"],
-                             fixture["project"], fixture["repository_id"]))
-                paths = cur.fetchone()[0]
-        result_add(results, "LRN-07 ticket-to-PR-to-file-to-symbol path", "PASS" if paths else "FAIL",
-                   f"Structural 3-hop paths: {paths}; PR lifecycle={fixture.get('pr_lifecycle', 'unknown')}; graph path does not verify a fix")
+            graph = inspect(
+                db, fixture["organization_url"], fixture["project"],
+                str(anchor_id), approved, depth=4, max_nodes=100,
+            )
+        nodes = {n["key"]: n for n in graph["nodes"]}
+        adjacency = {}
+        for edge in graph["edges"]:
+            adjacency.setdefault(edge["from"], []).append(edge)
+
+        def path_count(relations):
+            current = [graph["root"]]
+            for position, relation in enumerate(relations):
+                following = []
+                for node_key in current:
+                    for edge in adjacency.get(node_key, []):
+                        if edge["relation"] != relation:
+                            continue
+                        target = nodes.get(edge["to"])
+                        if target is None:
+                            continue
+                        if position == 0 and (
+                            target["kind"] != "pull_request"
+                            or str(target["native_id"]) != str(fixture["pull_request_id"])
+                        ):
+                            continue
+                        if position == 1 and relation == "pr_commit":
+                            commit = (fixture.get("commit_id") or "").strip()
+                            if commit and target["native_id"].lower() != commit.lower():
+                                continue
+                        following.append(edge["to"])
+                current = following
+                if not current:
+                    return 0
+            return len(set(current))
+
+        # Some repositories contain test-case symbols, others ordinary symbols.
+        direct = sum(path_count(("ticket_pr", "pr_changed_file", leaf))
+                     for leaf in ("file_symbol", "file_test"))
+        full = sum(path_count(("ticket_pr", "pr_commit", "commit_file", leaf))
+                   for leaf in ("file_symbol", "file_test"))
+        result_add(
+            results, "LRN-07 source-backed ticket-to-PR-to-file-to-symbol/test",
+            "PASS" if direct else "FAIL",
+            f"Current 3-hop paths={direct}; only exact source-backed fixture PR accepted",
+        )
+        result_add(
+            results, "LRN-07 source-backed ticket-to-PR-to-commit-to-file-to-symbol/test",
+            "PASS" if full else "FAIL",
+            f"Current 4-hop paths={full}; fixture commit must match if supplied; "
+            "declared test is not proof of execution",
+        )
+        result_add(
+            results, "LRN-07 local canonical graph inspector",
+            "PASS",
+            f"Scoped canonical nodes={len(nodes)}, edges={len(graph['edges'])}; "
+            "latest-active, non-deleted provenance only",
+        )
     except Exception as exc:
-        result_add(results, "LRN-07 extended graph path", "FAIL", f"Graph query failed ({type(exc).__name__})")
+        result_add(
+            results, "LRN-07 source-backed graph paths", "FAIL",
+            f"Canonical graph traversal failed ({type(exc).__name__})",
+        )
 
 
 def run_graph_api_access(args, fixture: dict, results: list):
@@ -1958,7 +2006,8 @@ def main(argv=None) -> int:
                 result_add(results, "LRN-07 extended graph path", "BLOCKED",
                            "No prior code-scan evidence found for this exact commit; run -Scope LRN-06 first "
                            "(or this scope with -ScanCheckout/-ScanCommit), or widen the scope to include LRN-06")
-            run_graph_api_access(args, fixture, results)
+            # Enterprise delegated-token checks are deferred; the public graph API
+            # remains disabled. Internal canonical graph paths are validated above.
             run_lrn07_rename_edge_tests(env, run_dir, results)
 
         if learn_e2e_stages.needs_knowledge(args.scope):
