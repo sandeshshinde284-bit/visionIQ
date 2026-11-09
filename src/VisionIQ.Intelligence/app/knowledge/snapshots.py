@@ -337,9 +337,10 @@ def refresh(
     embedder: Embedder,
     only: list[str] | None = None,
     force: bool = False,
+    limit: int = 500,
 ) -> tuple[indexer.IndexReport, SnapshotResult]:
     """Index what changed, publish a checked snapshot, then clean up (the scheduled job)."""
-    report = indexer.run(conninfo, read_raw, embedder, only=only)
+    report = indexer.run(conninfo, read_raw, embedder, limit=limit, only=only)
     result = build_and_publish(conninfo, embedder.model_id, force=force)
     if result.status == "published":
         cleanup(conninfo)

@@ -7,6 +7,7 @@ python -m app.knowledge.index_cli rollback [id]   # serve the last good (or a na
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import uuid
@@ -46,6 +47,28 @@ def main(argv: list[str] | None = None) -> int:
     configure_from_environment()
     structlog.contextvars.bind_contextvars(run_id=uuid.uuid4().hex)
     log = structlog.get_logger("visioniq.indexer")
+    parser = argparse.ArgumentParser(
+        description="Refresh the VisionIQ search index from canonical evidence"
+    )
+    parser.add_argument(
+        "--only",
+        action="append",
+        metavar="ITEM_KEY",
+        help="Reindex a specific canonical item key; repeat for multiple items",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=int(os.environ.get("INDEX_BATCH_LIMIT", "500")),
+        help="Maximum changed items in this pass (default: INDEX_BATCH_LIMIT or 500)",
+    )
+    options = (
+        parser.parse_args(args)
+        if not args or args[0] not in ("status", "rollback")
+        else None
+    )
+    if options is not None and options.limit < 1:
+        parser.error("--limit must be greater than zero")
     conninfo = _conninfo()
     if args[:1] == ["status"]:
         import psycopg
@@ -70,7 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     embedder = from_environment()
     log.info("index.started", model=embedder.model_id)
     try:
-        report, published = snapshots.refresh(conninfo, read_gcs, embedder)
+        report, published = snapshots.refresh(
+            conninfo, read_gcs, embedder, only=options.only, limit=options.limit
+        )
     except Exception as error:
         log.error("index.failed", error_type=type(error).__name__)
         raise
