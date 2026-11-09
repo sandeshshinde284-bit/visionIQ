@@ -14,7 +14,7 @@ public sealed class AuthorizedGraphTraversalTests
     private static readonly string C = new('c', 64);
     private static readonly string D = new('d', 64);
 
-    private static EvidenceRequester LocalOperator() => new("internal-graph-test", []);
+    private static EvidenceRequester LocalOperator() => new("internal-graph-test", new HashSet<string>());
 
     [Fact]
     public async Task Explicit_three_hop_ticket_pr_commit_file_chain_is_traversable()
