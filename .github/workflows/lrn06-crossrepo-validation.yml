@@ -1,0 +1,38 @@
+name: LRN-06 approved-source wiring validation
+
+on:
+  pull_request:
+    paths:
+      - "src/VisionIQ.Intelligence/app/code_intelligence/approved_sources.py"
+      - "src/VisionIQ.Intelligence/app/code_intelligence/ingest_cli.py"
+      - "tests/intelligence/test_lrn06_approved_sources.py"
+      - ".github/workflows/lrn06-crossrepo-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  approved-sources:
+    name: LRN-06 approved-source wiring and regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused dependencies
+        run: python -m pip install pytest ruff "psycopg[binary]" structlog
+      - name: Compile updated modules and focused tests
+        run: |
+          python -m py_compile src/VisionIQ.Intelligence/app/code_intelligence/approved_sources.py
+          python -m py_compile src/VisionIQ.Intelligence/app/code_intelligence/ingest_cli.py
+          python -m py_compile tests/intelligence/test_lrn06_approved_sources.py
+      - name: Lint newly implemented discovery and tests
+        run: |
+          python -m ruff check src/VisionIQ.Intelligence/app/code_intelligence/approved_sources.py
+          python -m ruff check tests/intelligence/test_lrn06_approved_sources.py
+      - name: Run real resolver and graph projection tests
+        env:
+          PYTHONPATH: src/VisionIQ.Intelligence
+        run: python -m pytest -q tests/intelligence/test_lrn06_approved_sources.py
