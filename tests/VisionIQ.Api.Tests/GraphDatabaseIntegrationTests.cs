@@ -295,4 +295,61 @@ public sealed class GraphDatabaseIntegrationTests
 
         Assert.Single(await graph.OutgoingAsync(from.NodeKey(), 10));
     }
+    [DatabaseFact("VISIONIQ_GRAPH_DB_INTEGRATION")]
+    public async Task Deleting_canonical_source_hides_graph_nodes_without_erasing_history()
+    {
+        var settings = Settings();
+        var project = "test-" + Guid.NewGuid().ToString("N");
+        var instance = "https://dev.azure.com/visioniq-ci";
+        var ticket = new EvidenceIdentity("azure_devops", instance, project, null,
+            "work_item_current", "123");
+        var pr = new EvidenceIdentity("azure_devops", instance, project, "repo",
+            "pull_request", "42");
+        var now = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await using (var db = new NpgsqlConnection(ConnectionString(settings)))
+        {
+            await db.OpenAsync();
+            await AddEvidenceAsync(db, ticket, "1", now);
+            await AddEvidenceAsync(db, pr, "1", now);
+        }
+
+        var from = new GraphNode(ticket.ItemKey(), GraphNodeKind.WorkItem, "123");
+        var to = new GraphNode(pr.ItemKey(), GraphNodeKind.PullRequest, "42");
+        var assertion = new GraphAssertion(from, to, GraphRelationKind.TicketPr,
+            pr.ItemKey(), "1", GraphClassification.Explicit,
+            GraphAssertionState.Active, now);
+        await using var graph = new PostgresRelationshipGraphStore(settings);
+        await graph.SaveAsync(assertion);
+        Assert.Single(await graph.OutgoingAsync(from.NodeKey(), 10));
+
+        await using (var db = new NpgsqlConnection(ConnectionString(settings)))
+        {
+            await db.OpenAsync();
+            await using var delete = new NpgsqlCommand("""
+                UPDATE evidence.source_items
+                SET deleted_at = @deleted
+                WHERE item_key = @item
+                """, db);
+            delete.Parameters.AddWithValue("deleted", DateTimeOffset.UtcNow);
+            delete.Parameters.AddWithValue("item", pr.ItemKey());
+            Assert.Equal(1, await delete.ExecuteNonQueryAsync());
+        }
+
+        Assert.Null(await graph.GetNodeAsync(to.NodeKey()));
+        Assert.Empty(await graph.OutgoingAsync(from.NodeKey(), 10));
+
+        // The assertion remains an immutable historical fact, not an active
+        // navigable link to a source that was subsequently deleted.
+        await using (var db = new NpgsqlConnection(ConnectionString(settings)))
+        {
+            await db.OpenAsync();
+            await using var history = new NpgsqlCommand("""
+                SELECT count(*) FROM evidence.graph_assertions
+                WHERE assertion_key = @key
+                """, db);
+            history.Parameters.AddWithValue("key", assertion.AssertionKey());
+            Assert.Equal(1L, (long)(await history.ExecuteScalarAsync())!);
+        }
+    }
+
 }
