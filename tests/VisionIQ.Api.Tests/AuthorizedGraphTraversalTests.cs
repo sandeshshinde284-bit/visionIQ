@@ -3,7 +3,10 @@ using VisionIQ.Api.Features.Graph;
 
 namespace VisionIQ.Api.Tests;
 
-/// <summary>LRN-07 bounded graph traversal and source-permission regression coverage.</summary>
+/// <summary>
+/// LRN-07 internal graph-structure tests. User-level ACL integration is deferred.
+/// These tests never represent an authenticated public API or permission grant.
+/// </summary>
 public sealed class AuthorizedGraphTraversalTests
 {
     private static readonly string A = new('a', 64);
@@ -11,19 +14,10 @@ public sealed class AuthorizedGraphTraversalTests
     private static readonly string C = new('c', 64);
     private static readonly string D = new('d', 64);
 
-    /// <summary>Constructs a trusted caller whose approved group appears in test ACLs.</summary>
-    private static EvidenceRequester Requester() =>
-        new("reviewer", new HashSet<string> { "approved-group" });
-
-    /// <summary>Canonical identity with one provider and strictly source-scoped project.</summary>
-    private static EvidenceReadCandidate Candidate(string anchor) =>
-        new(new EvidenceIdentity("azure_devops", "https://dev.azure.com/approved",
-                "project-a", "repo-a", "commit", anchor),
-            "rev-7", "https://dev.azure.com/approved/project-a",
-            """{"kind":"commit"}""", true, ["approved-group"]);
+    private static EvidenceRequester LocalOperator() => new("internal-graph-test", new HashSet<string>());
 
     [Fact]
-    public async Task Authorized_three_hop_chain_is_traversable_with_opaque_ids()
+    public async Task Explicit_three_hop_ticket_pr_commit_file_chain_is_traversable()
     {
         var nodes = new[]
         {
@@ -36,11 +30,18 @@ public sealed class AuthorizedGraphTraversalTests
         store.Link(nodes[0], nodes[1], GraphRelationKind.TicketPr, A);
         store.Link(nodes[1], nodes[2], GraphRelationKind.PrCommit, B);
         store.Link(nodes[2], nodes[3], GraphRelationKind.CommitFile, C);
-        var service = Service(store, new StubAccess());
-        var graph = await service.TraverseAsync(nodes[0].NodeKey(), Requester());
+
+        var graph = await new AuthorizedGraphTraversal(store)
+            .TraverseAsync(nodes[0].NodeKey(), LocalOperator());
 
         Assert.Equal(4, graph.Nodes.Count);
         Assert.Equal(3, graph.Edges.Count);
+        Assert.Equal(new[]
+        {
+            GraphRelationKind.TicketPr,
+            GraphRelationKind.PrCommit,
+            GraphRelationKind.CommitFile,
+        }, graph.Edges.Select(edge => edge.Relation));
         Assert.All(graph.Edges, edge =>
         {
             Assert.Equal(GraphClassification.Explicit, edge.Classification);
@@ -49,68 +50,80 @@ public sealed class AuthorizedGraphTraversalTests
     }
 
     [Fact]
-    public async Task A_source_permission_revocation_hides_the_endpoint_and_edge()
+    public async Task Missing_destination_is_not_invented()
     {
-        var src = new GraphNode(A, GraphNodeKind.WorkItem, "123");
-        var dst = new GraphNode(B, GraphNodeKind.PullRequest, "42");
-        var store = new FakeGraph([src, dst]);
-        store.Link(src, dst, GraphRelationKind.TicketPr, A);
-        var access = new StubAccess { Deny = B };
-        var graph = await Service(store, access).TraverseAsync(src.NodeKey(), Requester());
+        var source = new GraphNode(A, GraphNodeKind.WorkItem, "123");
+        var missing = new GraphNode(B, GraphNodeKind.PullRequest, "42");
+        var store = new FakeGraph([source]);
+        store.Link(source, missing, GraphRelationKind.TicketPr, A);
+
+        var graph = await new AuthorizedGraphTraversal(store)
+            .TraverseAsync(source.NodeKey(), LocalOperator());
+
         Assert.Single(graph.Nodes);
         Assert.Empty(graph.Edges);
     }
 
     [Fact]
-    public async Task Unknown_or_unverified_provenance_revision_is_never_exposed()
+    public async Task Mismatched_destination_anchor_is_rejected()
     {
-        var src = new GraphNode(A, GraphNodeKind.WorkItem, "123");
-        var dst = new GraphNode(B, GraphNodeKind.PullRequest, "42");
-        var store = new FakeGraph([src, dst]);
-        store.Link(src, dst, GraphRelationKind.TicketPr, C);
-        var access = new StubAccess { DenyRevision = C };
-        var graph = await Service(store, access).TraverseAsync(src.NodeKey(), Requester());
+        var source = new GraphNode(A, GraphNodeKind.WorkItem, "123");
+        var target = new GraphNode(B, GraphNodeKind.PullRequest, "42");
+        var store = new FakeGraph([source, target]);
+        store.Link(source, target, GraphRelationKind.TicketPr, A, reportedAnchor: C);
+
+        var graph = await new AuthorizedGraphTraversal(store)
+            .TraverseAsync(source.NodeKey(), LocalOperator());
+
         Assert.Single(graph.Nodes);
         Assert.Empty(graph.Edges);
     }
 
     [Fact]
-    public async Task Inaccessible_start_node_never_queries_neighbors()
+    public async Task Nonexistent_root_cannot_traverse_any_edges()
     {
-        var src = new GraphNode(A, GraphNodeKind.WorkItem, "123");
-        var store = new FakeGraph([src]);
-        var graph = await Service(store, new StubAccess { Deny = A })
-            .TraverseAsync(src.NodeKey(), Requester());
+        var store = new FakeGraph([]);
+        var graph = await new AuthorizedGraphTraversal(store).TraverseAsync(A, LocalOperator());
+
         Assert.Empty(graph.Nodes);
         Assert.Empty(graph.Edges);
         Assert.Equal(0, store.AdjacencyReads);
     }
 
     [Fact]
-    public async Task Hop_limit_prevents_deeper_expansion()
+    public async Task Hop_and_node_limits_are_enforced()
     {
-        var src = new GraphNode(A, GraphNodeKind.WorkItem, "123");
-        var dst = new GraphNode(B, GraphNodeKind.PullRequest, "42");
-        var third = new GraphNode(C, GraphNodeKind.Commit, new string('c', 40));
-        var store = new FakeGraph([src, dst, third]);
-        store.Link(src, dst, GraphRelationKind.TicketPr, A);
-        store.Link(dst, third, GraphRelationKind.PrCommit, B);
-        var output = await Service(store, new StubAccess())
-            .TraverseAsync(src.NodeKey(), Requester(), maxHops: 1);
-        Assert.Equal(2, output.Nodes.Count);
-        Assert.Single(output.Edges);
+        var root = new GraphNode(A, GraphNodeKind.WorkItem, "123");
+        var pr = new GraphNode(B, GraphNodeKind.PullRequest, "42");
+        var commit = new GraphNode(C, GraphNodeKind.Commit, new string('c', 40));
+        var store = new FakeGraph([root, pr, commit]);
+        store.Link(root, pr, GraphRelationKind.TicketPr, A);
+        store.Link(pr, commit, GraphRelationKind.PrCommit, B);
+
+        var traversal = new AuthorizedGraphTraversal(store);
+        var oneHop = await traversal.TraverseAsync(root.NodeKey(), LocalOperator(), maxHops: 1);
+        Assert.Equal(2, oneHop.Nodes.Count);
+        Assert.Single(oneHop.Edges);
+
+        var oneNode = await traversal.TraverseAsync(root.NodeKey(), LocalOperator(), maxNodes: 1);
+        Assert.Single(oneNode.Nodes);
+        Assert.Empty(oneNode.Edges);
+
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            Service(store, new StubAccess()).TraverseAsync(src.NodeKey(), Requester(), maxHops: 5));
+            traversal.TraverseAsync(root.NodeKey(), LocalOperator(), maxHops: 4));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            traversal.TraverseAsync(root.NodeKey(), LocalOperator(), maxNodes: 101));
     }
 
     [Fact]
-    public void Keys_are_stable_scoped_and_collision_resistant()
+    public void Keys_are_stable_source_scoped_and_collision_resistant()
     {
         var same = new GraphNode(A, GraphNodeKind.File, "src/a.py");
         Assert.Equal(same.NodeKey(), same.NodeKey());
         Assert.NotEqual(same.NodeKey(), (same with { AnchorItemKey = B }).NodeKey());
         Assert.NotEqual(same.NodeKey(), (same with { Kind = GraphNodeKind.Symbol }).NodeKey());
         Assert.Throws<ArgumentException>(() => (same with { AnchorItemKey = "invalid" }).NodeKey());
+
         var assertion = new GraphAssertion(
             new GraphNode(A, GraphNodeKind.WorkItem, "123"),
             new GraphNode(B, GraphNodeKind.PullRequest, "42"),
@@ -121,30 +134,27 @@ public sealed class AuthorizedGraphTraversalTests
             (assertion with { ProvenanceRevision = "rev-2" }).AssertionKey());
     }
 
-    private static AuthorizedGraphTraversal Service(FakeGraph graph, StubAccess access) =>
-        new(graph);
-
-    /// <summary>Provides source-scoped graph nodes and explicit adjacency.</summary>
     private sealed class FakeGraph(IEnumerable<GraphNode> graphNodes) : IRelationshipGraphStore
     {
-        private readonly Dictionary<string, GraphNode> nodes = graphNodes.ToDictionary(node => node.NodeKey());
+        private readonly Dictionary<string, GraphNode> nodes =
+            graphNodes.ToDictionary(node => node.NodeKey());
         private readonly Dictionary<string, List<GraphNeighbor>> edges = [];
         public int AdjacencyReads { get; private set; }
 
-        /// <summary>Adds one explicit test edge without a live provider record.</summary>
-        public void Link(GraphNode source, GraphNode target, GraphRelationKind relation, string proof)
+        public void Link(
+            GraphNode source, GraphNode target, GraphRelationKind relation,
+            string proof, string? reportedAnchor = null)
         {
             edges.TryAdd(source.NodeKey(), []);
             edges[source.NodeKey()].Add(
-                new GraphNeighbor(target.NodeKey(), target.AnchorItemKey, proof, "rev-7",
-                    relation, GraphClassification.Explicit));
+                new GraphNeighbor(target.NodeKey(), reportedAnchor ?? target.AnchorItemKey,
+                    proof, "rev-7", relation, GraphClassification.Explicit));
         }
 
-        /// <summary>Return the test node matching its exact opaque key.</summary>
-        public Task<GraphNode?> GetNodeAsync(string key, CancellationToken cancellationToken = default) =>
+        public Task<GraphNode?> GetNodeAsync(
+            string key, CancellationToken cancellationToken = default) =>
             Task.FromResult(nodes.GetValueOrDefault(key));
 
-        /// <summary>Return only edges owned by the requested parent.</summary>
         public Task<IReadOnlyList<GraphNeighbor>> OutgoingAsync(
             string key, int limit, CancellationToken cancellationToken = default)
         {
@@ -153,11 +163,8 @@ public sealed class AuthorizedGraphTraversalTests
                 edges.GetValueOrDefault(key)?.Take(limit).ToArray() ?? []);
         }
 
-        /// <summary>Unused in traversal-only fixture tests.</summary>
-        public Task SaveAsync(GraphAssertion assertion, CancellationToken cancellationToken = default) =>
+        public Task SaveAsync(
+            GraphAssertion assertion, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
-    }
-
-    /// <summary>S06-11 ACL filtering deferred; stub test helpers removed.</summary>
     }
 }

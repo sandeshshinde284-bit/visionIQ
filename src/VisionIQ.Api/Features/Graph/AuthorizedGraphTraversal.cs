@@ -2,12 +2,19 @@ using VisionIQ.Api.Features.Evidence;
 
 namespace VisionIQ.Api.Features.Graph;
 
+/// <summary>
+/// Trusted internal structural traversal of canonical, persisted graph edges.
+/// LRN-07 hackathon scope defers end-user permissions; this method does NOT
+/// authorize users or providers and MUST NOT be mapped to an anonymous HTTP API.
+/// The graph API endpoint remains disabled until the deferred authentication
+/// and source-permission checks are restored.
+/// </summary>
 public sealed class AuthorizedGraphTraversal(IRelationshipGraphStore graph)
 {
     /// <summary>
     /// Traverse outgoing edges up to three hops and 100 nodes.
     /// Inferred, retracted or disputed relationships are excluded by the store.
-    /// Note: S06-11 ACL filtering is not implemented; all nodes are visible.
+    /// Caller permission checks are deferred: all returned structural nodes are internal-only.
     /// </summary>
     public async Task<AuthorizedGraph> TraverseAsync(
         string startNodeKey, EvidenceRequester requester,
@@ -15,6 +22,7 @@ public sealed class AuthorizedGraphTraversal(IRelationshipGraphStore graph)
         CancellationToken cancellationToken = default)
     {
         GraphHashes.RequireKey(startNodeKey, nameof(startNodeKey));
+        ArgumentNullException.ThrowIfNull(requester);
         ArgumentNullException.ThrowIfNull(requester);
         if (maxHops is < 1 or > 3 || maxNodes is < 1 or > 100)
         {
