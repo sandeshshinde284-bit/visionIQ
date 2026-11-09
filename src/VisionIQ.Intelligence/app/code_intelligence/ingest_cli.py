@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import structlog
 from psycopg.conninfo import make_conninfo
 
+from app.code_intelligence.approved_sources import load_approved_code_scans
 from app.code_intelligence.canonical import (
     GcsScanArchive,
     PostgresScanEvidenceStore,
@@ -219,8 +220,10 @@ def _run(arguments: argparse.Namespace, log) -> int:
                 raise ValueError("Committed dependency manifest exceeds 1 MiB")
             return result.stdout.decode("utf-8")
 
+        approved_repositories, approved_targets = load_approved_code_scans(db, archived)
         links = resolve_dependencies(
             ApprovedRepository(identity.repository_id, url, scan),
+            approved_repositories=approved_repositories,
             read_blob=read_committed_manifest,
         )
         edges = graph.persist_code_graph(
@@ -230,6 +233,7 @@ def _run(arguments: argparse.Namespace, log) -> int:
             approved_ado_instance=ado_organization,
             previous_commit=previous_commit,
             declared_dependencies=links,
+            approved_targets=approved_targets,
         )
         log.info("graph.persisted", edges=edges, dependency_links=len(links))
 
