@@ -4,16 +4,16 @@
 
 **Execution labels:** **Observed** = executed by the user in the recorded local test workflow; **Reference** = documented for future use and not confirmed executed with the shown arguments; **Do not repeat** = investigative or potentially costly operation already performed.
 
-All commands assume Windows PowerShell at the VisionIQ repository root and `feature/learn`, with configured local credentials. Never paste secrets, page bodies or corporate records in a public report.
+All commands assume Windows PowerShell at the VisionIQ repository root on `dev`, with configured local credentials. Never paste secrets, page bodies or corporate records in a public report.
 
 ## A. Daily development: start here
 
 | Goal | PowerShell | Class | Expected / caution |
 | --- | --- | --- | --- |
-| Check branch | `git branch --show-current` | Reference | Expect `feature/learn`; command does not switch or merge branches |
-| Bring changes locally | `git switch feature/learn; git pull` | Reference | Only when your local work is clean and you intend to update |
+| Check branch | `git branch --show-current` | Reference | Expect `dev`; command does not switch or merge branches |
+| Bring changes locally | `git switch dev; git pull` | Reference | Only when your local work is clean and you intend to update |
 | Build solution | `dotnet build .\VisionIQ.sln --configuration Release` | Observed workflow | Exit 0 before using `--no-build`; review warnings rather than treating them as errors |
-| Full regression | `dotnet test .\VisionIQ.sln --configuration Release` | Observed | **402 passed, 0 failed** on recorded run; not guaranteed on later commits |
+| Full regression | `dotnet test .\VisionIQ.sln --configuration Release` | Observed | **402 passed, 0 failed** on recorded run; on `dev` at `1645378` (6 Nov 2026): **569 passed, 0 failed, 18 skipped** (opt-in DB tests) |
 | Read-only source inventory | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- inventory` | Observed | Connected source counts, exit 0 on reachable sources; creates local inventory file |
 
 ## B. LRN-01: source-history checks
@@ -21,19 +21,19 @@ All commands assume Windows PowerShell at the VisionIQ repository root and `feat
 | Goal | PowerShell | Class | Expected / caution |
 | --- | --- | --- | --- |
 | Connector test project | `dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj --configuration Release --no-restore` | Reference | Ensure restore has already succeeded; check number of discovered tests |
-| Failure-recovery filter | `dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~StreamIsolationTests|FullyQualifiedName~CanonicalEvidenceSinkTests|FullyQualifiedName~AdoWorkItemChangeHandlerTests|FullyQualifiedName~SyncRunnerTests|FullyQualifiedName~TicketFixProjectionSinkTests"` | Observed | Recorded filtered run: 30 passed |
+| Failure-recovery filter | `dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~StreamIsolationTests|FullyQualifiedName~CanonicalEvidenceSinkTests|FullyQualifiedName~AdoWorkItemChangeHandlerTests|FullyQualifiedName~SyncRunnerTests|FullyQualifiedName~TicketFixProjectionSinkTests"` | Observed | Recorded filtered run: 30 passed; **44 passed** on `dev` at `1645378` |
 | Source-specific sync | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source work-items` | Reference | **Writes to configured output destination and checkpoints**; inspect destination first |
 | Repository Git history | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source commits,pull-requests` | Reference | Confirm approved ADO repository filters before running |
 | CI build history | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source builds` | Observed workflow | Limited **only** by `ADO_PIPELINE_IDS`, never by `ADO_REPOS` (empty = every pipeline in the approved projects); recorded sample 86 builds/149 links |
-| Full backfill/reconcile | See [LRN-01 operations](LRN-01-history-connectors/operations.md) | Do not repeat casually | Heavy live read/writes; not a routine health check |
+| Full backfill/reconcile | See [LRN-01 operations](LRN-01-HISTORY-CONNECTORS/operations.md) | Do not repeat casually | Heavy live read/writes; not a routine health check |
 
 ## C. LRN-02: Confluence and security checks
 
 | Goal | PowerShell | Class | Expected / caution |
 | --- | --- | --- | --- |
-| Focused Confluence tests | `dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~Confluence|FullyQualifiedName~ContentRevisionTests" --verbosity normal` | Observed | **37 passed, 0 failed, 0 skipped** in recorded run |
+| Focused Confluence tests | `dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~Confluence|FullyQualifiedName~ContentRevisionTests" --verbosity normal` | Observed | **37 passed, 0 failed, 0 skipped** in recorded run; **45 passed** on `dev` at `1645378` |
 | Safe title+label discovery | `dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- discover-confluence-decisions` | Observed | 589 pages, 314 eligible, 0 title matches, 0 label matches, 0 label failures; no page bodies exported. May make hundreds of Confluence calls |
-| Date-scoped isolated JSONL sync | See [LRN-02 setup and operations](LRN-02-confluence/02-Setup-and-Operations.md) | Do not repeat | Recorded exit **2 (Partial)** is intentional withholding, **not** complete success |
+| Date-scoped isolated JSONL sync | See [LRN-02 setup and operations](LRN-02-CONFLUENCE/02-Setup-and-Operations.md) | Do not repeat | Recorded exit **2 (Partial)** is intentional withholding, **not** complete success |
 | `FullyQualifiedName~ConfluenceAccess` test filter | Do not use as acceptance proof | Avoid | Earlier invocation discovered **zero tests** and is not a successful access-control test |
 
 ## D. Exit codes and report interpretation
@@ -59,11 +59,11 @@ Write-Host "Evidence bucket: $env:GCS_EVIDENCE_BUCKET"
 
 ## F. Further explanations and diagrams
 
-- [LRN-01 visual walkthrough](LRN-01-history-connectors/visual-guide.md)
-- [LRN-01 local testing](LRN-01-history-connectors/local-testing.md)
-- [LRN-01 historical test evidence](../LRN-01-Test-Report.md)
-- [LRN-02 illustrated walkthrough](LRN-02-confluence/05-Illustrated-Walkthrough.md)
-- [LRN-02 test evidence](LRN-02-confluence/03-Test-Report-and-Evidence.md)
-- [LRN-02 acceptance boundary](LRN-02-confluence/04-Acceptance-and-LRN03-Handoff.md)
+- [LRN-01 visual walkthrough](LRN-01-HISTORY-CONNECTORS/visual-guide.md)
+- [LRN-01 local testing](LRN-01-HISTORY-CONNECTORS/local-testing.md)
+- [LRN-01 historical test evidence](../REVIEW-AND-AUDIT/2026-Q4/LRN-01-Test-Report.md)
+- [LRN-02 illustrated walkthrough](LRN-02-CONFLUENCE/05-Illustrated-Walkthrough.md)
+- [LRN-02 test evidence](LRN-02-CONFLUENCE/03-Test-Report-and-Evidence.md)
+- [LRN-02 acceptance boundary](LRN-02-CONFLUENCE/04-Acceptance-and-LRN03-Handoff.md)
 
 **Scope note:** This register covers principal commands, not a verbatim exhaustive transcript of every one-off PowerShell inspection statement. Historical commands that read sensitive JSONL content should not be indiscriminately copied into a public playbook.

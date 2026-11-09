@@ -79,7 +79,8 @@ class VertexGeminiEmbedder:
         location: str,
         model: str = "gemini-embedding-001",
         dimension: int = DIMENSION,
-        batch_size: int = 1,  # Vertex batches count against per-request quota; 1 is the safe default
+        # Vertex batches count against per-request quota; 1 is the safe default.
+        batch_size: int = 1,
         session=None,
         max_retries: int = 5,
         sleep=time.sleep,

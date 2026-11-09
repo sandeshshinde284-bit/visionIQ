@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- Source checkout on `feature/learn`, .NET SDK matching project, permitted read-only ADO credentials, PostgreSQL test instance if using canonical mode.
-- Explicitly approved ADO project and repository: the recorded trial used **WLMTS / Genoa Kiosk / KIOSK_TVM**.
+- Source checkout on `dev`, .NET SDK matching project, permitted read-only ADO credentials, PostgreSQL test instance if using canonical mode.
+- Explicitly approved ADO project and repository (keep the real organization, project and repository names in your private `.env` and acceptance records, not in this public guide).
 - Never print `.env`, tokens, raw work-item comments or unredacted JSONL into test reports.
 - Confirm `INGESTION_OUTPUT_MODE`, `CHECKPOINT_STORE`, `DB_HOST`, `DB_PORT`, `GCS_EVIDENCE_BUCKET` **before any write**.
 
@@ -21,7 +21,7 @@ dotnet test .\VisionIQ.sln --configuration Release --no-build
 if ($LASTEXITCODE -ne 0) { throw "Tests failed" }
 ```
 
-**Expected:** branch `feature/learn`, build exit 0, nonzero number of discovered tests, 0 failing tests. **If different:** stop; do not start ingestion. The historical 402/402 pass applies to the recorded code version, not a future commit.
+**Expected:** branch `dev`, build exit 0, nonzero number of discovered tests, 0 failing tests. **If different:** stop; do not start ingestion. The historical 402/402 pass applies to the recorded code version, not a future commit.
 
 ## 1. Validate code without contacting ADO
 
@@ -44,7 +44,7 @@ Observed on 2026-11-02: **30 passed, 0 failed, 0 skipped, exit 0**.
 **Important:** the values below show only process environment variables, not necessarily values loaded from the local `.env` file. Blank values **do not prove that the application will not write** to an external destination. Inspect the effective application's safe startup diagnostics and confirm the approved destination before any sync.
 
 ```powershell
-$env:ADO_REPOS = "KIOSK_TVM"
+$env:ADO_REPOS = "<approved-repository-name>"
 "Output mode: $env:INGESTION_OUTPUT_MODE"
 "Checkpoint store: $env:CHECKPOINT_STORE"
 "Database host: $env:DB_HOST"
@@ -77,7 +77,7 @@ Write-Host "Work items exit code: $LASTEXITCODE"
 For repo-specific Git:
 
 ```powershell
-$env:ADO_REPOS = "KIOSK_TVM"
+$env:ADO_REPOS = "<approved-repository-name>"
 dotnet run --configuration Release --project .\src\VisionIQ.Ingestor.Cli -- sync --source commits,pull-requests
 Write-Host "Git ingestion exit code: $LASTEXITCODE"
 ```
@@ -105,7 +105,7 @@ The following command refers to a disposable container used in the recorded test
 Recorded disposable PostgreSQL container:
 
 ```powershell
-docker exec visioniq-lrn01-test-postgres psql -U visioniq -d visioniq -c "SELECT source_id, scope, cursor_value, updated_at FROM evidence.connector_checkpoints WHERE source_id = 'WLMTS/ado' ORDER BY scope;"
+docker exec visioniq-lrn01-test-postgres psql -U visioniq -d visioniq -c "SELECT source_id, scope, cursor_value, updated_at FROM evidence.connector_checkpoints WHERE source_id = '<organization>/ado' ORDER BY scope;"
 ```
 
 Never reset checkpoints or delete GCS objects to make a test pass.
@@ -117,4 +117,4 @@ dotnet test .\VisionIQ.sln --configuration Release
 Write-Host "Solution exit code: $LASTEXITCODE"
 ```
 
-Previously recorded result (not a fresh run after the LRN-03 acceptance changes): **402 passed, 0 failed, 0 skipped, exit 0**, build successful with **66 warnings**. These are analyzer advisories, not errors: 15 × `CA1873` in production code (logging performance, already fixed on `feature/learn-08-14`) and performance/nullable advisories in test code; see [acceptance](acceptance.md) for the breakdown. The exact count varies by run (63 was recorded on an earlier run) and `NU1900` appears when NuGet's vulnerability feed is unreachable. Re-run after changes and note any skipped integration tests separately.
+On `dev` at `1645378` (6 Nov 2026): **569 passed, 0 failed, 18 skipped** (the skips are opt-in database tests), build successful with **57 warnings**. Previously recorded result (not a fresh run after the LRN-03 acceptance changes): **402 passed, 0 failed, 0 skipped, exit 0**, build successful with **66 warnings**. These are analyzer advisories, not errors: 15 × `CA1873` in production code (logging performance, already fixed on `feature/learn-08-14`) and performance/nullable advisories in test code; see [acceptance](acceptance.md) for the breakdown. The exact count varies by run (63 was recorded on an earlier run) and `NU1900` appears when NuGet's vulnerability feed is unreachable. Re-run after changes and note any skipped integration tests separately.

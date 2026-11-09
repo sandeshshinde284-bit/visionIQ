@@ -1,7 +1,7 @@
 # VisionIQ — LRN-07 Relationship Graph
 
-**Branch:** `feature/lrn07-relationship-graph` (PR #9 into `feature/learn`).  
-**Runtime:** .NET 10 / Python 3.12 / PostgreSQL 16 with Alembic `20261031_0006`.  
+**Branch:** merged into `dev` (with the LRN-01–14 changes, `e9933be`).  
+**Runtime:** .NET 10 / Python 3.12 / PostgreSQL 16. Graph tables come from Alembic `20261031_0006`; the current head on `dev` is `20261106_0022`.  
 **Scope:** code integration and CI tests. Real approved source and cloud acceptance are separate.
 
 ## Architectural contracts
@@ -68,7 +68,7 @@ database must not be confused with permission to expose graph results.**
 ## Local test commands (repo root)
 
 ```powershell
-git checkout feature/learn
+git switch dev
 docker compose up -d postgres
 docker compose run --build --rm db-migrate
 

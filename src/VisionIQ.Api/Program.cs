@@ -74,6 +74,14 @@ var pickup = builder.Services.AddTicketPickup(builder.Configuration);
 
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(
+        new System.Text.Json.Serialization.JsonStringEnumConverter<AnalysisMode>(
+            System.Text.Json.JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
+});
+
 var app = builder.Build();
 app.UseMiddleware<RequestLoggingMiddleware>();
 

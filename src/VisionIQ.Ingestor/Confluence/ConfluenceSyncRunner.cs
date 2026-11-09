@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using VisionIQ.Ingestor.Checkpoints;
 using VisionIQ.Ingestor.Sources;
@@ -16,10 +17,11 @@ public sealed class ConfluenceSyncRunner
     private readonly IRecordSink sink;
     private readonly SourceCapabilityRegistry registry;
     private readonly TimeProvider time;
+    private readonly int evidenceConcurrency;
 
     private readonly Microsoft.Extensions.Logging.ILogger log;
 
-    public ConfluenceSyncRunner(IConfluenceSource source, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Microsoft.Extensions.Logging.ILogger? logger = null)
+    public ConfluenceSyncRunner(IConfluenceSource source, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Microsoft.Extensions.Logging.ILogger? logger = null, int evidenceConcurrency = SyncRunner.DefaultEvidenceConcurrency)
     {
         log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         ArgumentNullException.ThrowIfNull(source);
@@ -31,6 +33,7 @@ public sealed class ConfluenceSyncRunner
         this.sink = sink;
         this.registry = registry;
         this.time = time ?? TimeProvider.System;
+        this.evidenceConcurrency = evidenceConcurrency > 0 ? evidenceConcurrency : SyncRunner.DefaultEvidenceConcurrency;
     }
 
     private string SourceId => source.Tenant + "/confluence";
@@ -92,20 +95,47 @@ public sealed class ConfluenceSyncRunner
         }
 
         var written = new List<(DateTimeOffset At, string Id)>();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var pages = await source.GetPagesAsync(space, cancellationToken).ConfigureAwait(false);
             var acls = ConfluenceAccess.ComputeAcls(pages);
             var byId = pages.ToDictionary(page => page.Id, StringComparer.Ordinal);
 
+            // R3-01: every page/ACL write here is a real GCS+PostgreSQL round trip (canonical mode),
+            // exactly the same cost profile that made LRN-01's ADO ingestion take 20+ minutes one
+            // write at a time. Bounded concurrency (shared with SyncRunner's default) applies the same
+            // fix here; this is a different bottleneck from the restriction-fetch concurrency already
+            // added to ConfluenceCloudSource (that one is rate-limited by Confluence's own API, this
+            // one by GCS/PostgreSQL round trips, so a separate gate is correct, not redundant).
+            using var writeGate = new SemaphoreSlim(evidenceConcurrency);
+            async Task GatedWriteAsync(string stream, string key, object value, CancellationToken token)
+            {
+                await writeGate.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    await sink.WriteAsync(stream, key, value, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    writeGate.Release();
+                }
+            }
+
             // ACLs are written for every page, not just the ones with fresh content: permissions can
             // change (or go from unknown to known) without a new page version, so downstream access
             // checks need the latest fingerprint even when there is nothing new to sync.
-            foreach (var page in pages)
+            var aclsDone = 0;
+            await RunGatedAsync(pages, async (page, token) =>
             {
                 var acl = acls[page.Id];
-                await sink.WriteAsync("confluence-acl", Key(space, "page", page.Id, null) + "#" + acl.Fingerprint, acl, cancellationToken).ConfigureAwait(false);
-            }
+                await GatedWriteAsync("confluence-acl", Key(space, "page", page.Id, null) + "#" + acl.Fingerprint, acl, token).ConfigureAwait(false);
+                var done = Interlocked.Increment(ref aclsDone);
+                if (done % 50 == 0 || done == pages.Count)
+                {
+                    Logging.IngestionLog.ConfluenceAclProgress(log, space, done, pages.Count, timer.Elapsed.TotalMilliseconds);
+                }
+            }, cancellationToken).ConfigureAwait(false);
 
             var hidden = acls.Values.Count(acl => !acl.Complete);
             if (hidden > 0)
@@ -118,10 +148,15 @@ public sealed class ConfluenceSyncRunner
                     ? request.Since is null || page.LastModified >= request.Since
                     : cursor.IsNew(page.LastModified, page.Id + "@" + page.Version.ToString(CultureInfo.InvariantCulture)))
                 .OrderBy(page => page.LastModified)
-                .ThenBy(page => page.Id, StringComparer.Ordinal);
+                .ThenBy(page => page.Id, StringComparer.Ordinal)
+                .ToList();
 
             var withheld = 0;
-            foreach (var page in fresh)
+            var recordsDone = 0;
+            var linksDone = 0;
+            var writtenBag = new ConcurrentBag<(DateTimeOffset At, string Id)>();
+
+            await RunGatedAsync(fresh, async (page, token) =>
             {
                 var pageAcl = acls[page.Id];
                 // JSONL is not an ACL-aware evidence store. Never write
@@ -131,11 +166,11 @@ public sealed class ConfluenceSyncRunner
                 // Confluence ancestor-level AND policy.
                 if ((!pageAcl.Complete || pageAcl.IsRestricted) && sink is not ICanonicalEvidenceSink)
                 {
-                    withheld++;
-                    continue;
+                    Interlocked.Increment(ref withheld);
+                    return;
                 }
 
-                var enriched = await source.EnrichAsync(page, cancellationToken).ConfigureAwait(false);
+                var enriched = await source.EnrichAsync(page, token).ConfigureAwait(false);
                 var normalized = ConfluenceText.Normalize(enriched.StorageBody);
                 var snapshot = new ConfluencePageSnapshot(source.Tenant, space, page.Id, page.Version, page.Title, page.LastModified)
                 {
@@ -151,16 +186,25 @@ public sealed class ConfluenceSyncRunner
                 };
 
                 var version = page.Version.ToString(CultureInfo.InvariantCulture);
-                await sink.WriteAsync("confluence-pages", Key(space, "page", page.Id, version), snapshot, cancellationToken).ConfigureAwait(false);
+                await GatedWriteAsync("confluence-pages", Key(space, "page", page.Id, version), snapshot, token).ConfigureAwait(false);
                 if (DesignDecisionDetector.Detect(snapshot) is { } decision)
                 {
-                    await sink.WriteAsync("design-decisions", Key(space, "decision", page.Id, version), decision, cancellationToken).ConfigureAwait(false);
-                    result.Links++;
+                    await GatedWriteAsync("design-decisions", Key(space, "decision", page.Id, version), decision, token).ConfigureAwait(false);
+                    Interlocked.Increment(ref linksDone);
                 }
 
-                result.Records++;
-                written.Add((page.LastModified, page.Id + "@" + version));
-            }
+                var done = Interlocked.Increment(ref recordsDone);
+                if (done % 50 == 0 || done == fresh.Count)
+                {
+                    Logging.IngestionLog.ConfluencePagePersistProgress(log, space, done, fresh.Count, timer.Elapsed.TotalMilliseconds);
+                }
+
+                writtenBag.Add((page.LastModified, page.Id + "@" + version));
+            }, cancellationToken).ConfigureAwait(false);
+
+            result.Records = recordsDone;
+            result.Links = linksDone;
+            written.AddRange(writtenBag);
 
             if (withheld > 0)
             {
@@ -192,6 +236,33 @@ public sealed class ConfluenceSyncRunner
         }
     }
 
+    /// <summary>Bounded-concurrency ForEachAsync that unwraps a single real exception instead of
+    /// letting Parallel.ForEachAsync's AggregateException hide it from the existing single-exception
+    /// catch below (only observable when more than one item faults concurrently).</summary>
+    private async Task RunGatedAsync<T>(IReadOnlyCollection<T> items, Func<T, CancellationToken, ValueTask> body, CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await Parallel.ForEachAsync(items, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = evidenceConcurrency,
+                CancellationToken = cancellationToken,
+            }, body).ConfigureAwait(false);
+        }
+        catch (AggregateException aggregate)
+        {
+            var flattened = aggregate.Flatten().InnerExceptions;
+            Exception toRethrow = flattened.OfType<ConfluenceSourceException>().FirstOrDefault()
+                ?? (flattened.Count == 1 ? flattened[0] : aggregate);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(toRethrow).Throw();
+        }
+    }
+
     private string Key(string space, string kind, string id, string? version) =>
         source.Tenant + "/confluence/" + space + "/" + kind + "/" + id + (version is null ? string.Empty : "@" + version);
 
@@ -210,7 +281,7 @@ public static class ConfluenceSources
         ArgumentNullException.ThrowIfNull(options);
         var client = new ConfluenceHttp(http, options, delay, logger);
         return options.Deployment == ConfluenceDeployment.Cloud
-            ? new ConfluenceCloudSource(client)
+            ? new ConfluenceCloudSource(client, logger)
             : new ConfluenceDataCenterSource(client);
     }
 }

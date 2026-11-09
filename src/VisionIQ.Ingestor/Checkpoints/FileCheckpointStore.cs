@@ -35,7 +35,21 @@ public sealed class FileCheckpointStore : ICheckpointStore
         lock (gate)
         {
             var all = Load();
-            all[Key(checkpoint.SourceId, checkpoint.Scope)] = checkpoint;
+            var key = Key(checkpoint.SourceId, checkpoint.Scope);
+            // Same monotonic guard as DbCheckpointStore: Cursor is TimeCursor.Format(), whose fixed-width
+            // ISO-8601 prefix sorts lexicographically the same as chronologically. Two processes sharing
+            // one checkpoint file (e.g. a manual run started while a scheduled one is still in flight)
+            // must not let the slower one regress what the faster one already recorded.
+            if (all.TryGetValue(key, out var existing) &&
+                string.CompareOrdinal(checkpoint.Cursor, existing.Cursor) < 0)
+            {
+                throw new InvalidOperationException(
+                    "Checkpoint not saved: the file already has a checkpoint for " + checkpoint.SourceId + "/"
+                    + checkpoint.Scope + " that is further ahead (likely another run in progress). This run's "
+                    + "records were already written; only this checkpoint write was skipped.");
+            }
+
+            all[key] = checkpoint;
             var directory = Path.GetDirectoryName(Path.GetFullPath(path));
             if (!string.IsNullOrEmpty(directory))
             {

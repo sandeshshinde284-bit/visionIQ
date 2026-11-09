@@ -16,6 +16,10 @@ internal sealed class FakeAdoHandler : HttpMessageHandler
 {
     private readonly List<(HttpMethod Method, string PathEnd, string? QueryContains, Func<HttpRequestMessage, HttpResponseMessage> Respond)> routes = [];
 
+    // R2-02: Confluence's restriction-fetch loop (and any future concurrent caller) now issues several
+    // requests at once through one HttpClient/handler instance, so recording them must be thread-safe.
+    private readonly object recordLock = new();
+
     public List<string> Requests { get; } = [];
 
     public List<string?> Bodies { get; } = [];
@@ -61,9 +65,13 @@ internal sealed class FakeAdoHandler : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        Requests.Add(request.Method + " " + request.RequestUri!.PathAndQuery);
-        Authorizations.Add(request.Headers.Authorization?.ToString());
-        Bodies.Add(request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken));
+        var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        lock (recordLock)
+        {
+            Requests.Add(request.Method + " " + request.RequestUri!.PathAndQuery);
+            Authorizations.Add(request.Headers.Authorization?.ToString());
+            Bodies.Add(body);
+        }
 
         foreach (var route in routes)
         {
@@ -134,19 +142,31 @@ internal static class DemoAdo
 
 internal sealed class MemorySink : IRecordSink
 {
+    // R2-01: SyncRunner writes several work items' evidence concurrently now, so this shared test double
+    // must be safe for concurrent WriteAsync calls the same way a real sink is.
+    private readonly object gate = new();
     private readonly HashSet<string> seen = new(StringComparer.Ordinal);
 
     public List<(string Stream, string Key, object Record)> Items { get; } = [];
 
     public Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default)
     {
-        if (seen.Add(stream + "|" + key))
+        lock (gate)
         {
-            Items.Add((stream, key, record));
+            if (seen.Add(stream + "|" + key))
+            {
+                Items.Add((stream, key, record));
+            }
         }
 
         return Task.CompletedTask;
     }
 
-    public int Count(string stream) => Items.Count(item => item.Stream == stream);
+    public int Count(string stream)
+    {
+        lock (gate)
+        {
+            return Items.Count(item => item.Stream == stream);
+        }
+    }
 }

@@ -137,22 +137,35 @@ public sealed class TicketFixDatabaseIntegrationTests
         finally
         {
             // Delete only uniquely-scoped test data, leaving all other associations untouched.
-            await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
-            {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
-            }.ConnectionString);
-            await db.OpenAsync();
-            foreach (var table in new[] { "ticket_fix_reviews", "ticket_fix_links", "ticket_fix_revert_observations" })
-            {
-                var sql = table == "ticket_fix_reviews"
-                    ? "DELETE FROM evidence.ticket_fix_reviews WHERE association_key IN " +
-                      "(SELECT association_key FROM evidence.ticket_fix_links WHERE source_instance=@source)"
-                    : "DELETE FROM evidence." + table + " WHERE source_instance=@source";
-                await using var cmd = new NpgsqlCommand(sql, db);
-                cmd.Parameters.AddWithValue("source", uniqueSource);
-                await cmd.ExecuteNonQueryAsync();
-            }
+            await CleanupSourceScopedTestDataAsync(uniqueSource, options);
+        }
+    }
+
+    /// <summary>
+    /// R4-01: evidence.ticket_fix_reviews is an append-only audit log, so the ordinary API role
+    /// correctly has no UPDATE/DELETE on it anymore - test cleanup needs the admin role already
+    /// required to run migrations against this disposable database, not the restricted API role.
+    /// </summary>
+    private static async Task CleanupSourceScopedTestDataAsync(string uniqueSource, DatabaseOptions apiOptions)
+    {
+        var adminPassword = Environment.GetEnvironmentVariable("DB_LOCAL_PASSWORD");
+        Assert.False(string.IsNullOrWhiteSpace(adminPassword));
+        await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
+        {
+            Host = apiOptions.Host, Port = apiOptions.Port, Database = apiOptions.Name,
+            Username = Environment.GetEnvironmentVariable("DB_LOCAL_USER") ?? "visioniq",
+            Password = adminPassword,
+        }.ConnectionString);
+        await db.OpenAsync();
+        foreach (var table in new[] { "ticket_fix_reviews", "ticket_fix_links", "ticket_fix_revert_observations" })
+        {
+            var sql = table == "ticket_fix_reviews"
+                ? "DELETE FROM evidence.ticket_fix_reviews WHERE association_key IN " +
+                  "(SELECT association_key FROM evidence.ticket_fix_links WHERE source_instance=@source)"
+                : "DELETE FROM evidence." + table + " WHERE source_instance=@source";
+            await using var cmd = new NpgsqlCommand(sql, db);
+            cmd.Parameters.AddWithValue("source", uniqueSource);
+            await cmd.ExecuteNonQueryAsync();
         }
     }
 
@@ -217,22 +230,7 @@ public sealed class TicketFixDatabaseIntegrationTests
         }
         finally
         {
-            await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
-            {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
-            }.ConnectionString);
-            await db.OpenAsync();
-            foreach (var table in new[] { "ticket_fix_reviews", "ticket_fix_links", "ticket_fix_revert_observations" })
-            {
-                var sql = table == "ticket_fix_reviews"
-                    ? "DELETE FROM evidence.ticket_fix_reviews WHERE association_key IN " +
-                      "(SELECT association_key FROM evidence.ticket_fix_links WHERE source_instance=@source)"
-                    : "DELETE FROM evidence." + table + " WHERE source_instance=@source";
-                await using var cmd = new NpgsqlCommand(sql, db);
-                cmd.Parameters.AddWithValue("source", uniqueSource);
-                await cmd.ExecuteNonQueryAsync();
-            }
+            await CleanupSourceScopedTestDataAsync(uniqueSource, options);
         }
     }
 

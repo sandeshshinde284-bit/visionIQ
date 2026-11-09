@@ -216,7 +216,23 @@ def bootstrap(settings: LocalConfig) -> None:
                 ).format(admin, schema, owner)
             )
         _grant_code_scan_writes(cur, settings)
+        _restrict_review_history_writes(cur, settings)
     print("Database roles and schema permissions configured.")
+
+
+def _restrict_review_history_writes(cur: psycopg.Cursor, settings: LocalConfig) -> None:
+    """R4-01: evidence.ticket_fix_reviews is an append-only human-review audit log. The blanket
+    per-schema GRANT above (INSERT/UPDATE/DELETE on every evidence table, for idempotent reruns)
+    would otherwise leave the API role able to silently rewrite or delete review history -
+    the application itself only ever INSERTs into this table (PostgresTicketFixLinkStore never
+    issues UPDATE/DELETE against it; its own UPDATE targets the separate, legitimately-mutable
+    ticket_fix_links row), so narrowing this one table costs the application nothing.
+    """
+    cur.execute("SELECT to_regclass('evidence.ticket_fix_reviews') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return  # migrations have not created the table yet ("roles" before "migrate")
+    api = sql.Identifier(settings.db_api_user)
+    cur.execute(sql.SQL("REVOKE UPDATE, DELETE ON evidence.ticket_fix_reviews FROM {}").format(api))
 
 
 CODE_SCAN_ROWS = "provider = 'git' AND kind = 'code_scan'"
@@ -239,6 +255,10 @@ def _grant_code_scan_writes(cur: psycopg.Cursor, settings: LocalConfig) -> None:
     ado_commits = (
         "SELECT item_key FROM evidence.source_items "
         "WHERE provider = 'azure_devops' AND kind = 'commit'"
+    )
+    ado_pull_requests = (
+        "SELECT item_key FROM evidence.source_items "
+        "WHERE provider = 'azure_devops' AND kind = 'pull_request'"
     )
     grants = {
         "source_items": "INSERT, UPDATE",
@@ -266,12 +286,22 @@ def _grant_code_scan_writes(cur: psycopg.Cursor, settings: LocalConfig) -> None:
                 "intel_insert",
                 "FOR INSERT",
                 f"WITH CHECK (anchor_item_key IN ({scan_items}) OR "
-                f"(node_kind = 'commit' AND anchor_item_key IN ({ado_commits})))",
+                f"(node_kind = 'commit' AND anchor_item_key IN ({ado_commits})) OR "
+                # project_fix_change_edges also projects PR-anchored fixes (no commit-based
+                # ticket-fix link): the fix node is then node_kind='pull_request', anchored to
+                # the PR's own source item, which the commit-only branch above never covered.
+                f"(node_kind = 'pull_request' AND anchor_item_key IN ({ado_pull_requests})))",
             ),
         ],
         "graph_assertions": [
             ("intel_read", "FOR SELECT", "USING (true)"),
-            ("intel_insert", "FOR INSERT", f"WITH CHECK (provenance_item_key IN ({scan_items}))"),
+            (
+                "intel_insert",
+                "FOR INSERT",
+                f"WITH CHECK (provenance_item_key IN ({scan_items}) OR "
+                f"provenance_item_key IN ({ado_commits}) OR "
+                f"provenance_item_key IN ({ado_pull_requests}))",
+            ),
         ],
     }
     for table, privileges in grants.items():
@@ -367,6 +397,27 @@ def verify(settings: LocalConfig) -> None:
                 admin.execute(
                     sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(schema, name))
                 )
+
+        # R4-01: the append-only review-history log must reject UPDATE/DELETE from the API role
+        # at the database permission level, not only by application code choosing never to issue them.
+        has_review_table = admin.execute(
+            "SELECT to_regclass('evidence.ticket_fix_reviews') IS NOT NULL"
+        ).fetchone()[0]
+        if has_review_table:
+            with settings.connect("api") as api:
+                for statement in (
+                    "UPDATE evidence.ticket_fix_reviews SET result = 'disputed'",
+                    "DELETE FROM evidence.ticket_fix_reviews",
+                ):
+                    try:
+                        api.execute(statement)
+                    except psycopg.errors.InsufficientPrivilege:
+                        pass
+                    else:
+                        raise AssertionError(
+                            "api role could mutate append-only evidence.ticket_fix_reviews: "
+                            + statement
+                        )
     print("pgvector, full-text search and role isolation verified.")
 
 

@@ -38,6 +38,12 @@ public sealed class JsonLinesSink : IRecordSink, IDisposable
     private readonly Dictionary<string, StreamWriter> writers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> seen = new(StringComparer.Ordinal);
 
+    // R2-01: SyncRunner now writes several records' evidence concurrently. This sink's dictionaries and
+    // per-stream StreamWriter are not thread-safe, so every write is serialized here. Local disk I/O was
+    // never the slow part (canonical mode's real GCS/PostgreSQL round trips were), so serializing it costs
+    // nothing while still letting canonical-mode writes run with real concurrency.
+    private readonly SemaphoreSlim gate = new(1, 1);
+
     public JsonLinesSink(string directory, TimeProvider? time = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
@@ -52,44 +58,52 @@ public sealed class JsonLinesSink : IRecordSink, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(record);
 
-        if (!seen.TryGetValue(stream, out var keys))
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            keys = new HashSet<string>(StringComparer.Ordinal);
-            seen[stream] = keys;
-        }
-
-        if (!keys.Add(key))
-        {
-            return;
-        }
-
-        if (!writers.TryGetValue(stream, out var writer))
-        {
-            var file = Path.Combine(directory, stream + ".jsonl");
-            var options = new FileStreamOptions
+            if (!seen.TryGetValue(stream, out var keys))
             {
-                Mode = FileMode.Append,
-                Access = FileAccess.Write,
-                Share = FileShare.Read,
-                Options = FileOptions.Asynchronous,
-            };
-            if (!OperatingSystem.IsWindows())
-            {
-                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                keys = new HashSet<string>(StringComparer.Ordinal);
+                seen[stream] = keys;
             }
 
-            var handle = new FileStream(file, options);
-            if (!OperatingSystem.IsWindows())
+            if (!keys.Add(key))
             {
-                File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                return;
             }
 
-            writer = new StreamWriter(handle);
-            writers[stream] = writer;
-        }
+            if (!writers.TryGetValue(stream, out var writer))
+            {
+                var file = Path.Combine(directory, stream + ".jsonl");
+                var options = new FileStreamOptions
+                {
+                    Mode = FileMode.Append,
+                    Access = FileAccess.Write,
+                    Share = FileShare.Read,
+                    Options = FileOptions.Asynchronous,
+                };
+                if (!OperatingSystem.IsWindows())
+                {
+                    options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                }
 
-        var line = JsonSerializer.Serialize(new { key, fetchedAt = time.GetUtcNow(), record }, Options);
-        await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+                var handle = new FileStream(file, options);
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+
+                writer = new StreamWriter(handle);
+                writers[stream] = writer;
+            }
+
+            var line = JsonSerializer.Serialize(new { key, fetchedAt = time.GetUtcNow(), record }, Options);
+            await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     /// <summary>Review R1-04: pushes buffered lines to the file and the file to disk.</summary>
@@ -113,5 +127,6 @@ public sealed class JsonLinesSink : IRecordSink, IDisposable
         }
 
         writers.Clear();
+        gate.Dispose();
     }
 }

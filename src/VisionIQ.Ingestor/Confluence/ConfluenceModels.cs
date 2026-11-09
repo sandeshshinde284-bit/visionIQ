@@ -23,6 +23,17 @@ public sealed class ConfluenceOptions
 
     public int MaxRetries { get; init; } = 4;
 
+    /// <summary>Fallback used when <see cref="RestrictionFetchConcurrency"/> is zero or negative.</summary>
+    public const int DefaultRestrictionFetchConcurrency = 4;
+
+    /// <summary>
+    /// R2-02: how many per-page restriction fetches (Cloud only) run at once. Kept modest and
+    /// independent of the canonical evidence-write concurrency, because this hits Confluence's own
+    /// REST API and rate limit directly, not GCS/PostgreSQL - <see cref="ConfluenceHttp"/>'s existing
+    /// Retry-After-aware backoff still handles any individual request that gets throttled.
+    /// </summary>
+    public int RestrictionFetchConcurrency { get; init; } = DefaultRestrictionFetchConcurrency;
+
     public string Tenant => BaseUrl.Host;
 
     /// <summary>Scheme, host and port, ending with a slash.</summary>

@@ -1,6 +1,6 @@
 # LRN-03 — Real GCS raw evidence integrity and immutability
 
-**Status:** concrete GCS implementation audited; live GCS integration **PASSED on 2 November 2026** after ADC reauthentication, using isolated test bucket `visioniq-lrn03-test-1`. No production evidence or buckets are modified by this documentation.
+**Status:** concrete GCS implementation audited; live GCS integration **PASSED on 2 November 2026** after ADC reauthentication, using isolated test bucket (set through `GCS_EVIDENCE_BUCKET` for that run). No production evidence or buckets are modified by this documentation.
 
 ## What existing code does
 
@@ -59,7 +59,7 @@ The xUnit assertions require exact raw bytes, a matching SHA-256 and unchanged o
 
 ## Remaining acceptance checks
 
-- **PASS:** real GCS test run against isolated bucket `visioniq-lrn03-test-1`: 1/1, exit 0, 14.6 seconds, build succeeded with 65 warnings.
+- **PASS:** real GCS test run against isolated bucket (set through `GCS_EVIDENCE_BUCKET` for that run): 1/1, exit 0, 14.6 seconds, build succeeded with 65 warnings.
 - Review GCS IAM and retention policy separately; the code prevents normal overwrites, but bucket-wide retention/governance is an infrastructure responsibility.
 - Validate that **downstream indexing** reads redacted metadata only. LRN-03 normalizer's allowlist and fake-backed tests cover service boundaries, not an independent deployed search index.
 - Keep LRN-02 per-requester Confluence ACL enforcement as a separate open integration gate.

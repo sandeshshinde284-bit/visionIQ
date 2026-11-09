@@ -33,9 +33,6 @@ Event delivery guarantees (Pub/Sub, dead-letter queues).
 ### FND-06: Cloud Scheduling
 Cloud Run Jobs, Cloud Scheduler for periodic ingestion.
 
-### KB-Readiness Tests
-Pre-flight checks before knowledge base is ready for retrieval.
-
 ### BRF Series (Brief & Defect Paths)
 Future AI features for intelligent recommendations.
 

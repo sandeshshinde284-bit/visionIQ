@@ -11,10 +11,20 @@ public sealed class DbCheckpointStore : ICheckpointStore
     public const string SelectSql =
         "SELECT cursor_value, updated_at FROM evidence.connector_checkpoints WHERE source_id = @source_id AND scope = @scope";
 
+    // Guarded, not a blind upsert: TimeCursor.Format() puts a fixed-width ISO-8601 timestamp first, which
+    // sorts lexicographically the same as chronologically, so a plain text ">=" comparison is a correct,
+    // cheap monotonic check. Without this guard, two overlapping runs for the same (source_id, scope) --
+    // e.g. a scheduled sync firing again before the previous one finished -- could race: whichever write
+    // lands last at the database wins, even if it represents LESS progress than the one it overwrites.
+    // The WHERE clause on DO UPDATE makes Postgres skip the write entirely (affecting 0 rows) rather than
+    // regress the checkpoint; SaveAsync below turns that into an explicit, loud failure instead of a
+    // silent no-op, because a silently-skipped save is exactly the kind of thing "always on" unattended
+    // operation must never hide.
     public const string UpsertSql =
         "INSERT INTO evidence.connector_checkpoints (source_id, scope, cursor_value, updated_at) "
         + "VALUES (@source_id, @scope, @cursor_value, @updated_at) "
-        + "ON CONFLICT (source_id, scope) DO UPDATE SET cursor_value = EXCLUDED.cursor_value, updated_at = EXCLUDED.updated_at";
+        + "ON CONFLICT (source_id, scope) DO UPDATE SET cursor_value = EXCLUDED.cursor_value, updated_at = EXCLUDED.updated_at "
+        + "WHERE evidence.connector_checkpoints.cursor_value <= EXCLUDED.cursor_value";
 
     private readonly Func<DbConnection> connectionFactory;
 
@@ -69,7 +79,18 @@ public sealed class DbCheckpointStore : ICheckpointStore
                 AddParameter(command, "scope", checkpoint.Scope);
                 AddParameter(command, "cursor_value", checkpoint.Cursor);
                 AddParameter(command, "updated_at", checkpoint.UpdatedAt.ToUniversalTime());
-                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                if (affected == 0)
+                {
+                    // The WHERE guard on UpsertSql rejected this write: another run already saved a
+                    // checkpoint that is equal to or further ahead than this one. Report it as a failure
+                    // rather than returning normally, so the caller's existing "checkpoint could not be
+                    // saved" handling applies -- this must never look like a successful save.
+                    throw new InvalidOperationException(
+                        "Checkpoint not saved: a concurrent run already advanced " + checkpoint.SourceId + "/"
+                        + checkpoint.Scope + " to the same point or further. This run's progress was not lost "
+                        + "(records were already written); only this checkpoint write was skipped.");
+                }
             }
         }
     }

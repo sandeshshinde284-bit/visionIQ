@@ -15,28 +15,55 @@ namespace VisionIQ.Ingestor.Tests;
 /// <summary>Collects formatted log lines with level and scopes.</summary>
 public sealed class LogCapture : ILogger
 {
+    // R2-02: Confluence's restriction-fetch loop now logs progress from several concurrent calls, so
+    // this shared test double must be safe for concurrent Log calls like a real logger would be.
+    private readonly object gate = new();
     private readonly List<object> scopes = [];
 
     public List<(LogLevel Level, string Message, string Scopes)> Lines { get; } = [];
 
     /// <summary>Everything that would reach a log sink, for leak assertions.</summary>
-    public string All => string.Join("\n", Lines.Select(l => $"{l.Level} {l.Message} {l.Scopes}"));
+    public string All
+    {
+        get
+        {
+            lock (gate)
+            {
+                return string.Join("\n", Lines.Select(l => $"{l.Level} {l.Message} {l.Scopes}"));
+            }
+        }
+    }
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull
     {
-        scopes.Add(state);
-        return new Pop(scopes);
+        lock (gate)
+        {
+            scopes.Add(state);
+        }
+
+        return new Pop(gate, scopes);
     }
 
     public bool IsEnabled(LogLevel logLevel) => true;
 
-    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-        Lines.Add((logLevel, formatter(state, exception), string.Join(";", scopes.Select(s =>
-            s is IEnumerable<KeyValuePair<string, object>> pairs ? string.Join(",", pairs.Select(p => p.Key + "=" + p.Value)) : s.ToString()))));
-
-    private sealed class Pop(List<object> scopes) : IDisposable
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
-        public void Dispose() => scopes.RemoveAt(scopes.Count - 1);
+        lock (gate)
+        {
+            Lines.Add((logLevel, formatter(state, exception), string.Join(";", scopes.Select(s =>
+                s is IEnumerable<KeyValuePair<string, object>> pairs ? string.Join(",", pairs.Select(p => p.Key + "=" + p.Value)) : s.ToString()))));
+        }
+    }
+
+    private sealed class Pop(object gate, List<object> scopes) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (gate)
+            {
+                scopes.RemoveAt(scopes.Count - 1);
+            }
+        }
     }
 }
 

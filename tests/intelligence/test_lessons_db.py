@@ -14,7 +14,9 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 from psycopg.conninfo import make_conninfo  # noqa: E402
 
+from app.knowledge import lesson_store  # noqa: E402
 from app.knowledge.lessons_cli import run  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("VISIONIQ_DB_INTEGRATION") != "1",
@@ -110,6 +112,26 @@ class Evidence:
                 (self.org,),
             ).fetchall()
 
+    def pattern_id(self) -> str:
+        with psycopg.connect(_conninfo("API")) as conn:
+            row = conn.execute(
+                "SELECT pattern_id::text FROM knowledge.lesson_patterns WHERE source_instance = %s",
+                (self.org,),
+            ).fetchone()
+            assert row is not None, "no pattern exists yet for this test's evidence"
+            return row[0]
+
+    def observation_keys(self, pattern_id: str) -> list[str]:
+        with psycopg.connect(_conninfo("API")) as conn:
+            return [
+                row[0]
+                for row in conn.execute(
+                    "SELECT observation_key::text FROM knowledge.lesson_memberships "
+                    "WHERE pattern_id = %s",
+                    (pattern_id,),
+                ).fetchall()
+            ]
+
 
 def test_three_similar_defects_make_one_lesson_and_a_revert_disputes_it() -> None:
     evidence = Evidence()
@@ -155,3 +177,59 @@ def test_non_qualifying_evidence_never_supports_a_lesson(spoiler) -> None:
     run(_conninfo("INTELLIGENCE"))
 
     assert evidence.lessons() == []  # one qualifying ticket is not a lesson
+
+
+def test_review_requires_a_named_human_and_records_their_verdict() -> None:
+    evidence = Evidence()
+    evidence.defect("401")
+    evidence.defect("402")
+    run(_conninfo("INTELLIGENCE"))
+    pattern_id = evidence.pattern_id()
+    now = datetime.now(UTC)
+
+    with psycopg.connect(_conninfo("API")) as conn:
+        with pytest.raises(ValueError, match="verified_by"):
+            lesson_store.review(conn, pattern_id, "reviewed", "", now)
+
+    with psycopg.connect(_conninfo("API")) as conn, conn.transaction():
+        revision = lesson_store.review(
+            conn, pattern_id, "reviewed", "jane.doe", now, cause_status="verified",
+            rationale="Confirmed: both tickets hit the same retry bug.",
+        )
+    assert revision == 2  # 1 was the automated CREATE_NEW; this is the human verdict
+    assert evidence.lessons()[-1] == (2, "reviewed", "verified", "REVISE_EXISTING", 2)
+
+
+def test_fork_splits_a_pattern_and_rejects_a_split_too_small_to_remain_a_lesson() -> None:
+    evidence = Evidence()
+    # Four tickets whose fixes all touch the same files, so consolidate() makes one lesson of
+    # four members -- enough to fork 2-and-2, since each side of a fork needs >=2 members.
+    for ticket in ("501", "502", "503", "504"):
+        evidence.defect(ticket)
+    run(_conninfo("INTELLIGENCE"))
+    pattern_id = evidence.pattern_id()
+    keys = evidence.observation_keys(pattern_id)
+    assert len(keys) == 4
+    now = datetime.now(UTC)
+
+    # Splitting out only one observation would leave the new pattern with a single member --
+    # rejected before any write happens.
+    with psycopg.connect(_conninfo("API")) as conn, conn.transaction():
+        with pytest.raises(ValueError, match="at least 2"):
+            lesson_store.fork(conn, pattern_id, keys[:1], "jane.doe", now)
+
+    with psycopg.connect(_conninfo("API")) as conn, conn.transaction():
+        new_pattern_id = lesson_store.fork(
+            conn, pattern_id, keys[:2], "jane.doe", now,
+            rationale="These two actually come from an unrelated regression.",
+        )
+    assert new_pattern_id != pattern_id
+    original_revisions = evidence.lessons()
+    assert original_revisions[-1][:4] == (2, "candidate", "unverified", "REVISE_EXISTING")
+    assert original_revisions[-1][4] == 2  # 2 members remain on the original pattern
+    with psycopg.connect(_conninfo("API")) as conn:
+        new_members = conn.execute(
+            "SELECT count(*) FROM knowledge.lesson_memberships WHERE pattern_id = %s",
+            (new_pattern_id,),
+        ).fetchone()[0]
+    assert new_members == 2

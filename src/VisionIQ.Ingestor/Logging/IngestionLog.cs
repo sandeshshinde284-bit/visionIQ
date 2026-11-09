@@ -34,6 +34,20 @@ public static partial class IngestionLog
     [LoggerMessage(EventId = 314, Level = LogLevel.Information, Message = "Stream {Stream} {Scope} note: {Note}")]
     public static partial void StreamNote(ILogger logger, string stream, string scope, string note);
 
+    // R2-02: Confluence page discovery had no progress visibility at all, unlike ADO's SyncRunner -
+    // a real sync could run for many minutes with nothing logged between "started" and "finished".
+    [LoggerMessage(EventId = 315, Level = LogLevel.Information, Message = "Confluence {Space}: discovered {Count} page(s) after {ElapsedMs:0} ms; fetching restrictions")]
+    public static partial void ConfluencePagesDiscovered(ILogger logger, string space, int count, double elapsedMs);
+
+    [LoggerMessage(EventId = 316, Level = LogLevel.Information, Message = "Confluence {Space}: fetched restrictions for {Count}/{Total} page(s) after {ElapsedMs:0} ms")]
+    public static partial void ConfluenceRestrictionsProgress(ILogger logger, string space, int count, int total, double elapsedMs);
+
+    [LoggerMessage(EventId = 317, Level = LogLevel.Information, Message = "Confluence {Space}: wrote ACL for {Count}/{Total} page(s) after {ElapsedMs:0} ms")]
+    public static partial void ConfluenceAclProgress(ILogger logger, string space, int count, int total, double elapsedMs);
+
+    [LoggerMessage(EventId = 318, Level = LogLevel.Information, Message = "Confluence {Space}: persisted {Count}/{Total} fresh page(s) after {ElapsedMs:0} ms")]
+    public static partial void ConfluencePagePersistProgress(ILogger logger, string space, int count, int total, double elapsedMs);
+
     // Checkpoints, quarantine, deletions
     [LoggerMessage(EventId = 320, Level = LogLevel.Debug, Message = "Checkpoint {Scope}: {Action} {Cursor}")]
     public static partial void Checkpoint(ILogger logger, string scope, string action, string cursor);

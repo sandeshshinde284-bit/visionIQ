@@ -120,6 +120,14 @@ class Plan:
     decisions: list[Decision] = field(default_factory=list)
 
 
+def signature_for(observations: Sequence[Observation]) -> frozenset[str]:
+    """Public entry point for lesson_store's human-initiated review/fork actions, which need the
+    same signature computation consolidate() uses internally -- so a fork's resulting patterns are
+    signatured identically to how an automated run would have signatured the same membership split.
+    """
+    return _signature(observations)
+
+
 def _signature(observations: Sequence[Observation]) -> frozenset[str]:
     counts: dict[str, int] = {}
     for observation in observations:
@@ -127,6 +135,13 @@ def _signature(observations: Sequence[Observation]) -> frozenset[str]:
             counts[path] = counts.get(path, 0) + 1
     shared = frozenset(p for p, n in counts.items() if n >= 2)
     return shared or frozenset.intersection(*(o.paths for o in observations))
+
+
+def title_for(signature: frozenset[str]) -> str:
+    """Public wrapper, same reason as signature_for: lesson_store's fork action needs the identical
+    title format consolidate() would have produced, so a forked pattern reads like any other lesson.
+    """
+    return _title(signature)
 
 
 def _title(signature: frozenset[str]) -> str:

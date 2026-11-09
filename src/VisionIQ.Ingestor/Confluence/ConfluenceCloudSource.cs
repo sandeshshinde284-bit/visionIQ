@@ -11,11 +11,13 @@ public sealed class ConfluenceCloudSource : IConfluenceSource
 {
     private const string PageLimit = "250";
     private readonly ConfluenceHttp http;
+    private readonly Microsoft.Extensions.Logging.ILogger log;
 
-    public ConfluenceCloudSource(ConfluenceHttp http)
+    public ConfluenceCloudSource(ConfluenceHttp http, Microsoft.Extensions.Logging.ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         this.http = http;
+        log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     }
 
     public string Tenant => http.Options.Tenant;
@@ -31,6 +33,7 @@ public sealed class ConfluenceCloudSource : IConfluenceSource
 
     private async Task<IReadOnlyList<ConfluencePage>> GetPagesCoreAsync(string spaceKey, bool includeBody, CancellationToken cancellationToken)
     {
+        var timer = System.Diagnostics.Stopwatch.StartNew();
         var spaceId = await ResolveSpaceIdAsync(spaceKey, cancellationToken).ConfigureAwait(false);
         var pages = new List<ConfluencePage>();
         Uri? next = includeBody
@@ -47,15 +50,35 @@ public sealed class ConfluenceCloudSource : IConfluenceSource
             next = links is { } nextLinks && JsonRead.String(nextLinks, "next") is { } link ? http.Link(link) : null;
         }
 
+        Logging.IngestionLog.ConfluencePagesDiscovered(log, spaceKey, pages.Count, timer.Elapsed.TotalMilliseconds);
+
         // v2's space-pages listing has no restrictions field, so each page needs its own v1 call.
-        // Sequential (not Task.WhenAll) on purpose: this is already the per-page request that most
-        // risks tripping Confluence's rate limit, so we let ConfluenceHttp's own retry/backoff
-        // handle 429s one request at a time rather than firing a burst.
-        var withRestrictions = new List<ConfluencePage>(pages.Count);
-        foreach (var page in pages)
+        // R2-02: this used to be one request at a time, which made a real space with hundreds of
+        // pages look hung (no log between "started" and "finished" for 12+ minutes). Now bounded
+        // (ConfluenceOptions.RestrictionFetchConcurrency, modest by default) so several pages overlap
+        // without bursting Confluence's rate limit; ConfluenceHttp's own Retry-After-aware backoff
+        // still handles any individual request that gets throttled.
+        var withRestrictions = new ConfluencePage[pages.Count];
+        var completed = 0;
+        // A misconfigured (zero/negative) value would make ParallelOptions throw at run time;
+        // fall back to the documented default instead of surfacing that as a confusing crash.
+        var concurrency = http.Options.RestrictionFetchConcurrency > 0
+            ? http.Options.RestrictionFetchConcurrency
+            : ConfluenceOptions.DefaultRestrictionFetchConcurrency;
+        await Parallel.ForEachAsync(Enumerable.Range(0, pages.Count), new ParallelOptions
         {
-            withRestrictions.Add(page with { ReadRestriction = await GetReadRestrictionAsync(page.Id, cancellationToken).ConfigureAwait(false) });
-        }
+            MaxDegreeOfParallelism = concurrency,
+            CancellationToken = cancellationToken,
+        }, async (index, token) =>
+        {
+            var page = pages[index];
+            withRestrictions[index] = page with { ReadRestriction = await GetReadRestrictionAsync(page.Id, token).ConfigureAwait(false) };
+            var done = Interlocked.Increment(ref completed);
+            if (done % 25 == 0 || done == pages.Count)
+            {
+                Logging.IngestionLog.ConfluenceRestrictionsProgress(log, spaceKey, done, pages.Count, timer.Elapsed.TotalMilliseconds);
+            }
+        }).ConfigureAwait(false);
 
         return withRestrictions;
     }

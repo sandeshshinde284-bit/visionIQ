@@ -6,7 +6,7 @@
 # Needs DB_LOCAL_PASSWORD in your .env (see .env.example).
 # The containers always use the DB_LOCAL_* settings and talk to each other by service name
 # (postgres, intelligence), whichever target ./scripts/use-db.ps1 has selected for host runs.
-name: defect-intelligence-dev
+name: defect-intelligence
 
 services:
   postgres:

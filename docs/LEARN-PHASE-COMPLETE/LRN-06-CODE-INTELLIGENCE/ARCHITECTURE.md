@@ -1,6 +1,6 @@
 # LRN-06 — Understand the Code
 
-**Status:** Implementation in progress; not yet accepted or merged. Draft PR #3.
+**Status:** Merged into `dev` (with the LRN-01–14 changes, `e9933be`); not yet accepted — the acceptance items below are still open.
 **Scope:** S06-03/04/05/06/07/08/10/13. No Roslyn and no standalone UI.
 
 ## Implemented modules

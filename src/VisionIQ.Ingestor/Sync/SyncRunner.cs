@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using VisionIQ.Ingestor.Ado;
 using VisionIQ.Ingestor.Checkpoints;
 using VisionIQ.Ingestor.Links;
 using VisionIQ.Ingestor.Sources;
+using Microsoft.Extensions.Logging;
 
 namespace VisionIQ.Ingestor.Sync;
 
@@ -13,6 +15,59 @@ namespace VisionIQ.Ingestor.Sync;
 /// </summary>
 public sealed class SyncRunner
 {
+    private static readonly Action<ILogger, string, DateTimeOffset?, bool, Exception?> LogWorkItemsStart =
+        LoggerMessage.Define<string, DateTimeOffset?, bool>(
+            LogLevel.Information,
+            new EventId(1001, nameof(LogWorkItemsStart)),
+            "ADO WorkItems START project={Project}, since={Since}, ignoreCheckpoints={IgnoreCheckpoints}");
+
+    private static readonly Action<ILogger, Exception?> LogWorkItemsLoadingCheckpoint =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(1002, nameof(LogWorkItemsLoadingCheckpoint)),
+            "ADO WorkItems: loading checkpoint");
+
+    private static readonly Action<ILogger, long, Exception?> LogWorkItemsCheckpointReady =
+        LoggerMessage.Define<long>(
+            LogLevel.Information,
+            new EventId(1003, nameof(LogWorkItemsCheckpointReady)),
+            "ADO WorkItems: checkpoint ready after {ElapsedMs}ms; querying IDs");
+
+    private static readonly Action<ILogger, int, long, Exception?> LogWorkItemsQueried =
+        LoggerMessage.Define<int, long>(
+            LogLevel.Information,
+            new EventId(1004, nameof(LogWorkItemsQueried)),
+            "ADO WorkItems: query returned {Count} IDs after {ElapsedMs}ms; fetching records");
+
+    private static readonly Action<ILogger, int, long, Exception?> LogWorkItemsFetched =
+        LoggerMessage.Define<int, long>(
+            LogLevel.Information,
+            new EventId(1005, nameof(LogWorkItemsFetched)),
+            "ADO WorkItems: fetched {Count} outcomes after {ElapsedMs}ms; loading quarantine");
+
+    private static readonly Action<ILogger, long, Exception?> LogWorkItemsQuarantineLoaded =
+        LoggerMessage.Define<long>(
+            LogLevel.Information,
+            new EventId(1006, nameof(LogWorkItemsQuarantineLoaded)),
+            "ADO WorkItems: quarantine loaded after {ElapsedMs}ms");
+
+    private static readonly Action<ILogger, int, int, long, Exception?> LogWorkItemsPersisted =
+        LoggerMessage.Define<int, int, long>(
+            LogLevel.Information,
+            new EventId(1007, nameof(LogWorkItemsPersisted)),
+            "ADO WorkItems: persisted {Count}/{Total} records after {ElapsedMs}ms");
+
+    private static readonly Action<ILogger, int, long, Exception?> LogWorkItemsBeginningPersistence =
+        LoggerMessage.Define<int, long>(
+            LogLevel.Information,
+            new EventId(1008, nameof(LogWorkItemsBeginningPersistence)),
+            "ADO WorkItems: beginning persistence of {Total} records after {ElapsedMs}ms");
+
+    /// <summary>R2-01: how many evidence writes (GCS archive + PostgreSQL) run at once. One at a time made
+    /// 116 real work items take over 20 minutes in canonical mode; this is a deliberate, bounded cap on
+    /// real network concurrency, not unbounded fan-out.</summary>
+    public const int DefaultEvidenceConcurrency = 8;
+
     private readonly AdoClient client;
     private readonly ICheckpointStore checkpoints;
     private readonly IRecordSink sink;
@@ -22,8 +77,9 @@ public sealed class SyncRunner
     private readonly AdoRepositorySource repositories;
     private readonly AdoCommitSource commits;
     private readonly AdoBuildSource builds;
+    private readonly int evidenceConcurrency;
 
-    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null, ISyncQuarantine? quarantine = null, Microsoft.Extensions.Logging.ILogger? logger = null)
+    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null, ISyncQuarantine? quarantine = null, Microsoft.Extensions.Logging.ILogger? logger = null, int evidenceConcurrency = DefaultEvidenceConcurrency)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(checkpoints);
@@ -41,6 +97,7 @@ public sealed class SyncRunner
         repositories = new AdoRepositorySource(client);
         commits = new AdoCommitSource(client);
         builds = new AdoBuildSource(client);
+        this.evidenceConcurrency = evidenceConcurrency > 0 ? evidenceConcurrency : DefaultEvidenceConcurrency;
     }
 
     private string SourceId => client.Options.Tenant + "/ado";
@@ -161,20 +218,34 @@ public sealed class SyncRunner
         // 4. Quarantine any items that fail to read so we can retry them without skipping forward
         var scope = project + "/work-items";
         var result = report.Add(SyncKind.WorkItems, scope);
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+
+        LogWorkItemsStart(log, project, request.Since, request.IgnoreCheckpoints, null);
+
         TimeCursor? cursor = null;
         var written = new List<(DateTimeOffset At, string Id)>();
         var capped = false;
         try
         {
+            LogWorkItemsLoadingCheckpoint(log, null);
+
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
+            LogWorkItemsCheckpointReady(log, timer.ElapsedMilliseconds, null);
+
+
             // Review R1-01: "asOf" is the instant the WIQL query itself was evaluated at. Passing it to
             // the batch read too makes both calls agree on one snapshot, so an item changed while this
             // (possibly long) query was running is read again next run instead of silently skipped.
             var query = await workItems.QueryIdsAsync(project, cursor?.At ?? request.Since, cancellationToken).ConfigureAwait(false);
             var ids = query.Ids;
-            var outcomes = await workItems.GetWorkItemsAsync(project, ids, query.AsOf, cancellationToken).ConfigureAwait(false);
-            var open = await quarantine.OpenAsync(SourceId, scope, "work_item", cancellationToken).ConfigureAwait(false);
 
+            LogWorkItemsQueried(log, ids.Count, timer.ElapsedMilliseconds, null);
+
+            var outcomes = await workItems.GetWorkItemsAsync(project, ids, query.AsOf, cancellationToken).ConfigureAwait(false);
+
+            LogWorkItemsFetched(log, outcomes.Count, timer.ElapsedMilliseconds, null);
+            var open = await quarantine.OpenAsync(SourceId, scope, "work_item", cancellationToken).ConfigureAwait(false);
+            LogWorkItemsQuarantineLoaded(log, timer.ElapsedMilliseconds, null);
             var fresh = new List<WorkItemRecord>();
             for (var index = 0; index < outcomes.Count; index++)
             {
@@ -213,25 +284,87 @@ public sealed class SyncRunner
                 }
             }
 
-            foreach (var record in fresh.OrderBy(item => item.ChangedDate).ThenBy(item => item.Id))
+            LogWorkItemsBeginningPersistence(log, fresh.Count, timer.ElapsedMilliseconds, null);
+            var ordered = fresh.OrderBy(item => item.ChangedDate).ThenBy(item => item.Id).ToList();
+
+            // R2-01: each evidence write is a real GCS upload followed by a PostgreSQL insert
+            // (CanonicalEvidenceSink -> EvidenceIngestionService.ImportAsync). Doing that one write at a
+            // time per record (item, then every revision, then every link) made 116 real work items take
+            // over 20 minutes. One shared gate caps how many of those writes are ever in flight at once,
+            // so overlapping records/revisions/links cannot turn into unbounded concurrent network calls.
+            using var writeGate = new SemaphoreSlim(evidenceConcurrency);
+            var writtenBag = new ConcurrentBag<(DateTimeOffset At, string Id)>();
+            var recordsDone = 0;
+            var linksWritten = 0;
+
+            async Task GatedWriteAsync(string stream, string key, object value, CancellationToken token)
             {
-                await sink.WriteAsync("work-items", Key(project, "work-item", Text(record.Id), Text(record.Revision)), record, cancellationToken).ConfigureAwait(false);
+                await writeGate.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    await sink.WriteAsync(stream, key, value, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    writeGate.Release();
+                }
+            }
+
+            async ValueTask ProcessWorkItemAsync(WorkItemRecord record, CancellationToken token)
+            {
+                await GatedWriteAsync("work-items", Key(project, "work-item", Text(record.Id), Text(record.Revision)), record, token).ConfigureAwait(false);
+
                 if (request.IncludeRevisions)
                 {
-                    foreach (var revision in await workItems.GetRevisionsAsync(project, record.Id, cancellationToken).ConfigureAwait(false))
-                    {
-                        await sink.WriteAsync("work-item-revisions", Key(project, "work-item", Text(revision.Id), Text(revision.Revision)), revision, cancellationToken).ConfigureAwait(false);
-                    }
+                    var revisions = await workItems.GetRevisionsAsync(project, record.Id, token).ConfigureAwait(false);
+                    await Task.WhenAll(revisions.Select(revision => GatedWriteAsync(
+                        "work-item-revisions", Key(project, "work-item", Text(revision.Id), Text(revision.Revision)), revision, token))).ConfigureAwait(false);
                 }
 
-                result.Links += await WriteLinksAsync(project, LinkExtractor.FromWorkItem(record), cancellationToken).ConfigureAwait(false);
-                result.Records++;
+                var links = LinkExtractor.FromWorkItem(record);
+                if (links.Count > 0)
+                {
+                    await Task.WhenAll(links.Select(link =>
+                        GatedWriteAsync("links", Key(project, "link", link.Key, null), link, token))).ConfigureAwait(false);
+                    Interlocked.Add(ref linksWritten, links.Count);
+                }
+
+                var done = Interlocked.Increment(ref recordsDone);
+                if (done % 25 == 0)
+                {
+                    LogWorkItemsPersisted(log, done, ordered.Count, timer.ElapsedMilliseconds, null);
+                }
+
                 // Review R1-01 defense-in-depth: even though GetWorkItemsAsync was asked for field
                 // values as of the query's own snapshot, never let the saved checkpoint move past that
                 // snapshot. ChangedDate stored in the record itself is never clamped (real source data).
                 var checkpointAt = query.AsOf is { } asOf && record.ChangedDate > asOf ? asOf : record.ChangedDate;
-                written.Add((checkpointAt, Text(record.Id)));
+                writtenBag.Add((checkpointAt, Text(record.Id)));
             }
+
+            try
+            {
+                await Parallel.ForEachAsync(ordered, new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = evidenceConcurrency,
+                    CancellationToken = cancellationToken,
+                }, ProcessWorkItemAsync).ConfigureAwait(false);
+            }
+            catch (AggregateException aggregate)
+            {
+                // Parallel.ForEachAsync only wraps in AggregateException when more than one iteration
+                // faults concurrently; unwrap so the existing single-exception handling below still
+                // applies instead of silently falling through as an unrecognized exception type.
+                var flattened = aggregate.Flatten().InnerExceptions;
+                Exception toRethrow = flattened.OfType<CheckpointStoreException>().FirstOrDefault()
+                    ?? flattened.OfType<AdoSourceException>().FirstOrDefault()
+                    ?? (flattened.Count == 1 ? flattened[0] : aggregate);
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(toRethrow).Throw();
+            }
+
+            result.Records = recordsDone;
+            result.Links += linksWritten;
+            written.AddRange(writtenBag);
 
             if (ids.Count >= AdoWorkItemSource.WiqlLimit)
             {
@@ -298,7 +431,7 @@ public sealed class SyncRunner
             // Review R1-06: LastActivity (ClosedDate ?? CreatedDate) never changes while a PR stays
             // active, so a new push, vote, comment or linked work item on an open PR was otherwise
             // never picked up again after its creation until it closed or a webhook happened to fire.
-            // Every active PR is re-enriched and re-written on every run regardless of the cursor;
+            // Every active PR is re-enriching and re-writing on every run regardless of the cursor;
             // ContentRevision hashes the PR's full fetched content (commits, threads, work items,
             // policies), so a re-fetch of an unchanged active PR is a no-op at the evidence layer and
             // only a genuine change produces a new revision. This trades some per-run cost (one

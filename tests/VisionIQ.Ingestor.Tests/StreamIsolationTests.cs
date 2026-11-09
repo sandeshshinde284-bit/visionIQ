@@ -47,17 +47,22 @@ public sealed class StreamIsolationTests
         Assert.Null(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
     }
 
-    /// <summary>Injects one failure after the first work item was durably written.</summary>
+    /// <summary>
+    /// Injects one failure on the second ever attempted work-item write, then never again. R2-01: SyncRunner
+    /// now writes several work items concurrently, so "the first item was durably written" can't be read
+    /// off <see cref="MemorySink.Count"/> (two calls could race to see the same count); an atomic call
+    /// counter picks exactly one call to fail regardless of which work item reaches it first or how the
+    /// retry replays already-written items.
+    /// </summary>
     private sealed class FailOnceAfterFirstWorkItemSink : IRecordSink
     {
-        private bool failed;
+        private int workItemCalls;
         public MemorySink Inner { get; } = new();
 
         public Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default)
         {
-            if (!failed && stream == "work-items" && Inner.Count("work-items") == 1)
+            if (stream == "work-items" && Interlocked.Increment(ref workItemCalls) == 2)
             {
-                failed = true;
                 throw new InvalidOperationException("injected mid-stream sink failure");
             }
 
