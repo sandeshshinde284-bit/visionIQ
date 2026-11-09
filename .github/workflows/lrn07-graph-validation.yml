@@ -1,0 +1,29 @@
+name: LRN-07 graph contract validation
+
+on:
+  pull_request:
+    paths:
+      - "src/VisionIQ.Api/Features/Graph/**"
+      - "src/VisionIQ.Api/Features/GraphApi/**"
+      - "src/VisionIQ.Api/Program.cs"
+      - "tests/VisionIQ.Api.Tests/**"
+      - "scripts/learn_e2e.py"
+      - ".github/workflows/lrn07-graph-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet-graph:
+    name: LRN-07 graph and API safety tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build and run API tests (graph, lifecycle and disabled graph HTTP)
+        run: dotnet test tests/VisionIQ.Api.Tests/VisionIQ.Api.Tests.csproj --configuration Release
+      - name: Validate local LEARN graph runner syntax
+        run: python -m py_compile scripts/learn_e2e.py
