@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install focused dependencies
-        run: python -m pip install pytest ruff "psycopg[binary]" structlog
+        run: python -m pip install -r requirements.txt
       - name: Compile updated modules and focused tests
         run: |
           python -m py_compile src/VisionIQ.Intelligence/app/code_intelligence/approved_sources.py
