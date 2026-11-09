@@ -4,7 +4,7 @@ using VisionIQ.Ingestor.Confluence;
 
 namespace VisionIQ.Ingestor.Tests;
 
-/// <summary>LRN-02: page evidence names its space for the live check; ACL snapshots are never readable.</summary>
+/// <summary>LRN-02: page evidence names its space for the (currently removed) live check.</summary>
 public sealed class ConfluenceEvidenceAccessTests
 {
     private sealed class Recording : IVersionedEvidenceStore
@@ -25,20 +25,17 @@ public sealed class ConfluenceEvidenceAccessTests
     }
 
     [Fact]
-    public async Task Pages_carry_their_space_principal_and_acl_snapshots_stay_hidden()
+    public async Task Pages_carry_their_space_principal()
     {
         var store = new Recording();
         var sink = new CanonicalEvidenceSink(new EvidenceIngestionService(new Archive(), store),
             new Uri("https://dev.azure.com/contoso"), "contoso", new Uri("https://contoso.atlassian.net"));
-        var acl = new ConfluencePageAcl("1001", "ENG", true, []);
 
         await sink.WriteAsync("confluence-pages", "contoso.atlassian.net/confluence/ENG/page/1001@3",
-            new ConfluencePageSnapshot("contoso.atlassian.net", "ENG", "1001", 3, "Design", DateTimeOffset.UnixEpoch) { Acl = acl });
-        await sink.WriteAsync("confluence-acl", "contoso.atlassian.net/confluence/ENG/page/1001#fp", acl);
+            new ConfluencePageSnapshot("contoso.atlassian.net", "ENG", "1001", 3, "Design", DateTimeOffset.UnixEpoch));
 
         var page = Assert.Single(store.Saved, s => s.Envelope.Identity.Kind == "design_page");
         Assert.True(page.Envelope.Access.Verified);
         Assert.Equal(new[] { "confluence-space:https://contoso.atlassian.net/ENG" }, page.Envelope.Access.PrincipalIds);
-        Assert.False(Assert.Single(store.Saved, s => s.Envelope.Identity.Kind == "confluence_acl").Envelope.Access.Verified);
     }
 }

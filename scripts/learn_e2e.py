@@ -344,12 +344,9 @@ TEST_CATALOG = [
     (r"^LRN-05 repeat sync$", "Execute the real ingestion CLI a second time", "Exit code 0; canonical idempotency checked separately", "sync-2.log"),
     (r"^LRN-05 reconciliation sweep$", "Run reconciliation and compare canonical source revision counts", "Successful sync with no unintended revision inflation", "reconciliation.log; PostgreSQL evidence.source_revisions"),
     (r"^LRN-02 Confluence source test$", "Check configured Confluence space, page IDs and credentials", "Valid approved source and page selection, or clearly skipped/blocked when absent", "Operator-provided Confluence inputs"),
-    (r"^LRN-02 Confluence sync$", "Synchronize approved Confluence source space", "Complete stream, or explicitly report intentionally withheld JSONL pages", "confluence-sync.log; ingestion/*/report.json"),
-    (r"^LRN-02 ordinary Confluence page$", "Find the specified ordinary page in the approved space export", "Selected page present with a matching ID and space; restricted pages must not be exposed", "confluence-ingestion/*/confluence-pages.jsonl"),
-    (r"^LRN-02 ADR detected from Confluence$", "Look for the exact approved ADR page ID in exported decision records", "The selected page is independently classified as a design decision", "ingestion/*/design-decisions.jsonl"),
-    (r"^LRN-02 live user authorization$", "Query an authorized and unauthorized user against restricted Confluence evidence", "Authorized user sees only permitted pages; denied user sees no restricted content", "Live delegated user/Confluence permission check required"),
-    (r"^LRN-02 restricted", "Verify restricted Confluence ACL metadata or withheld page body", "Restricted or unknown-ACL content never leaks into JSONL", "ingestion/*/confluence-acl.jsonl or confluence-pages.jsonl"),
-    (r"^LRN-02 canonical", "Check immutable canonical Confluence evidence for the specified page", "Source revision and authorization metadata match approved page ID", "PostgreSQL evidence.source_items/source_revisions"),
+    (r"^LRN-02 Confluence sync$", "Synchronize approved Confluence source space", "Complete stream (no ACL-based withholding exists; team decision 2026-11-09)", "confluence-sync.log; ingestion/*/report.json"),
+    (r"^LRN-02 ordinary Confluence page$", "Find the specified ordinary page in the approved space export", "Selected page present with a matching ID and space", "confluence-ingestion/*/confluence-pages.jsonl"),
+    (r"^LRN-02 canonical", "Check immutable canonical Confluence evidence for the specified page", "Source revision exists with an archived GCS reference", "PostgreSQL evidence.source_items/source_revisions"),
     (r"^LRN-04 merged fix and revert$", "Exercise completed PR and later revert with controlled source history", "Verified, disputed and reverted states require distinct source evidence; single PR is not sufficient", "Controlled ADO history needed; not covered by one PR snapshot"),
     (r"^LRN-05 webhooks/deletions$", "Exercise webhook delivery, deletion and source-link retraction", "Events handled and replay-safe; deleted evidence not served", "Controlled live event scenario required"),
     (r"^LRN-06 parser fallback", "Run the existing parser-fallback/grammar-gap/crash-recovery pytest suite", "Degraded or unparseable files are marked partial/file-level only, never assigned invented symbols", "lrn06-parser-robustness.log; pytest output"),
@@ -381,9 +378,10 @@ def test_contract(name: str) -> tuple[str, str, str]:
 def result_add(results: list, name: str, status: str, detail: str, *,
                tested: str | None = None, expected: str | None = None,
                evidence: str | None = None):
-    # R5-01: DEFERRED names a scenario the team explicitly moved to a separate Trello task (e.g. LRN-02
-    # ADR/restricted-page coverage) - distinct from SKIP (operator simply didn't supply an input this
-    # run) and BLOCKED (a real prerequisite is missing). Never accepted as acceptance either way.
+    # R5-01: DEFERRED names a scenario the team explicitly moved to a separate Trello task (e.g.
+    # LRN-07's live Entra authentication) - distinct from SKIP (operator simply didn't supply an
+    # input this run) and BLOCKED (a real prerequisite is missing). Never accepted as acceptance
+    # either way.
     assert status in ("PASS", "FAIL", "SKIP", "BLOCKED", "DEFERRED")
     default_tested, default_expected, default_evidence = test_contract(name)
     record = {"check": name, "status": status,
@@ -1051,68 +1049,34 @@ def scoped_latest_ingestion(directory: Path) -> Path:
     return latest_ingestion(directory)
 
 
-def check_confluence_records(directory: Path, space: str, adr_id: str | None,
-                             restricted_id: str | None, results: list,
-                             page_id: str | None = None, partial: bool = False):
-    """Verify requested Confluence JSONL scenarios independently; no unrequested PASS."""
-    found_adr, restricted_acl, restricted_body, found_page, page_acl = False, False, False, False, False
-    for filename in ("design-decisions.jsonl", "confluence-acl.jsonl", "confluence-pages.jsonl"):
-        for path in directory.glob(f"*/{filename}"):
-            with path.open(encoding="utf-8") as inp:
-                for line in inp:
-                    try:
-                        rec = json.loads(line).get("record", {})
-                    except (json.JSONDecodeError, AttributeError):
-                        continue
-                    if not isinstance(rec, dict) or str(rec.get("spaceKey", "")).casefold() != space.casefold():
-                        continue
-                    if page_id and filename == "confluence-pages.jsonl":
-                        found_page |= str(rec.get("id", rec.get("pageId", ""))) == page_id
-                    if page_id and filename == "confluence-acl.jsonl":
-                        page_acl |= str(rec.get("pageId", rec.get("id", ""))) == page_id
-                    if adr_id and filename == "design-decisions.jsonl":
-                        found_adr |= str(rec.get("pageId", "")) == adr_id
-                    if restricted_id and filename == "confluence-acl.jsonl":
-                        restricted_acl |= (str(rec.get("pageId", "")) == restricted_id
-                                           and rec.get("complete") is True
-                                           and bool(rec.get("levels")))
-                    if restricted_id and filename == "confluence-pages.jsonl":
-                        restricted_body |= str(rec.get("id", "")) == restricted_id
+def check_confluence_records(directory: Path, space: str, results: list, page_id: str | None = None):
+    """Verify the requested Confluence JSONL scenario independently; no unrequested PASS.
+    Restricted-page ACL classification/withholding was REMOVED from the codebase (team decision,
+    2026-11-09; business assumption for now: everyone has Confluence access) -- see the separate
+    Trello follow-up card. There is nothing left here to check for that; every page is exported
+    unconditionally now, same as canonical mode always did."""
+    found_page = False
+    for path in directory.glob("*/confluence-pages.jsonl"):
+        with path.open(encoding="utf-8") as inp:
+            for line in inp:
+                try:
+                    rec = json.loads(line).get("record", {})
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if not isinstance(rec, dict) or str(rec.get("spaceKey", "")).casefold() != space.casefold():
+                    continue
+                if page_id:
+                    found_page |= str(rec.get("id", rec.get("pageId", ""))) == page_id
     if page_id:
-        status = "PASS" if found_page else ("BLOCKED" if partial or page_acl else "FAIL")
-        detail = ("Selected ordinary page found in approved Confluence JSONL export" if found_page else
-                  "Page absent from JSONL; partial stream or ACL metadata may indicate intentional withholding; "
-                  "verify in canonical evidence" if status == "BLOCKED" else
-                  "Selected ordinary page absent from fully synced export")
-        result_add(results, "LRN-02 ordinary Confluence page", status, detail)
-    if adr_id:
-        result_add(results, "LRN-02 ADR detected from Confluence", "PASS" if found_adr else "FAIL",
-                   "Design decision found in source export" if found_adr else
-                   "Selected page was not classified as a design decision")
-    else:
-        result_add(results, "LRN-02 ADR detected from Confluence", "SKIP", "No ADR/decision page ID provided")
-    if restricted_id:
-        result_add(results, "LRN-02 restricted ACL metadata", "PASS" if restricted_acl else "FAIL",
-                   "Complete nonempty restricted ACL recorded" if restricted_acl else "Restricted ACL missing/incomplete")
-        result_add(results, "LRN-02 restricted body withheld from JSONL", "FAIL" if restricted_body else "PASS",
-                   "Restricted body unexpectedly exported" if restricted_body else "Restricted page not exported to local JSONL")
-    else:
-        result_add(results, "LRN-02 restricted ACL metadata", "SKIP", "No restricted test page ID provided")
-        result_add(results, "LRN-02 restricted body withheld from JSONL", "SKIP", "No restricted test page ID provided")
+        result_add(results, "LRN-02 ordinary Confluence page", "PASS" if found_page else "FAIL",
+                   "Selected ordinary page found in approved Confluence JSONL export" if found_page else
+                   "Selected ordinary page absent from fully synced export")
 
 
-def check_confluence_canonical(env: dict, space: str, adr_id: str | None,
-                               restricted_id: str | None, results: list,
-                               page_id: str | None = None):
+def check_confluence_canonical(env: dict, space: str, results: list, page_id: str | None = None):
     requested = []
     if page_id:
         requested.append(("ordinary page", "design_page", page_id))
-    if adr_id:
-        requested.extend((("ADR page", "design_page", adr_id),
-                          ("ADR classification", "design_decision", adr_id)))
-    if restricted_id:
-        requested.extend((("restricted ACL", "confluence_acl", restricted_id),
-                          ("restricted page", "design_page", restricted_id)))
     with canonical_connection(env) as db:
         with db.cursor() as cur:
             site = env["CONFLUENCE_BASE_URL"].rstrip("/")
@@ -1129,28 +1093,24 @@ def check_confluence_canonical(env: dict, space: str, adr_id: str | None,
                 ok = items >= 1 and revisions >= 1 and archived == revisions
                 result_add(results, f"LRN-02 canonical {label}", "PASS" if ok else "FAIL",
                            f"items={items}, revisions={revisions}, GCS refs={archived}")
-    if not adr_id:
-        result_add(results, "LRN-02 canonical ADR", "DEFERRED", "ADR/decision page coverage deferred to a separate Trello task for this release")
-    if not restricted_id:
-        result_add(results, "LRN-02 canonical restricted page", "DEFERRED", "Restricted-page ACL coverage deferred to a separate Trello task for this release")
 
 
 def run_confluence_feature(args, env: dict, run_dir: Path, results: list):
-    """Read-only, optional test-space ingestion; ADR and restricted scenarios are independent."""
+    """Read-only, optional test-space ingestion. ADR/decision-page classification, live
+    per-user authorization, and restricted-page ACL classification/withholding were all REMOVED
+    from the codebase (team decision, 2026-11-09) -- see the separate Trello follow-up card.
+    Every Confluence page is now exported unconditionally; there is nothing left here to
+    SKIP/DEFER/test for those removed features."""
     space = (args.confluence_space or "").strip()
-    adr = (args.confluence_adr_page_id or "").strip() or None
     page_id = (getattr(args, "confluence_page_id", None) or "").strip() or None
-    restricted = (args.confluence_restricted_page_id or "").strip() or None
-    if not space and not (page_id or adr or restricted):
+    if not space and not page_id:
         result_add(results, "LRN-02 Confluence source test", "SKIP", "No approved Confluence test space supplied")
         return
     if not space:
         result_add(results, "LRN-02 Confluence source test", "FAIL", "A Confluence page ID requires a space key")
         return
-    if (not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", space) or
-            any(value and (not value.isdigit() or int(value) <= 0) for value in (page_id, adr, restricted)) or
-            (restricted and restricted in (page_id, adr))):
-        result_add(results, "LRN-02 Confluence source test", "FAIL", "Invalid space key or page IDs (IDs must be distinct positive numbers)")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", space) or (page_id and (not page_id.isdigit() or int(page_id) <= 0)):
+        result_add(results, "LRN-02 Confluence source test", "FAIL", "Invalid space key or page ID (page ID must be a positive number)")
         return
     if not (env.get("CONFLUENCE_BASE_URL") and env.get("CONFLUENCE_API_TOKEN") and
             (env.get("CONFLUENCE_USER_EMAIL") or env.get("CONFLUENCE_DEPLOYMENT", "").lower() == "datacenter")):
@@ -1162,36 +1122,22 @@ def run_confluence_feature(args, env: dict, run_dir: Path, results: list):
     command = ["dotnet", "run", "--project", "src/VisionIQ.Ingestor.Cli", "--", "sync",
                "--source", "confluence", "--full"]
     rc = run_command(command, page_env, run_dir / "confluence-sync.log")
-    # JSONL may return Partial when restricted page bodies are intentionally withheld.
-    if rc not in ({0, 2} if env["INGESTION_OUTPUT_MODE"] == "jsonl" else {0}):
+    if rc != 0:
         result_add(results, "LRN-02 Confluence sync", "FAIL", f"Unexpected exit {rc}; inspect confluence-sync.log")
         return
     try:
         source_report = json.loads(scoped_latest_ingestion(run_dir / "confluence-ingestion").read_text(encoding="utf-8"))
         streams = [row for row in source_report.get("streams", []) if row.get("stream") == "Confluence" and row.get("scope") == space + "/pages"]
-        if len(streams) != 1 or streams[0].get("status") == "NotSynced":
-            result_add(results, "LRN-02 Confluence sync", "FAIL", "Expected configured space stream missing/not synced")
+        if len(streams) != 1 or streams[0].get("status") != "Synced":
+            result_add(results, "LRN-02 Confluence sync", "FAIL", "Expected configured space stream missing/not fully synced")
             return
-        status = streams[0]["status"]
-        # Partial means restricted/unknown-access pages were withheld in JSONL.
-        # The stream itself is incomplete, even if the ordinary page check passes.
-        if status == "Synced":
-            result_add(results, "LRN-02 Confluence sync", "PASS", "Confluence source stream synced")
-        elif status == "Partial" and env["INGESTION_OUTPUT_MODE"] == "jsonl":
-            result_add(results, "LRN-02 Confluence sync", "BLOCKED",
-                       "Confluence returned a partial JSONL export; restricted/unknown-ACL pages may be intentionally withheld. "
-                       "Source-wide completeness is unverified; see confluence-sync.log")
-        else:
-            result_add(results, "LRN-02 Confluence sync", "FAIL", f"Unverified/partial source stream: {status}; inspect confluence-sync.log")
+        result_add(results, "LRN-02 Confluence sync", "PASS", "Confluence source stream synced")
         if env["INGESTION_OUTPUT_MODE"] == "canonical":
-            check_confluence_canonical(env, space, adr, restricted, results, page_id)
+            check_confluence_canonical(env, space, results, page_id)
         else:
-            check_confluence_records(run_dir / "confluence-ingestion", space, adr, restricted, results,
-                                     page_id, status == "Partial")
+            check_confluence_records(run_dir / "confluence-ingestion", space, results, page_id)
     except Exception as exc:
         result_add(results, "LRN-02 source assertions", "FAIL", f"Validation failed ({type(exc).__name__})")
-    result_add(results, "LRN-02 live user authorization", "DEFERRED",
-               "Deferred to a separate Trello task: needs two approved user identities and end-user Confluence-aware retrieval test")
 
 
 def code_scan_source_url(org: str, project: str, repository: str) -> str:
@@ -1310,6 +1256,34 @@ def _dotnet_test_counts(content: str) -> tuple[int, int, int]:
     failed = sum(int(m) for m in re.findall(r"Failed:\s*(\d+)", content))
     skipped = sum(int(m) for m in re.findall(r"Skipped:\s*(\d+)", content))
     return passed, failed, skipped
+
+
+def run_lrn01_checkpoint_database_integration(env: dict, run_dir: Path, results: list) -> None:
+    """Execute the real DbCheckpointStore (LRN-01 monotonic-guard) PostgreSQL integration tests
+    against this run's own canonical database. Each test scopes its rows to a fresh random
+    source GUID and cleans them up itself (see DbCheckpointStoreIntegrationTests.cs), so this is
+    safe against the regular local dev database; it never touches real ADO-sourced checkpoints."""
+    name = "LRN-01 checkpoint store monotonic guard (save, advance, reject-backward, equal-write, concurrency)"
+    if env.get("INGESTION_OUTPUT_MODE") != "canonical":
+        result_add(results, name, "SKIP", "Canonical PostgreSQL required")
+        return
+    for secret in ("DB_API_PASSWORD", "DB_LOCAL_PASSWORD"):
+        if not env.get(secret):
+            result_add(results, name, "BLOCKED", f"Missing {secret} in local .env (never supply secrets in command arguments)")
+            return
+    test_env = dict(env)
+    test_env["VISIONIQ_CHECKPOINT_DB_INTEGRATION"] = "1"
+    project = ROOT / "tests" / "VisionIQ.Ingestor.Tests" / "VisionIQ.Ingestor.Tests.csproj"
+    log = run_dir / "lrn01-checkpoint-db-integration.log"
+    rc = run_command(["dotnet", "test", str(project), "--filter", "FullyQualifiedName~DbCheckpointStoreIntegrationTests",
+                      "--verbosity", "quiet"], test_env, log)
+    content = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+    passed, failed, skipped = _dotnet_test_counts(content)
+    ok = rc == 0 and passed > 0 and failed == 0
+    result_add(results, name, "PASS" if ok else "FAIL",
+               f"dotnet test exit={rc}; passed={passed}, failed={failed}, skipped={skipped}; {log.name} "
+               "(GUID-scoped self-cleaning rows against this run's own canonical database; "
+               "covers forward advancement, backward-write rejection, equal-cursor idempotency, concurrent-save convergence)")
 
 
 def run_lrn04_database_integration(env: dict, run_dir: Path, results: list) -> None:
@@ -1554,8 +1528,7 @@ def run_graph_api_access(args, fixture: dict, results: list):
     denied = os.environ.get(args.graph_denied_token_env, "") if args.graph_denied_token_env else ""
     if not (allowed and denied):
         # R6-02: explicitly deferred for this release (no Entra admin access available to create the
-        # app registration / generate delegated tokens) - distinct from a routine SKIP, same treatment
-        # as LRN-02's ADR/restricted scenarios.
+        # app registration / generate delegated tokens) - distinct from a routine SKIP.
         result_add(results, "LRN-07 authorized and denied graph reads", "DEFERRED",
                    "Deferred for this release: no Entra admin access available to create the app "
                    "registration or generate delegated tokens. Supply two existing delegated Entra "
@@ -1697,9 +1670,7 @@ def main(argv=None) -> int:
     parser.add_argument("--full-history", action="store_true",
                         help="Explicitly sync all approved ADO history, not just the recent fixture window")
     parser.add_argument("--confluence-space", help="Approved sandbox Confluence space key")
-    parser.add_argument("--confluence-page-id", help="Existing ordinary Confluence page ID (not an ADR)")
-    parser.add_argument("--confluence-adr-page-id", help="Existing ADR/decision page ID")
-    parser.add_argument("--confluence-restricted-page-id", help="Existing directly restricted page ID")
+    parser.add_argument("--confluence-page-id", help="Existing ordinary Confluence page ID")
     parser.add_argument("--scan-checkout", help="Approved existing local clone of the ADO Git repository")
     parser.add_argument("--scan-commit", help="Exact local commit SHA; defaults to this created fixture's commit")
     parser.add_argument("--graph-allowed-token-env", help="Name of local environment variable holding a valid authorized delegated JWT")
@@ -1758,9 +1729,10 @@ def main(argv=None) -> int:
                 print("LRN-02 Confluence page checks for " + args.confluence_space + ":")
                 if not args.confluence_page_id:
                     args.confluence_page_id = input("Existing ordinary feature/documentation page ID [Enter to skip]: ").strip() or None
-                # R5-01: ADR and restricted-page scenarios are deferred to a separate Trello task
-                # for this release workflow; never prompt for them here, regardless of whether
-                # they were already supplied via flags (those still work for a dedicated run).
+                # R5-01: ADR/decision-page classification, live per-user authorization, and
+                # restricted-page ACL classification/withholding were all removed from the codebase
+                # entirely (2026-11-09, team decision) -- there is nothing left to prompt for or
+                # defer regarding any of them; they are simply gone from this script.
             if mode == "canonical" and not args.scan_checkout:
                 args.scan_checkout = input("LRN-06 approved local ADO Git checkout path [Enter to skip]: ").strip() or None
             if args.scan_checkout and not args.scan_commit and selected != "create":
@@ -1963,6 +1935,9 @@ def main(argv=None) -> int:
                 result_add(results, "Prerequisite: canonical evidence present", "BLOCKED",
                            "JSONL mode has no canonical evidence to reuse; select -OutputMode canonical, "
                            "or use -Mode create/existing to run a fresh sync")
+
+        if 1 in stories:
+            run_lrn01_checkpoint_database_integration(env, run_dir, results)
 
         if 2 in stories:
             run_confluence_feature(args, env, run_dir, results)

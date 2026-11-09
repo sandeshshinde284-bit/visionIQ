@@ -92,39 +92,6 @@ public sealed record ConfluencePage(string Id, string SpaceKey, string Title, in
     public IReadOnlyList<ConfluenceVersion> Versions { get; init; } = [];
 }
 
-/// <summary>A restricted level in a page's ancestry: the viewer must be one of these users or in one of these groups.</summary>
-public sealed record RestrictionLevel(string PageId, IReadOnlyList<string> Users, IReadOnlyList<string> Groups);
-
-/// <summary>
-/// Who may see a page. A viewer must pass every level. When <see cref="Complete"/> is false the restrictions are
-/// ambiguous and nobody sees the page through VisionIQ.
-/// </summary>
-public sealed record ConfluencePageAcl(string PageId, string SpaceKey, bool Complete, IReadOnlyList<RestrictionLevel> Levels)
-{
-    public string? IncompleteReason { get; init; }
-
-    public bool IsRestricted => Levels.Count > 0;
-
-    /// <summary>Changes whenever the effective permissions change.</summary>
-    public string Fingerprint
-    {
-        get
-        {
-            // Levels/users/groups arrive in whatever order the Confluence API happened to return them,
-            // so everything is sorted before hashing — otherwise the fingerprint would churn between
-            // runs with no actual permission change, and every downstream consumer would see spurious
-            // "ACL changed" events.
-            var canonical = SpaceKey + "|" + Complete + "|" + string.Join(
-                ";",
-                Levels.OrderBy(level => level.PageId, StringComparer.Ordinal).Select(level =>
-                    level.PageId + ":" + string.Join(",", level.Users.Order(StringComparer.Ordinal))
-                    + ":" + string.Join(",", level.Groups.Order(StringComparer.OrdinalIgnoreCase))));
-            var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical));
-            return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
-        }
-    }
-}
-
 public sealed record PageSection(string Heading, int Level, string Text);
 
 /// <summary>A normalized, version-specific page snapshot. Each version is its own record; older ones are never overwritten.</summary>
@@ -145,24 +112,6 @@ public sealed record ConfluencePageSnapshot(string Tenant, string SpaceKey, stri
     public IReadOnlyDictionary<string, string> Properties { get; init; } = new Dictionary<string, string>();
 
     public IReadOnlyList<ConfluenceVersion> Versions { get; init; } = [];
-
-    public required ConfluencePageAcl Acl { get; init; }
-}
-
-/// <summary>A design decision found on a page, with the reason it was recognized.</summary>
-public sealed record DesignDecisionRecord(string PageId, int Version, string SpaceKey, string Title, string DetectedBy)
-{
-    public string? Status { get; init; }
-
-    public string? Outcome { get; init; }
-
-    public IReadOnlyList<string> Labels { get; init; } = [];
-
-    public string? Url { get; init; }
-
-    public DateTimeOffset LastModified { get; init; }
-
-    public required ConfluencePageAcl Acl { get; init; }
 }
 
 /// <summary>Reads pages from one Confluence deployment.</summary>

@@ -35,18 +35,14 @@ public sealed class CanonicalEvidenceSinkTests
     }
 
     [Fact]
-    public async Task Restricted_confluence_page_stores_only_a_space_candidate_and_no_text()
+    public async Task A_confluence_page_stores_only_a_space_candidate_and_no_raw_text()
     {
         var store = new RecordingStore();
         var sink = Sink(store);
-        var acl = new ConfluencePageAcl(
-            "1003", "ENG", true,
-            [new RestrictionLevel("1000", ["acc-lead"], ["ENG-LEADS"])]);
         var page = new ConfluencePageSnapshot(
             "contoso.atlassian.net", "ENG", "1003", 4,
             "Private design", DateTimeOffset.UtcNow)
         {
-            Acl = acl,
             Text = "Sensitive architecture details must not be indexed",
             Url = "https://contoso.atlassian.net/wiki/spaces/ENG/pages/1003",
         };
@@ -55,11 +51,10 @@ public sealed class CanonicalEvidenceSinkTests
 
         var archived = Assert.Single(store.Rows);
         Assert.Equal("design_page", archived.Envelope.Identity.Kind);
-        // LRN-02: storage never grants access by itself. Only a space-level candidate is stored (never the
-        // page's restricted users/groups); reading requires Confluence's live "yes" for that person.
+        // LRN-02: storage never grants access by itself. Only a space-level candidate is stored;
+        // reading would require a per-user authorization check, which is currently removed (no
+        // registered Confluence verifier), so Confluence evidence fails closed at read time.
         Assert.Equal(new[] { "confluence-space:https://contoso.atlassian.net/ENG" }, archived.Envelope.Access.PrincipalIds);
-        Assert.DoesNotContain("acc-lead", archived.Envelope.Access.Json(), StringComparison.Ordinal);
-        Assert.DoesNotContain("ENG-LEADS", archived.Envelope.Access.Json(), StringComparison.Ordinal);
         Assert.DoesNotContain("Sensitive architecture", archived.RedactedJson, StringComparison.Ordinal);
     }
 
@@ -147,6 +142,31 @@ public sealed class CanonicalEvidenceSinkTests
 
         Assert.Equal(changed, link.SourceTimestamp);
         Assert.Equal(changed, Assert.Single(store.Rows).Envelope.SourceUpdatedAt);
+    }
+
+    [Fact]
+    public async Task A_reviewer_vote_is_archived_as_its_own_review_kind_with_only_status_and_vote_redacted()
+    {
+        var store = new RecordingStore();
+        var sink = Sink(store);
+        var observed = new DateTimeOffset(2026, 11, 1, 9, 0, 0, TimeSpan.Zero);
+        var review = new PullRequestReviewRecord("rev-1", 99, "repo-1", "payments-service", "VisionIQ Demo", 10, true, false, observed);
+
+        await sink.WriteAsync("pull-request-reviews", "contoso/ado/VisionIQ Demo/pull-request-review/99:rev-1@approved@10", review);
+
+        var row = Assert.Single(store.Rows);
+        Assert.Equal("review", row.Envelope.Identity.Kind);
+        Assert.Equal("99:rev-1", row.Envelope.Identity.ExternalId);
+        Assert.True(row.Envelope.Access.Verified);
+        Assert.Equal(new[] { "ado-project:https://dev.azure.com/contoso/VisionIQ Demo" }, row.Envelope.Access.PrincipalIds);
+        Assert.StartsWith("gs://", row.RawSnapshotUri);
+        using var redacted = System.Text.Json.JsonDocument.Parse(row.RedactedJson);
+        Assert.Equal("review", redacted.RootElement.GetProperty("kind").GetString());
+        Assert.Equal("approved", redacted.RootElement.GetProperty("status").GetString());
+        Assert.Equal(10, redacted.RootElement.GetProperty("vote").GetInt32());
+        // Reviewer identity is a principal/audit fact, not indexed source text, but it must never
+        // leak into the redacted metadata that downstream search would read.
+        Assert.DoesNotContain("rev-1", row.RedactedJson, StringComparison.Ordinal);
     }
 
     private static CanonicalEvidenceSink Sink(RecordingStore store, IEvidenceTombstones? tombstones = null) =>

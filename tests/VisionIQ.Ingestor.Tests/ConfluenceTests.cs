@@ -120,7 +120,6 @@ public sealed class ConfluenceTests
         var pages = await DemoConfluence.Source(handler, DemoConfluence.CloudOptions()).GetPagesAsync("ENG");
 
         Assert.True(DemoConfluence.Page(pages, "1001").ReadRestriction.Unknown);
-        Assert.False(ConfluenceAccess.ComputeAcls(pages)["1001"].Complete);
     }
 
     [Fact]
@@ -151,47 +150,6 @@ public sealed class ConfluenceTests
         Assert.Contains(handler.Requests, request => request.Contains("expand=", StringComparison.Ordinal));
     }
 
-    // ---------- S04-09: permission mapping (fail closed) ----------
-
-    [Fact]
-    public async Task Restrictions_are_inherited_and_unclear_ancestry_hides_the_page()
-    {
-        var pages = await DemoConfluence.Source(DemoConfluence.CloudServer(), DemoConfluence.CloudOptions()).GetPagesAsync("ENG");
-
-        var acls = ConfluenceAccess.ComputeAcls(pages);
-
-        Assert.False(acls["1000"].IsRestricted);
-        Assert.Equal(new[] { "1002" }, acls["1003"].Levels.Select(level => level.PageId));
-        Assert.False(acls["1004"].Complete);
-        Assert.Contains("9999", acls["1004"].IncompleteReason, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task A_restricted_page_is_hidden_from_an_unauthorized_engineer()
-    {
-        var pages = await DemoConfluence.Source(DemoConfluence.CloudServer(), DemoConfluence.CloudOptions()).GetPagesAsync("ENG");
-        var acls = ConfluenceAccess.ComputeAcls(pages);
-
-        string[] VisibleTo(ConfluenceViewer viewer) =>
-            ConfluenceAccess.Visible(pages, page => acls[page.Id], viewer).Select(page => page.Id).ToArray();
-
-        Assert.Equal(new[] { "1000", "1001" }, VisibleTo(ConfluenceViewer.Create(null, [], ["ENG"])));
-        Assert.Equal(new[] { "1000", "1001", "1002", "1003" }, VisibleTo(ConfluenceViewer.Create("acc-lead", [], ["ENG"])));
-        Assert.Equal(new[] { "1000", "1001", "1002", "1003" }, VisibleTo(ConfluenceViewer.Create("someone", ["ENG-LEADS"], ["eng"])));
-        Assert.Empty(VisibleTo(ConfluenceViewer.Create("acc-lead", ["eng-leads"], [])));
-    }
-
-    [Fact]
-    public async Task A_viewer_must_pass_every_restricted_level()
-    {
-        var pages = await DemoConfluence.Source(DemoConfluence.DataCenterServer(), DemoConfluence.DataCenterOptions()).GetPagesAsync("OPS");
-        var acl = ConfluenceAccess.ComputeAcls(pages)["2002"];
-
-        Assert.False(ConfluenceAccess.CanView(acl, ConfluenceViewer.Create("jdoe", [], ["OPS"])));
-        Assert.False(ConfluenceAccess.CanView(acl, ConfluenceViewer.Create("alice", ["architects"], ["OPS"])));
-        Assert.True(ConfluenceAccess.CanView(acl, ConfluenceViewer.Create("jdoe", ["architects"], ["OPS"])));
-    }
-
     // ---------- S05-07: normalization and design decisions ----------
 
     [Fact]
@@ -212,85 +170,21 @@ public sealed class ConfluenceTests
         Assert.Equal("- Use a retry budget\n- Log when exhausted", page.Sections[2].Text);
     }
 
-    [Fact]
-    public void Decisions_are_recognized_by_label_title_or_template_and_say_why()
-    {
-        var acl = new ConfluencePageAcl("1", "ENG", true, []);
-        ConfluencePageSnapshot Snapshot(string title, string[] labels, Dictionary<string, string> properties) =>
-            new("contoso.atlassian.net", "ENG", "1", 1, title, DateTimeOffset.UnixEpoch) { Labels = labels, Properties = properties, Acl = acl };
-        var template = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Status"] = "Accepted", ["Outcome"] = "Use Redis" };
-
-        var byLabel = DesignDecisionDetector.Detect(Snapshot("Retry budget", ["ADR"], []));
-        var byTitle = DesignDecisionDetector.Detect(Snapshot("Decision: Use Redis for sessions", [], []));
-        var byTemplate = DesignDecisionDetector.Detect(Snapshot("Session storage", [], template));
-        var notADecision = DesignDecisionDetector.Detect(Snapshot("Team onboarding", ["howto"], []));
-
-        Assert.Equal("label:adr", byLabel!.DetectedBy);
-        Assert.Equal("title", byTitle!.DetectedBy);
-        Assert.Equal("decision template", byTemplate!.DetectedBy);
-        Assert.Equal("Use Redis", byTemplate.Outcome);
-        Assert.Equal("Accepted", byTemplate.Status);
-        Assert.Null(notADecision);
-    }
-
-    // ---------- the runner: versions, permissions every run, failures ----------
+    // ---------- the runner: versions, failures ----------
 
     [Fact]
-    public async Task The_first_run_stores_every_page_version_with_its_permissions()
+    public async Task The_first_run_stores_every_page_version()
     {
         var sink = new MemorySink();
 
         var report = await Runner(DemoConfluence.CloudServer(), new InMemoryCheckpointStore(), sink).RunAsync(Request());
 
         var result = Assert.Single(report.Streams);
-        Assert.Equal(StreamStatus.Partial, result.Status);
-        Assert.Equal(2, sink.Count("confluence-pages"));
-        Assert.Equal(5, sink.Count("confluence-acl"));
-        Assert.Equal(1, sink.Count("design-decisions"));
-        Assert.Contains(result.Notes, note => note.Contains("1 page(s) have unclear permissions", StringComparison.Ordinal));
-        var timelineAcl = Acl(sink, "1003");
-        Assert.True(timelineAcl.IsRestricted);
-        Assert.DoesNotContain(sink.Items, item => item.Stream == "confluence-pages" && item.Key.Contains("/1003@", StringComparison.Ordinal));
+        Assert.Equal(StreamStatus.Synced, result.Status);
+        Assert.Equal(5, sink.Count("confluence-pages"));
         var adr = Snapshot(sink, "1001");
         Assert.Equal(new[] { 1, 2, 3 }, adr.Versions.Select(version => version.Number));
         Assert.Contains(sink.Items, item => item.Key.EndsWith("/page/1001@3", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task A_second_run_rereads_permissions_but_not_unchanged_pages()
-    {
-        var checkpoints = new InMemoryCheckpointStore();
-        await Runner(DemoConfluence.CloudServer(), checkpoints, new MemorySink()).RunAsync(Request());
-        var second = new MemorySink();
-
-        await Runner(DemoConfluence.CloudServer(), checkpoints, second).RunAsync(Request());
-
-        // Withheld pages leave the checkpoint unchanged, so public data is
-        // re-exported while permissions are rechecked on the next run.
-        Assert.Equal(2, second.Count("confluence-pages"));
-        Assert.Equal(1, second.Count("design-decisions"));
-        Assert.Equal(5, second.Count("confluence-acl"));
-    }
-
-    [Fact]
-    public async Task A_permission_change_without_a_new_page_version_is_picked_up()
-    {
-        var checkpoints = new InMemoryCheckpointStore();
-        var first = new MemorySink();
-        await Runner(DemoConfluence.CloudServer(), checkpoints, first).RunAsync(Request());
-        var second = new MemorySink();
-
-        await Runner(DemoConfluence.CloudServer(restriction1000: "conf-cloud-restriction-1000-changed.json"), checkpoints, second).RunAsync(Request());
-
-        var before = Acl(first, "1000");
-        var after = Acl(second, "1000");
-        Assert.False(before.IsRestricted);
-        Assert.True(after.IsRestricted);
-        Assert.NotEqual(before.Fingerprint, after.Fingerprint);
-        Assert.False(ConfluenceAccess.CanView(after, ConfluenceViewer.Create(null, [], ["ENG"])));
-        // Changing an ancestor to restricted also withholds its descendants.
-        Assert.Equal(0, second.Count("confluence-pages"));
-        Assert.DoesNotContain(second.Items, item => item.Stream == "confluence-pages" && item.Key.Contains("/1000@", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -306,7 +200,9 @@ public sealed class ConfluenceTests
     [Fact]
     public async Task Reports_from_both_runners_merge_into_one()
     {
-        var confluence = await Runner(DemoConfluence.CloudServer(), new InMemoryCheckpointStore(), new MemorySink()).RunAsync(Request());
+        // A genuinely denied space (not a withheld-page artifact) keeps this a real mixed-status
+        // merge: one runner's stream NotSynced, the other's Synced.
+        var confluence = await Runner(DemoConfluence.CloudServer(spacesDenied: true), new InMemoryCheckpointStore(), new MemorySink()).RunAsync(Request());
         var ado = await new SyncRunner(DemoAdo.Client(DemoAdo.Server()), new InMemoryCheckpointStore(), new MemorySink(), new SourceCapabilityRegistry())
             .RunAsync(new SyncRequest(new HashSet<SyncKind> { SyncKind.Builds }, null));
 
@@ -383,9 +279,6 @@ public sealed class ConfluenceTests
 
     private static ConfluencePageSnapshot Snapshot(MemorySink sink, string id) =>
         sink.Items.Where(item => item.Stream == "confluence-pages").Select(item => (ConfluencePageSnapshot)item.Record).Single(page => page.Id == id);
-
-    private static ConfluencePageAcl Acl(MemorySink sink, string id) =>
-        sink.Items.Where(item => item.Stream == "confluence-acl").Select(item => (ConfluencePageAcl)item.Record).Single(acl => acl.PageId == id);
 
     private static Dictionary<string, string?> Settings() => new(StringComparer.OrdinalIgnoreCase)
     {

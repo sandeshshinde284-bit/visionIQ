@@ -104,17 +104,17 @@ public sealed class ContentRevisionTests
     }
 
     [Fact]
-    public async Task A_confluence_permission_change_without_a_new_version_is_a_new_revision()
+    public async Task A_confluence_metadata_change_without_a_new_version_is_a_new_revision()
     {
         var store = new ImmutableStore();
         var sink = Sink(store);
-        ConfluencePageSnapshot Page(bool restricted) => new("contoso.atlassian.net", "ENG", "1003", 4, "Design", DateTimeOffset.UnixEpoch)
+        ConfluencePageSnapshot Page(IReadOnlyList<string> labels) => new("contoso.atlassian.net", "ENG", "1003", 4, "Design", DateTimeOffset.UnixEpoch)
         {
-            Acl = new ConfluencePageAcl("1003", "ENG", true, restricted ? [new RestrictionLevel("1003", ["acc-1"], [])] : []),
+            Labels = labels,
         };
 
-        await sink.WriteAsync("confluence-pages", "contoso.atlassian.net/confluence/ENG/page/1003@4", Page(false));
-        await sink.WriteAsync("confluence-pages", "contoso.atlassian.net/confluence/ENG/page/1003@4", Page(true));
+        await sink.WriteAsync("confluence-pages", "contoso.atlassian.net/confluence/ENG/page/1003@4", Page([]));
+        await sink.WriteAsync("confluence-pages", "contoso.atlassian.net/confluence/ENG/page/1003@4", Page(["decision"]));
 
         Assert.DoesNotContain(store.Results, r => r.Status == EvidenceImportStatus.Conflict);
         Assert.All(store.Results, r => Assert.StartsWith("4#", r.ProviderRevisionId));

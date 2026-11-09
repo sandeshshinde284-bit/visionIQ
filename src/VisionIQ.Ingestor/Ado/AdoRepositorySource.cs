@@ -97,6 +97,47 @@ public sealed record PullRequestPolicyEvaluation(string Policy, string Status, b
 public sealed record PullRequestReviewer(string Id, int Vote, bool IsRequired, bool HasDeclined);
 
 /// <summary>
+/// S05-05: one reviewer's current vote, versioned as its own evidence item independent of the PR's
+/// own revision cadence (LRN-03) -- a vote can change without the PR itself gaining a new native
+/// revision, so without this a reviewer's history is only ever visible as of the last PR snapshot.
+/// Never implies a root cause is verified (see PullRequestLifecycle); this is just the raw vote fact.
+/// </summary>
+public sealed record PullRequestReviewRecord(
+    string ReviewerId, int PullRequestId, string RepositoryId, string RepositoryName, string Project,
+    int Vote, bool IsRequired, bool HasDeclined, DateTimeOffset Observed)
+{
+    public string Status => ReviewVoteStatus.Of(Vote, HasDeclined);
+}
+
+/// <summary>Per-reviewer counterpart to <see cref="PullRequestLifecycle"/>'s PR-level aggregate.</summary>
+public static class ReviewVoteStatus
+{
+    public const string Approved = "approved";
+    public const string ApprovedWithSuggestions = "approved_with_suggestions";
+    public const string NoVote = "no_vote";
+    public const string WaitingForAuthor = "waiting_for_author";
+    public const string Rejected = "rejected";
+    public const string Declined = "declined";
+
+    public static string Of(int vote, bool hasDeclined)
+    {
+        if (hasDeclined)
+        {
+            return Declined;
+        }
+
+        return vote switch
+        {
+            <= -10 => Rejected,
+            -5 => WaitingForAuthor,
+            >= 10 => Approved,
+            5 => ApprovedWithSuggestions,
+            _ => NoVote,
+        };
+    }
+}
+
+/// <summary>
 /// LRN-12 (S12-01) PR lifecycle states. A closed PR is merged or abandoned; an open PR is draft, rejected,
 /// waiting for author, approved (every required reviewer approved and nobody rejected or waiting) or active.
 /// A lifecycle state is a fact about the PR, never evidence that a root cause is verified.

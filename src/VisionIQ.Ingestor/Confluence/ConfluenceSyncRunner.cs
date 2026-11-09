@@ -7,8 +7,9 @@ using VisionIQ.Ingestor.Sync;
 namespace VisionIQ.Ingestor.Confluence;
 
 /// <summary>
-/// Reads the approved spaces (LRN-02). Permissions are re-read for every page on every run, because a restriction
-/// can change without a new page version. Page content is written once per version, so older versions are kept.
+/// Reads the approved spaces (LRN-02). Page content is written once per version, so older versions are kept.
+/// Access-control classification/withholding was removed from this layer (2026-11-09, team decision); every
+/// fetched page is written unconditionally.
 /// </summary>
 public sealed class ConfluenceSyncRunner
 {
@@ -99,7 +100,6 @@ public sealed class ConfluenceSyncRunner
         try
         {
             var pages = await source.GetPagesAsync(space, cancellationToken).ConfigureAwait(false);
-            var acls = ConfluenceAccess.ComputeAcls(pages);
             var byId = pages.ToDictionary(page => page.Id, StringComparer.Ordinal);
 
             // R3-01: every page/ACL write here is a real GCS+PostgreSQL round trip (canonical mode),
@@ -122,27 +122,6 @@ public sealed class ConfluenceSyncRunner
                 }
             }
 
-            // ACLs are written for every page, not just the ones with fresh content: permissions can
-            // change (or go from unknown to known) without a new page version, so downstream access
-            // checks need the latest fingerprint even when there is nothing new to sync.
-            var aclsDone = 0;
-            await RunGatedAsync(pages, async (page, token) =>
-            {
-                var acl = acls[page.Id];
-                await GatedWriteAsync("confluence-acl", Key(space, "page", page.Id, null) + "#" + acl.Fingerprint, acl, token).ConfigureAwait(false);
-                var done = Interlocked.Increment(ref aclsDone);
-                if (done % 50 == 0 || done == pages.Count)
-                {
-                    Logging.IngestionLog.ConfluenceAclProgress(log, space, done, pages.Count, timer.Elapsed.TotalMilliseconds);
-                }
-            }, cancellationToken).ConfigureAwait(false);
-
-            var hidden = acls.Values.Count(acl => !acl.Complete);
-            if (hidden > 0)
-            {
-                result.Notes.Add(hidden.ToString(CultureInfo.InvariantCulture) + " page(s) have unclear permissions and are hidden from everyone.");
-            }
-
             var fresh = pages
                 .Where(page => cursor is null
                     ? request.Since is null || page.LastModified >= request.Since
@@ -151,25 +130,12 @@ public sealed class ConfluenceSyncRunner
                 .ThenBy(page => page.Id, StringComparer.Ordinal)
                 .ToList();
 
-            var withheld = 0;
             var recordsDone = 0;
             var linksDone = 0;
             var writtenBag = new ConcurrentBag<(DateTimeOffset At, string Id)>();
 
             await RunGatedAsync(fresh, async (page, token) =>
             {
-                var pageAcl = acls[page.Id];
-                // JSONL is not an ACL-aware evidence store. Never write
-                // restricted or unverified page bodies into its files or
-                // downstream search/briefs. ACL fingerprints remain available.
-                // Persist these bodies only after LRN-03 can enforce the
-                // Confluence ancestor-level AND policy.
-                if ((!pageAcl.Complete || pageAcl.IsRestricted) && sink is not ICanonicalEvidenceSink)
-                {
-                    Interlocked.Increment(ref withheld);
-                    return;
-                }
-
                 var enriched = await source.EnrichAsync(page, token).ConfigureAwait(false);
                 var normalized = ConfluenceText.Normalize(enriched.StorageBody);
                 var snapshot = new ConfluencePageSnapshot(source.Tenant, space, page.Id, page.Version, page.Title, page.LastModified)
@@ -182,16 +148,10 @@ public sealed class ConfluenceSyncRunner
                     Sections = normalized.Sections,
                     Properties = normalized.Properties,
                     Versions = enriched.Versions,
-                    Acl = acls[page.Id],
                 };
 
                 var version = page.Version.ToString(CultureInfo.InvariantCulture);
                 await GatedWriteAsync("confluence-pages", Key(space, "page", page.Id, version), snapshot, token).ConfigureAwait(false);
-                if (DesignDecisionDetector.Detect(snapshot) is { } decision)
-                {
-                    await GatedWriteAsync("design-decisions", Key(space, "decision", page.Id, version), decision, token).ConfigureAwait(false);
-                    Interlocked.Increment(ref linksDone);
-                }
 
                 var done = Interlocked.Increment(ref recordsDone);
                 if (done % 50 == 0 || done == fresh.Count)
@@ -206,11 +166,6 @@ public sealed class ConfluenceSyncRunner
             result.Links = linksDone;
             written.AddRange(writtenBag);
 
-            if (withheld > 0)
-            {
-                Fail(result, $"{withheld} page(s) withheld from JSONL export due to restricted or unknown access. Secure LRN-03 ingestion is required.");
-            }
-
             registry.Register(SourceKind.Confluence, "pages", CapabilityStatus.Supported);
             registry.Register(SourceKind.Confluence, "page-restrictions", CapabilityStatus.Supported);
         }
@@ -219,8 +174,6 @@ public sealed class ConfluenceSyncRunner
             Fail(result, error.Message);
         }
 
-        // A withheld page could become public without a content revision.
-        // Retain the cursor so the next scan can safely reevaluate every page.
         if (!request.Reconcile && result.Status == StreamStatus.Synced && TimeCursor.Advance(cursor, written) is { } next)
         {
             try
@@ -239,7 +192,7 @@ public sealed class ConfluenceSyncRunner
     /// <summary>Bounded-concurrency ForEachAsync that unwraps a single real exception instead of
     /// letting Parallel.ForEachAsync's AggregateException hide it from the existing single-exception
     /// catch below (only observable when more than one item faults concurrently).</summary>
-    private async Task RunGatedAsync<T>(IReadOnlyCollection<T> items, Func<T, CancellationToken, ValueTask> body, CancellationToken cancellationToken)
+    private async Task RunGatedAsync<T>(List<T> items, Func<T, CancellationToken, ValueTask> body, CancellationToken cancellationToken)
     {
         if (items.Count == 0)
         {

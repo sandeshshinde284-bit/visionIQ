@@ -88,7 +88,7 @@ public sealed class CanonicalEvidenceSink(
         // evidence stays unverified (hidden) until a Confluence-specific read path exists.
         var access = datum.Provider == "azure_devops"
             ? new EvidenceAccess(true, [AdoAccessPrincipals.Project(datum.Instance, datum.Project)])
-            : datum.Provider == "confluence" && datum.Kind is "design_page" or "design_decision"
+            : datum.Provider == "confluence" && datum.Kind is "design_page"
                 // LRN-02: page evidence names its space; Confluence's live page permission check decides.
                 ? new EvidenceAccess(true, [ConfluenceAccessPrincipals.Space(datum.Instance, datum.Project)])
                 : new EvidenceAccess(false, Array.Empty<string>());
@@ -182,6 +182,13 @@ public sealed class CanonicalEvidenceSink(
                     AdoUrl(pr.Project, "_git/" + Uri.EscapeDataString(pr.RepositoryName)
                         + "/pullrequest/" + Id(pr.Id)));
 
+            case PullRequestReviewRecord review when stream == "pull-request-reviews":
+                return new Datum("azure_devops", adoInstance, review.Project, review.RepositoryId,
+                    "review", Id(review.PullRequestId) + ":" + review.ReviewerId,
+                    ContentRevision(review.Status + "@" + Id(review.Vote), review), review.Observed,
+                    AdoUrl(review.Project, "_git/" + Uri.EscapeDataString(review.RepositoryName)
+                        + "/pullrequest/" + Id(review.PullRequestId)));
+
             case CommitRecord commit when stream == "commits":
                 return new Datum("azure_devops", adoInstance, commit.Project,
                     commit.RepositoryId, "commit", commit.CommitId, ContentRevision(commit.CommitId, commit),
@@ -210,20 +217,6 @@ public sealed class CanonicalEvidenceSink(
                 return new Datum("confluence", confluenceInstance ?? page.Tenant,
                     page.SpaceKey, null, "design_page", page.Id,
                     ContentRevision(Id(page.Version), page), page.LastModified, WikiUrl(page.Tenant, page.Url));
-
-            case DesignDecisionRecord decision when stream == "design-decisions":
-                return new Datum("confluence", confluenceInstance ?? SiteFromKey(key),
-                    decision.SpaceKey, null, "design_decision", decision.PageId,
-                    ContentRevision(Id(decision.Version), decision), decision.LastModified,
-                    WikiUrl(SiteFromKey(key), decision.Url));
-
-            case ConfluencePageAcl acl when stream == "confluence-acl":
-                // Confluence does not provide an update timestamp for every
-                // permission change. Observation time is the only available
-                // timestamp for this separate permission snapshot.
-                return new Datum("confluence", confluenceInstance ?? SiteFromKey(key),
-                    acl.SpaceKey, null, "confluence_acl", acl.PageId,
-                    acl.Fingerprint, observed, WikiUrl(SiteFromKey(key), null));
 
             default:
                 return null;

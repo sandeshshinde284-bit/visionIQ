@@ -100,7 +100,7 @@ public sealed class StreamIsolationTests
     [Fact]
     public async Task A_confluence_sink_failure_is_reported_instead_of_crashing()
     {
-        var sink = new FailingSink("confluence-acl");
+        var sink = new FailingSink("confluence-pages");
         var runner = new VisionIQ.Ingestor.Confluence.ConfluenceSyncRunner(
             DemoConfluence.Source(DemoConfluence.CloudServer(), DemoConfluence.CloudOptions()),
             new InMemoryCheckpointStore(), sink, new SourceCapabilityRegistry());

@@ -449,6 +449,19 @@ public sealed class SyncRunner
                 var enriched = await repositories.EnrichAsync(project, repository, pullRequest, cancellationToken).ConfigureAwait(false);
                 var version = enriched.Status + "@" + Stamp(enriched.LastActivity);
                 await sink.WriteAsync("pull-requests", Key(project, "pull-request", Text(enriched.Id), version), enriched, cancellationToken).ConfigureAwait(false);
+                // S05-05: each reviewer's vote is its own versioned evidence item (LRN-03) -- a vote
+                // can change without the PR gaining a new native revision, so without this a
+                // reviewer's history is only ever visible as of the PR's last fetched snapshot.
+                foreach (var reviewer in enriched.Reviewers)
+                {
+                    var review = new PullRequestReviewRecord(
+                        reviewer.Id, enriched.Id, enriched.RepositoryId, enriched.RepositoryName, project,
+                        reviewer.Vote, reviewer.IsRequired, reviewer.HasDeclined, enriched.LastActivity);
+                    var reviewExternalId = Text(enriched.Id) + ":" + reviewer.Id;
+                    var reviewVersion = review.Status + "@" + reviewer.Vote.ToString(CultureInfo.InvariantCulture);
+                    await sink.WriteAsync("pull-request-reviews", Key(project, "pull-request-review", reviewExternalId, reviewVersion), review, cancellationToken).ConfigureAwait(false);
+                }
+
                 result.Links += await WriteLinksAsync(project, LinkExtractor.FromPullRequest(enriched), cancellationToken).ConfigureAwait(false);
                 result.Records++;
                 written.Add((enriched.LastActivity, Text(enriched.Id)));
