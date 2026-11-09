@@ -104,7 +104,7 @@ def test_discovers_approved_canonical_targets_and_wires_to_graph(monkeypatch):
 def test_excludes_ambiguous_repository_id_across_projects(monkeypatch):
     _, source = source_evidence()
     first = target_row(origin="https://code.example.test/org-one/shared")
-    second = target_row(origin="https://code.example.test/org-two/shared", project_id="project-two")
+    second = target_row(\n        origin="https://code.example.test/org-two/shared", project_id="project-two"\n    )
     fake_db(monkeypatch, [first, second])
     assert approved_sources.load_approved_code_scans("fake-db", source) == ((), {})
 
