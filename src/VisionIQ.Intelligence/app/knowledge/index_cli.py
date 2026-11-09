@@ -79,7 +79,9 @@ def main(argv: list[str] | None = None) -> int:
     embedder = from_environment()
     log.info("index.started", model=embedder.model_id)
     try:
-        report, published = snapshots.refresh(\n            conninfo, read_gcs, embedder, only=options.only, limit=options.limit\n        )
+        report, published = snapshots.refresh(
+            conninfo, read_gcs, embedder, only=options.only, limit=options.limit
+        )
     except Exception as error:
         log.error("index.failed", error_type=type(error).__name__)
         raise
