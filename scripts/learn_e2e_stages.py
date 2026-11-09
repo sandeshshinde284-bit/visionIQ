@@ -233,6 +233,31 @@ def run_stage_b(args: Any, env: dict, run_dir: Path, fixture: dict,
             except Exception as exc:
                 add(results, 'LRN-08 actual index and published fixture snapshot', 'FAIL',
                     f'Index assertion unavailable ({type(exc).__name__}); see lrn08-index.log')
+        if 8 in chosen and indexed:
+            try:
+                output = run_dir / 'lrn08-search-probe.json'
+                with runner.canonical_connection(env) as db:
+                    fixture_key = source_key(db, fixture)
+                if not fixture_key:
+                    raise ValueError('Fixture canonical work item missing')
+                command = [
+                    sys.executable, str(Path(__file__).resolve()), 'probe-index',
+                    '--item-key', str(fixture_key),
+                    '--output', str(output),
+                ]
+                rc = runner.run_command(command, pyenv, run_dir / 'lrn08-search-probe.log')
+                probe = json.loads(output.read_text(encoding='utf-8')) if output.is_file() else {}
+                ok = (rc == 0 and all(probe.get(k) is True for k in
+                       ('keyword_found', 'vector_found', 'wrong_scope_hidden')))
+                add(results, 'LRN-08 real keyword + vector retrieval of indexed fixture',
+                    'PASS' if ok else 'FAIL',
+                    f"keyword={probe.get('keyword_found')}, vector={probe.get('vector_found')}, "
+                    f"wrong-scope excluded={probe.get('wrong_scope_hidden')}; "
+                    f"keyword hits={probe.get('keyword_hits')}, vector hits={probe.get('vector_hits')}; "
+                    "indexed canonical item, not a labelled quality benchmark")
+            except Exception as exc:
+                add(results, 'LRN-08 real keyword + vector retrieval of indexed fixture',
+                    'FAIL', f"Search acceptance error ({type(exc).__name__})")
         if 'test' == pyenv.get('EMBEDDING_PROVIDER'):
             add(results, 'LRN-08 real Gemini embedding acceptance', 'BLOCKED',
                 'EMBEDDING_PROVIDER=test uses hashing; real Vertex/Gemini accuracy and latency not validated')
@@ -346,6 +371,76 @@ def run_stage_b(args: Any, env: dict, run_dir: Path, fixture: dict,
             'Needs controlled completed PR and revert progression, not just one historical PR snapshot or synthetic DB scenario')
 
 
+def probe_index(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description='Verify LRN-08 keyword and vector search')
+    parser.add_argument('--item-key', required=True)
+    parser.add_argument('--output', required=True)
+    args = parser.parse_args(argv)
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+    from app.knowledge import search
+    from app.knowledge.embeddings import from_environment
+
+    conninfo = make_conninfo(
+        '', host=os.environ['DB_HOST'], port=int(os.environ.get('DB_PORT', '5432')),
+        dbname=os.environ['DB_NAME'], user=os.environ['DB_INTELLIGENCE_USER'],
+        password=os.environ['DB_INTELLIGENCE_PASSWORD'],
+        sslmode=os.environ.get('DB_SSL_MODE', 'disable'),
+    )
+    report = {
+        'keyword_found': False, 'vector_found': False, 'wrong_scope_hidden': False,
+        'keyword_hits': 0, 'vector_hits': 0, 'model': '',
+    }
+    try:
+        with psycopg.connect(conninfo) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT c.content, c.acl_principals, ie.model_id
+                    FROM knowledge.snapshot_pointer sp
+                    JOIN knowledge.snapshot_entries se ON se.snapshot_id=sp.snapshot_id
+                    JOIN knowledge.index_entries ie ON ie.entry_key=se.entry_key
+                    JOIN knowledge.index_chunks c ON c.entry_key=ie.entry_key
+                    JOIN evidence.source_items i ON i.item_key=se.item_key
+                    JOIN evidence.source_revisions r
+                      ON r.item_key=i.item_key
+                     AND r.provider_revision_id=i.latest_revision_id
+                    WHERE se.item_key=%s AND ie.provider_revision_id=i.latest_revision_id
+                      AND i.deleted_at IS NULL AND r.acl_verified
+                      AND jsonb_array_length(r.acl_principals) > 0
+                    ORDER BY length(c.content) DESC, c.chunk_key LIMIT 1
+                """, (args.item_key,))
+                row = cur.fetchone()
+            if row is None:
+                raise ValueError('No current, verified published chunk')
+            content, scopes, model = row
+            query = str(content).strip()[:300]
+            if len(query.split()) < 2:
+                raise ValueError('Published chunk too short for test')
+            embedder = from_environment()
+            if embedder.model_id != model:
+                raise ValueError('Query embedding model differs from published model')
+            with conn.transaction():
+                conn.execute('SET TRANSACTION READ ONLY')
+                lexical = search.keyword(conn, query, list(scopes), limit=100, match='any')
+                semantic = search.vector(conn, embedder, query, list(scopes), limit=100)
+                wrong_scope = search.keyword(
+                    conn, query, ['ado-project:https://invalid.example.test/denied'],
+                    limit=100, match='any',
+                )
+            report = {
+                'keyword_found': any(h.item_key == args.item_key for h in lexical),
+                'vector_found': any(h.item_key == args.item_key for h in semantic),
+                'wrong_scope_hidden': not any(h.item_key == args.item_key for h in wrong_scope),
+                'keyword_hits': len(lexical), 'vector_hits': len(semantic),
+                'model': model,
+            }
+    except (ValueError, psycopg.Error) as error:
+        report['error_type'] = type(error).__name__
+    Path(args.output).write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    return 0 if all(report[k] for k in
+                    ('keyword_found', 'vector_found', 'wrong_scope_hidden')) else 1
+
+
 def probe_retrieval(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description='Private LRN-09 retrieval probe: no raw evidence output')
     parser.add_argument('--item-key', required=True)
@@ -383,6 +478,9 @@ def probe_retrieval(argv: list[str]) -> int:
 
 
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == 'probe-index':
+        sys.path.insert(0, str(INTELLIGENCE))
+        raise SystemExit(probe_index(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == 'probe':
         sys.path.insert(0, str(INTELLIGENCE))
         raise SystemExit(probe_retrieval(sys.argv[2:]))
