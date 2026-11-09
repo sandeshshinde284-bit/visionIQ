@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install isolated local-inspector checks
-        run: python -m pip install pytest ruff "psycopg[binary]"
+        run: python -m pip install -r requirements.txt
       - name: Run Python graph inspector regression tests
         run: python -m pytest -q tests/intelligence/test_lrn07_graph_inspector.py
       - name: Verify lint and syntax of new operator CLI
