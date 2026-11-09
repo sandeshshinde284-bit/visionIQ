@@ -133,7 +133,10 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand("""
             SELECT anchor_item_key, node_kind, native_id
-            FROM evidence.graph_nodes WHERE node_key = @node
+            FROM evidence.graph_nodes n
+            JOIN evidence.source_items origin
+              ON origin.item_key = n.anchor_item_key
+            WHERE n.node_key = @node AND origin.deleted_at IS NULL
             """, connection);
         command.Parameters.AddWithValue("node", nodeKey);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -148,7 +151,7 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
 
     /// <summary>
     /// Select the latest version of each outgoing assertion; latest retractions
-    /// suppress older active assertions in the ACL-safe traversal layer.
+    /// suppress older active assertions. Deleted canonical source, destination and\n    /// provenance evidence is excluded from internal graph results.
     /// </summary>
     public async Task<IReadOnlyList<GraphNeighbor>> OutgoingAsync(
         string nodeKey, int limit, CancellationToken cancellationToken = default)
@@ -180,8 +183,16 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                          g.assertion_key DESC
             ) AS latest
             JOIN evidence.graph_nodes n ON n.node_key = latest.to_node_key
+            JOIN evidence.source_items destination
+              ON destination.item_key = n.anchor_item_key
+             AND destination.deleted_at IS NULL
+            JOIN evidence.graph_nodes start_node ON start_node.node_key = @node
+            JOIN evidence.source_items source_item
+              ON source_item.item_key = start_node.anchor_item_key
+             AND source_item.deleted_at IS NULL
             JOIN evidence.source_items provenance
               ON provenance.item_key = latest.provenance_item_key
+             AND provenance.deleted_at IS NULL
             LEFT JOIN evidence.ticket_fix_links fix
               ON fix.association_key = latest.ticket_fix_association_key
             WHERE latest.assertion_state = 'active'
@@ -201,7 +212,10 @@ public sealed class PostgresRelationshipGraphStore : IRelationshipGraphStore, IA
                   JOIN evidence.source_items scan ON scan.item_key = declared.provenance_item_key
                   WHERE declared.to_node_key = latest.to_node_key
                     AND declared.relation_type = 'file_test'
-                    AND declared.provenance_revision_id = scan.latest_revision_id))
+                    AND declared.provenance_revision_id = scan.latest_revision_id
+                    AND declared.assertion_state = 'active'
+                    AND declared.classification IN ('explicit','verified')
+                    AND scan.deleted_at IS NULL))
               -- Review R4-01: a pull request's own row (e.g. its merge commit) can be reverted while
               -- this assertion's provenance row is a sibling (another of its commits, or the
               -- work-item-artifact row with no commit at all) that was never itself marked reverted.
