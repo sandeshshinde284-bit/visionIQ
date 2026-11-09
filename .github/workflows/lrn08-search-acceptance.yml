@@ -1,0 +1,32 @@
+name: LRN-08 search acceptance
+
+on:
+  pull_request:
+    paths:
+      - "scripts/learn_e2e_stages.py"
+      - "src/VisionIQ.Intelligence/app/knowledge/**"
+      - "tests/intelligence/test_index_core.py"
+      - "tests/intelligence/test_search_index_db.py"
+      - "docs/features/LRN-08-search-index/**"
+      - ".github/workflows/lrn08-search-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  search-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project Python test requirements
+        run: python -m pip install -r requirements.txt
+      - name: Compile operator E2E stage
+        run: python -m py_compile scripts/learn_e2e_stages.py
+      - name: Run offline search index unit tests
+        env:
+          PYTHONPATH: src/VisionIQ.Intelligence
+        run: python -m pytest -q tests/intelligence/test_index_core.py
