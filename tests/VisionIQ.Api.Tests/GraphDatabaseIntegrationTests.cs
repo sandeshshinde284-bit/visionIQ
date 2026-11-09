@@ -178,13 +178,6 @@ public sealed class GraphDatabaseIntegrationTests
         await graph.SaveAsync(edge);
         Assert.Single(await graph.OutgoingAsync(from.NodeKey(), 10));
 
-        await using var acl = new PostgresGraphRevisionAccess(settings);
-        var requester = new EvidenceRequester("reviewer", new HashSet<string> { "approved-group" });
-        Assert.True(await acl.CanReadRevisionAsync(pr.ItemKey(), "1", requester));
-        Assert.False(await acl.CanReadRevisionAsync(pr.ItemKey(), "missing", requester));
-        Assert.False(await acl.CanReadRevisionAsync(pr.ItemKey(), "1",
-            new EvidenceRequester("unknown", new HashSet<string> { "unauthorized" })));
-
         await fixes.RecordReviewAsync(association, TicketFixReviewOutcome.Disputed,
             "review-" + Guid.NewGuid().ToString("N"));
         Assert.Empty(await graph.OutgoingAsync(from.NodeKey(), 10));

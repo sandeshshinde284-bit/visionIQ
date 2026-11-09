@@ -76,8 +76,6 @@ public static class GraphServiceRegistration
         services.AddSingleton<EvidenceQueryService>();
         services.AddSingleton<IRelationshipGraphStore>(provider =>
             new PostgresRelationshipGraphStore(provider.GetRequiredService<DatabaseOptions>()));
-        services.AddSingleton<IGraphRevisionAccess>(provider =>
-            new PostgresGraphRevisionAccess(provider.GetRequiredService<DatabaseOptions>()));
         services.AddSingleton<AuthorizedGraphTraversal>();
         return services;
     }

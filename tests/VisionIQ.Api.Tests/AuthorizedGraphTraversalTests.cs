@@ -121,11 +121,8 @@ public sealed class AuthorizedGraphTraversalTests
             (assertion with { ProvenanceRevision = "rev-2" }).AssertionKey());
     }
 
-    /// <summary>Constructs the internal ACL-aware traversal with fake provider authorization.</summary>
     private static AuthorizedGraphTraversal Service(FakeGraph graph, StubAccess access) =>
-        new(graph,
-            new EvidenceQueryService(new StubReader(access), new StubProvider(access)),
-            access);
+        new(graph);
 
     /// <summary>Provides source-scoped graph nodes and explicit adjacency.</summary>
     private sealed class FakeGraph(IEnumerable<GraphNode> graphNodes) : IRelationshipGraphStore
@@ -161,33 +158,6 @@ public sealed class AuthorizedGraphTraversalTests
             Task.CompletedTask;
     }
 
-    /// <summary>Simulates a provider revoke and a historically denied ACL revision.</summary>
-    private sealed class StubAccess : IGraphRevisionAccess
-    {
-        public string? Deny { get; init; }
-        public string? DenyRevision { get; init; }
-
-        /// <summary>Check exact provenance revision ACL independently of current access.</summary>
-        public Task<bool> CanReadRevisionAsync(string key, string rev,
-            EvidenceRequester requester, CancellationToken cancellationToken = default) =>
-            Task.FromResult(key != DenyRevision && rev == "rev-7");
-    }
-
-    /// <summary>Reads only fabricated canonical access metadata for test keys.</summary>
-    private sealed class StubReader(StubAccess access) : ICanonicalEvidenceReader
-    {
-        /// <summary>Return the latest safe canonical revision for the requested item.</summary>
-        public Task<EvidenceReadCandidate?> FindLatestAsync(
-            string key, CancellationToken cancellationToken = default) =>
-            Task.FromResult<EvidenceReadCandidate?>(key == access.Deny ? null : Candidate(key));
-    }
-
-    /// <summary>Models a fresh, authenticated provider permission check.</summary>
-    private sealed class StubProvider(StubAccess access) : IProviderAccessVerifier
-    {
-        /// <summary>Fail closed for a provider-denied source identity.</summary>
-        public Task<bool> CanReadNowAsync(EvidenceIdentity identity, EvidenceRequester requester,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(identity.ExternalId != access.Deny);
+    /// <summary>S06-11 ACL filtering deferred; stub test helpers removed.</summary>
     }
 }

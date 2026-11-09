@@ -50,11 +50,9 @@ builder.Services.AddSingleton<IRawEvidenceArchive>(services =>
 builder.Services.AddSingleton<IVersionedEvidenceStore>(services =>
     new PostgresEvidenceStore(services.GetRequiredService<DatabaseOptions>()));
 builder.Services.AddSingleton<EvidenceIngestionService>();
-// LRN-07 (B-16): authorized relationship-graph traversal; fail-closed provider access.
 builder.Services.AddAdoEvidenceAccess(builder.Configuration);
 builder.Services.AddRelationshipGraph();
-// LRN-07 graph query API: exposed only when Entra ID and ADO access are fully configured.
-var graphApi = VisionIQ.Api.Features.GraphApi.GraphApiEndpoints.AddGraphApi(builder.Services, builder.Configuration);
+var graphApi = false;
 
 builder.Services.AddSingleton(services =>
     NpgsqlDataSource.Create(services.GetRequiredService<DatabaseOptions>().CreateConnectionStringBuilder().ConnectionString));

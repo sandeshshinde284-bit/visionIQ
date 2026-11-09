@@ -51,12 +51,6 @@ public sealed class GraphQueryServiceTests
             Task.FromResult(true);
     }
 
-    private sealed class Revisions(EvidenceQueryService evidence) : IGraphRevisionAccess
-    {
-        public async Task<bool> CanReadRevisionAsync(string itemKey, string revision, EvidenceRequester requester, CancellationToken cancellationToken = default) =>
-            await evidence.FindLatestAuthorizedAsync(itemKey, requester, cancellationToken) is not null;
-    }
-
     private static readonly EvidenceRequester Ana = new("ana@contoso.com", new HashSet<string> { "ado-project:p" });
 
     private static (GraphQueryService Service, Graph Graph, HashSet<string> Readable) Build()
@@ -70,7 +64,7 @@ public sealed class GraphQueryServiceTests
         }
 
         var evidence = new EvidenceQueryService(new Reader(readable, identities), new Allow());
-        var traversal = new AuthorizedGraphTraversal(graph, evidence, new Revisions(evidence));
+        var traversal = new AuthorizedGraphTraversal(graph);
         var bug = new GraphNode(ItemKey("1"), GraphNodeKind.WorkItem, "1");
         var visible = new GraphNode(ItemKey("2", "pull_request"), GraphNodeKind.PullRequest, "2");
         var hidden = new GraphNode(ItemKey("3", "pull_request"), GraphNodeKind.PullRequest, "3");
