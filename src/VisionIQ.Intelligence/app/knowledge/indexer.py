@@ -24,6 +24,11 @@ from app.knowledge.embeddings import Embedder
 from app.knowledge.extract import INDEXED_KINDS, extract
 from app.knowledge.redaction import REDACTION_VERSION, redact
 
+
+class UnsupportedArchiveError(ValueError):
+    """A source revision points to a non-canonical evidence archive."""
+
+
 LOCK = 0x56495149  # "VIQI": one indexer at a time
 log = structlog.get_logger("visioniq.indexer")
 
@@ -109,6 +114,11 @@ def run(
                         item_key=row[0],
                         kind=row[2],
                         error_type=type(error).__name__,
+                        error_code=(
+                            "unsupported_archive_uri"
+                            if isinstance(error, UnsupportedArchiveError)
+                            else "index_item_failed"
+                        ),
                     )
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (LOCK,))
@@ -140,6 +150,12 @@ def _index_item(
         source_updated,
         source_url,
     ) = row
+    if not isinstance(uri, str) or not uri.startswith("gs://"):
+        # Do not leak private archive paths or tokens into indexing logs.
+        raise UnsupportedArchiveError(
+            "Canonical indexing requires a durable gs:// evidence archive; "
+            "memory-backed fixtures must not be indexed"
+        )
     record = json.loads(read_raw(uri))
     document = extract(kind, record)
     title = redact(document.title).text
