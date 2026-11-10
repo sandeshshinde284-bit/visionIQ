@@ -24,9 +24,9 @@ from app.knowledge.embeddings import Embedder
 from app.knowledge.extract import INDEXED_KINDS, extract
 from app.knowledge.redaction import REDACTION_VERSION, redact
 
+
 class UnsupportedArchiveError(ValueError):
     """A source revision points to a non-canonical evidence archive."""
-
 
 LOCK = 0x56495149  # "VIQI": one indexer at a time
 log = structlog.get_logger("visioniq.indexer")
