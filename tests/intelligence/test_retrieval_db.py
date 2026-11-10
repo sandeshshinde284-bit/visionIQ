@@ -115,6 +115,7 @@ def test_a_vague_query_abstains_instead_of_guessing() -> None:
     unrelated = ask(corpus, "quarterly marketing banner colour palette")
 
     assert vague.status == "insufficient_query" and vague.suggestions
+    assert vague.results == [] and vague.lessons == []
     assert unrelated.status == "weak_evidence" and unrelated.reasons
 
 
