@@ -46,10 +46,9 @@ def test_injected_fixture_reader_can_still_receive_mem_archive():
         raise ReadCalled
 
     with pytest.raises(ReadCalled):
-        indexer._index_item(
-            None, _row("mem://fixture/payments/123"), fixture_reader, None
-        )
+        indexer._index_item(None, _row("mem://fixture/payments/123"), fixture_reader, None)
     assert calls == ["mem://fixture/payments/123"]
+
 
 def test_all_failed_targeted_batch_does_not_publish(monkeypatch):
     failed = ["payments-key-1", "payments-key-2"]
