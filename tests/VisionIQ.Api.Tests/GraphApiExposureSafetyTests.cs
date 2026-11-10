@@ -5,11 +5,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace VisionIQ.Api.Tests;
 
 /// <summary>
-/// Hackathon scope: enterprise identity integration is deferred. Graph HTTP
-/// routes remain unmapped even when configuration is supplied. Internal graph
-/// persistence/traversal is tested separately without creating public access.
+/// Hackathon safety contract: the public Graph HTTP route must remain unmapped,
+/// including when legacy enterprise authentication settings are supplied.
+/// Internal graph persistence and traversal are tested separately.
 /// </summary>
-public sealed class GraphApiTokenTests(
+public sealed class GraphApiExposureSafetyTests(
     WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
 {
     private HttpClient Client(bool supplyEnterpriseConfiguration) =>
