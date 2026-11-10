@@ -59,3 +59,47 @@ use `vector` and `<=>`) but never `CREATE`; a test enforces this.
 
 Retrieval quality (Recall@10, Precision@5) and p95 latency are measured in LRN-09 (S07-13) on a labelled
 set; until then no quality or speed claim is made (master design §6.16).
+
+## Hackathon LRN-08 acceptance (November 10, 2026)
+
+The indexed Genoa Kiosk ADO demo corpus has **135 items** (125 work items, 8 commits,
+2 pull requests) with GCS-backed evidence. A separate 14 Payments records have
+`mem://` archive references and must not be treated as production evidence.
+The 147 ERK Confluence pages are deliberately **not** enabled for the hackathon
+search until live page authorization is restored (deferred LRN-02 follow-up).
+Never manufacture GCS paths, disable authorization, or present this as 100% corpus coverage.
+
+From the repository root on Windows, with the usual local `.env` and Application
+Default Credentials for Vertex AI already configured:
+
+```powershell
+$env:PYTHONPATH = "src/VisionIQ.Intelligence"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_dotenv('.env')"
+# Environment variables from the command above do not persist to this shell.
+# Use your existing environment loader, or run the acceptance module in one process:
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import sys; from app.knowledge.lrn08_acceptance import main; load_dotenv('.env'); sys.exit(main(['--project','Genoa Kiosk','--query','kiosk payment ticket']))"
+```
+
+The command is **read-only** and returns a JSON PASS/FAIL summary. It validates
+the published snapshot's ADO chunk provenance (source, current revision and ACL),
+the pinned model and 768-dimensional vectors, and non-empty keyword **and**
+live Gemini-vector search results for the given query. It prints counts, not
+source content. Change the query to words known to occur in your approved
+Genoa Kiosk demo records if keyword results are empty. This acceptance command
+does **not** prove semantic relevance, production latency, permission revocation,
+Confluence search, or complete source-ingestion coverage.
+
+Run targeted unit tests and lint:
+
+```powershell
+$env:PYTHONPATH = "src/VisionIQ.Intelligence"
+.\.venv\Scripts\python.exe -m pytest tests/intelligence/test_indexing_failures.py -q
+.\.venv\Scripts\python.exe -m ruff check src/VisionIQ.Intelligence/app/knowledge/lrn08_acceptance.py src/VisionIQ.Intelligence/app/knowledge/indexer.py src/VisionIQ.Intelligence/app/knowledge/index_cli.py tests/intelligence/test_indexing_failures.py
+.\.venv\Scripts\python.exe -m ruff format --check src/VisionIQ.Intelligence/app/knowledge/lrn08_acceptance.py src/VisionIQ.Intelligence/app/knowledge/indexer.py src/VisionIQ.Intelligence/app/knowledge/index_cli.py tests/intelligence/test_indexing_failures.py
+```
+
+PostgreSQL DB tests (`tests/intelligence/test_search_index_db.py`) require a
+**disposable, isolated** database and `VISIONIQ_DB_INTEGRATION=1`; do **not**
+run these fixtures against the published 135-item demo database because they
+modify evidence and snapshot state. The production GCS reader rejects `mem://`
+while the injected integration-test reader deliberately supports it.
