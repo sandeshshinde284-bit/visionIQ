@@ -108,7 +108,7 @@ $env:PYTHONPATH = "src/VisionIQ.Intelligence"
 .\.venv\Scripts\python.exe -m pytest -q tests/intelligence/test_retrieval.py
 .\.venv\Scripts\python.exe -m ruff check src/VisionIQ.Intelligence/app/knowledge/retrieval.py src/VisionIQ.Intelligence/app/knowledge/lrn09_demo.py src/VisionIQ.Intelligence/app/knowledge/lrn09_benchmark.py tests/intelligence/test_retrieval.py tests/intelligence/test_retrieval_db.py
 .\.venv\Scripts\python.exe -m ruff format --check src/VisionIQ.Intelligence/app/knowledge/retrieval.py src/VisionIQ.Intelligence/app/knowledge/lrn09_demo.py src/VisionIQ.Intelligence/app/knowledge/lrn09_benchmark.py tests/intelligence/test_retrieval.py tests/intelligence/test_retrieval_db.py
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import runpy,sys; load_dotenv('.env'); sys.argv=['scripts/learn_e2e.py','isolated-pytest','tests/intelligence/test_retrieval_db.py']; runpy.run_path('scripts/learn_e2e.py',run_name='__main__')"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import runpy,sys; load_dotenv('.env'); sys.argv=['scripts/learn_e2e_stages.py','isolated-pytest','tests/intelligence/test_retrieval_db.py']; runpy.run_path('scripts/learn_e2e_stages.py',run_name='__main__')"
 ```
 
 The isolated runner creates, migrates, uses and drops its **own** local database.
