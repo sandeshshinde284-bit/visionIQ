@@ -414,6 +414,17 @@ def refresh(
     """
     report = indexer.run(conninfo, read_raw, embedder, limit=limit, only=only)
     scope = "targeted" if only else ("incremental" if allow_partial else "full")
+    if only and report.failed and report.indexed == 0:
+        # An all-failed targeted batch must not move the served snapshot pointer.
+        # This is intentionally specific to targeted indexing: full refreshes must
+        # still publish revocations even if ingestion/indexing fails elsewhere.
+        reason = f"All {len(report.failed)} targeted evidence item(s) failed indexing"
+        log.warning("snapshot.targeted_batch_rejected", failed=len(report.failed), reason=reason)
+        return report, SnapshotResult(
+            snapshot_id="", status="rejected", previous=None,
+            counts={"scope": scope, "failed": len(report.failed)},
+            checks={"indexing": False}, reason=reason,
+        )
     result = build_and_publish(
         conninfo, embedder.model_id, force=force, scope=scope, min_full_coverage=min_full_coverage
     )
