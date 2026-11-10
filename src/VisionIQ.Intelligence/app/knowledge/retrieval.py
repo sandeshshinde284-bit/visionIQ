@@ -385,6 +385,24 @@ def retrieve(
         )
     snapshot_id, published_at = served
     age = round((datetime.now(UTC) - published_at).total_seconds(), 1)
+
+    # Abstain *before* searching or calling the embedding provider. Reporting
+    # insufficient_query while returning incidental matches would imply that
+    # unrelated historical tickets were relevant to a meaningless query.
+    initial_status, initial_reasons, initial_suggestions = judge(signals, [])
+    if initial_status == "insufficient_query":
+        return EvidenceBundle(
+            status=initial_status,
+            reasons=initial_reasons,
+            suggestions=initial_suggestions,
+            results=[],
+            lessons=[],
+            model_id=embedder.model_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+            snapshot_id=snapshot_id,
+            snapshot_age_seconds=age,
+        )
+
     files = [f.lower() for f in signals.files]
     terms = " ".join(signals.terms + signals.symbols + signals.files) or clean
 
