@@ -150,6 +150,34 @@ def test_the_live_check_hook_and_other_scopes_are_honoured() -> None:
     assert stranger.results == [] and stranger.lessons == []
 
 
+
+def test_a_lesson_is_hidden_if_live_check_denies_a_supporting_ticket() -> None:
+    corpus = Corpus()
+    keys = demo_history(corpus)
+    allowed = ask(corpus, LIVE_DEFECT, live_check=lambda key: True)
+    assert allowed.lessons, "fixture must have a qualifying lesson"
+
+    denied = ask(
+        corpus,
+        LIVE_DEFECT,
+        live_check=lambda key: key != keys["duplicate"],
+    )
+    assert denied.lessons == []
+    assert keys["duplicate"] not in {result.item_key for result in denied.results}
+
+
+def test_live_check_exception_fails_closed_for_items_and_lessons() -> None:
+    corpus = Corpus()
+    demo_history(corpus)
+
+    def failing_provider_check(key: str) -> bool:
+        raise RuntimeError("provider unavailable")
+
+    bundle = ask(corpus, LIVE_DEFECT, live_check=failing_provider_check)
+    assert bundle.results == [] and bundle.lessons == []
+
+
+
 def test_a_lesson_is_hidden_when_any_supporting_ticket_is_unreadable() -> None:
     corpus = Corpus()
     demo_history(corpus)
