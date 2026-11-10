@@ -1,0 +1,26 @@
+{
+  "_comment": "LRN-08 real semantic-quality benchmark cases. This is a FORMAT EXAMPLE, not real data.",
+  "_how_to_use": [
+    "1. Run: python scripts/learn_e2e_stages.py draft-benchmark --output scripts/lrn08_benchmark_queries.json --limit 10",
+    "   This drafts candidates from real indexed evidence in your local environment.",
+    "2. Open the drafted file. For each case, replace 'query' with a question written in your own",
+    "   words (do NOT copy text from the indexed item) describing the same underlying problem.",
+    "3. Confirm the 'expected_*' fields genuinely identify the right historical item.",
+    "4. Set 'confirmed_by_human': true. Only confirmed cases are scored.",
+    "5. Run: python scripts/learn_e2e_stages.py benchmark --cases scripts/lrn08_benchmark_queries.json --output <out>.json"
+  ],
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "example-001",
+      "query": "Payment succeeds but the machine prints a duplicate ticket after a retry",
+      "expected_provider": "azure_devops",
+      "expected_organization_url": "https://dev.azure.com/YourOrg",
+      "expected_project": "YourProject",
+      "expected_kind": "work_item_current",
+      "expected_external_id": "123456",
+      "confirmed_by_human": false,
+      "notes": "Illustrative only -- this item does not exist. Replace with a real confirmed case."
+    }
+  ]
+}

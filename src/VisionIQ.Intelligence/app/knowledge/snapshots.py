@@ -29,6 +29,12 @@ from app.knowledge.redaction import REDACTION_VERSION
 # readable (indexing gaps). Items deleted or re-scoped at the source always leave immediately and
 # never count, so a safety check can never delay a revocation.
 MAX_DROP = 0.2
+# A "full" scope candidate (no --only item keys; the scheduled full-corpus pass) must additionally
+# cover at least this fraction of all eligible items, so a run that silently indexed almost nothing
+# can never be reported as a ready, complete index. "targeted" scope (an --only reindex of specific
+# items) is exempt: it intentionally carries over every other item's already-published entry and
+# is expected to add/update only the named ones.
+MIN_FULL_COVERAGE = 0.95
 KEEP = 5  # published/superseded snapshots kept for rollback
 LOCK = 0x56495153  # "VIQS": one publisher at a time
 log = structlog.get_logger("visioniq.snapshots")
@@ -141,8 +147,33 @@ def build_and_publish(
     kinds: tuple[str, ...] = INDEXED_KINDS,
     max_drop: float = MAX_DROP,
     force: bool = False,
+    scope: str = "full",
+    min_full_coverage: float = MIN_FULL_COVERAGE,
 ) -> SnapshotResult:
-    """Build a candidate from current evidence and index; publish only if every check passes."""
+    """Build a candidate from current evidence and index; publish only if every check passes.
+
+    ``scope`` is one of:
+      - "full": the scheduled, whole-corpus pass. Every eligible item is expected to be indexed;
+        below ``min_full_coverage`` it is rejected and reported as incomplete, never silently
+        served as if ready. Keeps the existing ``max_drop`` tolerance (a FRACTION of previously-
+        served items may go missing between runs -- ordinary steady-state indexing-gap churn).
+      - "targeted": an ``--only`` reindex of specific items. Other items are carried over from
+        their last published entry (not expected to be freshly indexed this run) and exempt from
+        ``min_full_coverage``.
+      - "incremental": an explicit, operator-opted-into partial FULL pass (no ``--only``) used
+        during initial bulk backfill, when a single pass cannot reach ``min_full_coverage`` yet.
+        Exempt from ``min_full_coverage``. Every such snapshot is marked
+        ``counts["coverage_status"] = "partial"`` so it is never mistaken for a complete,
+        full-corpus-ready index.
+
+    Both "targeted" and "incremental" get ZERO tolerance for item loss, not ``max_drop``: a
+    deliberate, narrow operation (a manual fix-up or a backfill batch) has no legitimate reason to
+    silently drop ANY already-published item, even one, and even if a same-size replacement makes
+    the total COUNT look unchanged (loss is checked by item identity via ``LOST_SQL``, not by
+    comparing counts, so swapping 10 served items for 10 different ones is caught either way).
+    """
+    if scope not in ("full", "targeted", "incremental"):
+        raise ValueError(f"scope must be 'full', 'targeted' or 'incremental', got {scope!r}")
     now = datetime.now(UTC)
     snap = f"snap-{now:%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
     params = {
@@ -179,6 +210,7 @@ def build_and_publish(
             else 0
         )
         counts = {
+            "scope": scope,
             "items": served,
             "current": current_rev,
             "outdated": served - current_rev,
@@ -191,26 +223,57 @@ def build_and_publish(
         lost = (
             conn.execute(LOST_SQL, {**params, "prev": previous[0]}).fetchone()[0] if previous else 0
         )
-        counts["lost"] = lost  # still readable, but missing from the candidate
-        dropped_too_much = not force and prev_count > 0 and lost > max_drop * prev_count
+        counts["lost"] = lost  # still readable, but missing from the candidate (by item identity)
+        # "lost" is identity-aware (LOST_SQL diffs candidate vs. previous by item_key), not a raw
+        # count: swapping 10 previously-served items for 10 different ones is caught here even
+        # though the total count is unchanged. A "full" pass keeps the existing max_drop tolerance
+        # for ordinary steady-state churn (items going stale between runs); a "targeted" (--only)
+        # or "incremental" (backfill) pass is a deliberate, narrow operation with no legitimate
+        # reason to lose ANY already-published item, so it gets zero tolerance instead.
+        if scope == "full":
+            dropped_too_much = not force and prev_count > 0 and lost > max_drop * prev_count
+        else:
+            dropped_too_much = not force and lost > 0
         nothing_indexed = eligible > 0 and served == 0
+        # Only a "full" pass must prove it covers (near-)all eligible evidence; "targeted" and
+        # "incremental" passes are expected to be short of it and rely on dropped_too_much/
+        # nothing_indexed alone so neither can be mistaken for a complete, ready-to-serve index.
+        insufficient_full_coverage = (
+            not force
+            and scope == "full"
+            and eligible > 0
+            and served < min_full_coverage * eligible
+        )
+        counts["coverage_status"] = (
+            "complete" if eligible == 0 or served >= min_full_coverage * eligible else "partial"
+        )
         checks = {
             "consistency": inconsistent == 0,
             "access": unreadable == 0,
-            "coverage": not (dropped_too_much or nothing_indexed),
+            "coverage": not (dropped_too_much or nothing_indexed or insufficient_full_coverage),
         }
         reasons = []
         if inconsistent:
             reasons.append(f"{inconsistent} item(s) with missing chunks or vectors")
         if unreadable:
             reasons.append(f"{unreadable} item(s) not readable with their stored access list")
-        if dropped_too_much:
+        if dropped_too_much and scope == "full":
             reasons.append(
                 f"{lost} of {prev_count} served items are still readable but no longer indexed "
                 f"(more than {max_drop:.0%})"
             )
+        elif dropped_too_much:
+            reasons.append(
+                f"{lost} previously published item(s) would be dropped; a {scope!r} pass must "
+                "never lose already-published coverage, even partially"
+            )
         if nothing_indexed:
             reasons.append(f"none of {eligible} readable items is indexed for {model_id}")
+        if insufficient_full_coverage:
+            reasons.append(
+                f"full-corpus pass only covers {served} of {eligible} eligible item(s) "
+                f"(below {min_full_coverage:.0%}); not a complete index"
+            )
         status = "published" if all(checks.values()) else "rejected"
         conn.execute(
             "UPDATE knowledge.snapshots SET status = %s, counts = %s, checks = %s, reason = %s, "
@@ -338,10 +401,22 @@ def refresh(
     only: list[str] | None = None,
     force: bool = False,
     limit: int = 500,
+    min_full_coverage: float = MIN_FULL_COVERAGE,
+    allow_partial: bool = False,
 ) -> tuple[indexer.IndexReport, SnapshotResult]:
-    """Index what changed, publish a checked snapshot, then clean up (the scheduled job)."""
+    """Index what changed, publish a checked snapshot, then clean up (the scheduled job).
+
+    ``only`` selects a "targeted" pass (specific item keys only). Omitting it runs the normal
+    "full" scheduled pass, which must cover ``min_full_coverage`` of all eligible evidence to
+    publish -- unless ``allow_partial`` is explicitly set, which runs an "incremental" pass for
+    initial bulk backfill: exempt from ``min_full_coverage``, but it can never publish fewer
+    served items than are already published (coverage only grows while backfilling).
+    """
     report = indexer.run(conninfo, read_raw, embedder, limit=limit, only=only)
-    result = build_and_publish(conninfo, embedder.model_id, force=force)
+    scope = "targeted" if only else ("incremental" if allow_partial else "full")
+    result = build_and_publish(
+        conninfo, embedder.model_id, force=force, scope=scope, min_full_coverage=min_full_coverage
+    )
     if result.status == "published":
         cleanup(conninfo)
     return report, result

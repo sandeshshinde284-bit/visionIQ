@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import uuid
 from typing import Any
 
@@ -240,6 +241,60 @@ def run_pytest(path: str, env: dict, run_dir: Path, runner, name: str, results: 
         'isolated local database fixtures, not live external acceptance')
     return clean
 
+
+class _SubprocessRunner:
+    """Minimal real runner for standalone CLI use (not the full learn_e2e.py result tracker)."""
+
+    @staticmethod
+    def result_add(results: list, name: str, status: str, detail: str) -> None:
+        results.append((name, status, detail))
+        print(f'[{status}] {name}: {detail}')
+
+    @staticmethod
+    def run_command(command: list[str], env: dict, log_path: Path) -> int:
+        with open(log_path, 'w', encoding='utf-8') as fh:
+            proc = subprocess.run(command, env=env, stdout=fh, stderr=subprocess.STDOUT)
+        return proc.returncode
+
+
+def run_isolated_pytest(argv: list[str]) -> int:
+    """Run one or more pytest paths inside a disposable, isolated PostgreSQL database.
+
+    NEVER targets the operator's configured main database: reuses isolated_fixture_database(),
+    the exact same mechanism Stage B already uses for synthetic suites, so these DB-integration
+    tests can be run directly -- a throwaway `visioniq_e2e_<random>` database is created, migrated,
+    used, and dropped automatically, win or lose.
+
+    Needs DB_HOST/DB_PORT and admin DB_LOCAL_USER/DB_LOCAL_PASSWORD (able to CREATE/DROP DATABASE)
+    in the environment already, same as the rest of this script's local Docker setup.
+    """
+    parser = argparse.ArgumentParser(
+        description='Run DB-integration pytest file(s) inside a disposable, isolated database'
+    )
+    parser.add_argument(
+        'paths', nargs='+',
+        help="Test file paths relative to the repo root, e.g. "
+        "tests/intelligence/test_snapshots_db.py tests/intelligence/test_learn_e2e_isolation.py",
+    )
+    args = parser.parse_args(argv)
+
+    run_dir = ROOT / 'artifacts' / 'learn-e2e' / 'isolated-pytest' / time.strftime('%Y%m%d%H%M%S')
+    run_dir.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, 'VISIONIQ_DB_INTEGRATION': '1'}
+    env.setdefault('PYTHONPATH', str(INTELLIGENCE))
+
+    results: list = []
+    overall_ok = True
+    for path in args.paths:
+        ok = run_pytest(path, env, run_dir, _SubprocessRunner(), Path(path).stem, results)
+        overall_ok = overall_ok and ok
+
+    print(f'\nLogs and the per-suite isolated-db-migrate/roles output: {run_dir}')
+    print(f"{'PASS' if overall_ok else 'FAIL'}: {sum(1 for _, s, _ in results if s == 'PASS')} / "
+          f'{len(results)} suite(s) passed')
+    return 0 if overall_ok else 1
+
+
 def run_dotnet_pr_event_tests(env: dict, run_dir: Path, runner, results: list) -> bool:
     add = runner.result_add
     project = ROOT / 'tests' / 'VisionIQ.Ingestor.Tests' / 'VisionIQ.Ingestor.Tests.csproj'
@@ -344,8 +399,24 @@ def run_stage_b(args: Any, env: dict, run_dir: Path, fixture: dict,
             add(results, 'LRN-08 real Gemini embedding acceptance', 'BLOCKED',
                 'EMBEDDING_PROVIDER=test uses hashing; real Vertex/Gemini accuracy and latency not validated')
         else:
-            add(results, 'LRN-08 real embedding quality and cost benchmark', 'BLOCKED',
-                'Needs labelled, approved corpus and real Vertex measurements (not just embedding success)')
+            cases_file = ROOT / 'scripts' / 'lrn08_benchmark_queries.json'
+            output = run_dir / 'lrn08-benchmark.json'
+            command = [sys.executable, str(Path(__file__).resolve()), 'benchmark',
+                       '--cases', str(cases_file), '--output', str(output)]
+            rc = runner.run_command(command, pyenv, run_dir / 'lrn08-benchmark.log')
+            bench = json.loads(output.read_text(encoding='utf-8')) if output.is_file() else {}
+            if bench.get('status') == 'MEASURED':
+                add(results, 'LRN-08 real embedding quality and cost benchmark',
+                    'PASS' if rc == 0 else 'FAIL',
+                    f"Recall@5={bench.get('recall_at_5')}, Recall@10={bench.get('recall_at_10')}, "
+                    f"MRR={bench.get('mrr')}, p50={bench.get('query_latency_ms_p50')}ms, "
+                    f"p95={bench.get('query_latency_ms_p95')}ms over "
+                    f"{bench.get('confirmed_cases')} confirmed case(s); see lrn08-benchmark.json")
+            else:
+                add(results, 'LRN-08 real embedding quality and cost benchmark', 'BLOCKED',
+                    bench.get('reason') or
+                    'Needs labelled, approved corpus and real Vertex measurements '
+                    '(not just embedding success); see lrn08-benchmark.json')
 
     if 9 in chosen:
         if not indexed:
@@ -454,6 +525,14 @@ def run_stage_b(args: Any, env: dict, run_dir: Path, fixture: dict,
 
 
 def probe_index(argv: list[str]) -> int:
+    """Mechanical LRN-08 smoke test: DB round-trip, model match and ACL scoping.
+
+    The query is built from the chunk's own content, so this proves the plumbing works (the
+    published chunk is reachable by keyword and vector search, and is hidden from the wrong
+    scope) -- it is NOT a semantic-quality test, because the engine only has to recognise text
+    copied from the very thing it is looking for. Real semantic quality (independently worded
+    questions, Recall@5/@10, MRR) is run_benchmark()'s job, not this one.
+    """
     parser = argparse.ArgumentParser(description='Verify LRN-08 keyword and vector search')
     parser.add_argument('--item-key', required=True)
     parser.add_argument('--output', required=True)
@@ -523,6 +602,179 @@ def probe_index(argv: list[str]) -> int:
                     ('keyword_found', 'vector_found', 'wrong_scope_hidden')) else 1
 
 
+def run_benchmark(argv: list[str]) -> int:
+    """LRN-08 real semantic-quality benchmark: Recall@5, Recall@10, MRR, latency.
+
+    Unlike probe_index (which proves retrieval plumbing by searching for text copied verbatim from
+    the indexed chunk), every case here is an independently worded question, and only counts once a
+    human has set "confirmed_by_human": true -- see draft_benchmark_candidates() to prepare
+    candidates from real indexed evidence, and lrn08_benchmark_queries.example.json for the format.
+    A query is never ground truth just because it was auto-drafted.
+    """
+    parser = argparse.ArgumentParser(description='LRN-08 real semantic-quality benchmark')
+    parser.add_argument('--cases', required=True, help='Path to a benchmark cases JSON file')
+    parser.add_argument('--output', required=True)
+    args = parser.parse_args(argv)
+    import time
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+    from app.knowledge import search
+    from app.knowledge.embeddings import from_environment
+
+    conninfo = make_conninfo(
+        '', host=os.environ['DB_HOST'], port=int(os.environ.get('DB_PORT', '5432')),
+        dbname=os.environ['DB_NAME'], user=os.environ['DB_INTELLIGENCE_USER'],
+        password=os.environ['DB_INTELLIGENCE_PASSWORD'],
+        sslmode=os.environ.get('DB_SSL_MODE', 'disable'),
+    )
+    cases_path = Path(args.cases)
+    all_cases = json.loads(cases_path.read_text(encoding='utf-8')).get('cases', []) \
+        if cases_path.is_file() else []
+    confirmed = [c for c in all_cases if c.get('confirmed_by_human') is True]
+    report = {
+        'total_cases': len(all_cases), 'confirmed_cases': len(confirmed),
+        'skipped_unconfirmed': len(all_cases) - len(confirmed), 'results': [],
+        'recall_at_5': None, 'recall_at_10': None, 'mrr': None,
+        'query_latency_ms_p50': None, 'query_latency_ms_p95': None,
+    }
+    if not confirmed:
+        report['status'] = 'BLOCKED'
+        report['reason'] = ('No confirmed independent query/expected-defect pairs. Run the '
+                             "'draft-benchmark' subcommand to propose candidates from real "
+                             'indexed evidence, then have a human reword each query and set '
+                             '"confirmed_by_human": true before this can measure anything.')
+        Path(args.output).write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+        return 1
+    embedder = from_environment()
+    recall5 = recall10 = 0
+    reciprocal_ranks: list[float] = []
+    latencies: list[float] = []
+    with psycopg.connect(conninfo) as conn:
+        for case in confirmed:
+            entry = {'id': case.get('id'), 'query': case['query']}
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT i.item_key, r.acl_principals FROM evidence.source_items i
+                    JOIN evidence.source_revisions r
+                      ON r.item_key = i.item_key AND r.provider_revision_id = i.latest_revision_id
+                    WHERE i.provider=%s AND rtrim(i.source_instance, '/')=%s AND i.project_id=%s
+                      AND i.kind=%s AND i.external_id=%s AND i.deleted_at IS NULL
+                      AND r.acl_verified
+                """, (case['expected_provider'], case['expected_organization_url'].rstrip('/'),
+                      case['expected_project'], case['expected_kind'],
+                      str(case['expected_external_id'])))
+                row = cur.fetchone()
+            if row is None:
+                entry['error'] = 'Expected item not found in current canonical evidence; skipped'
+                report['results'].append(entry)
+                continue
+            expected_key, scopes = row[0], row[1]
+            start = time.perf_counter()
+            hits = search.vector(conn, embedder, case['query'], list(scopes), limit=10)
+            latency_ms = (time.perf_counter() - start) * 1000
+            latencies.append(latency_ms)
+            rank = next((i + 1 for i, h in enumerate(hits) if h.item_key == expected_key), None)
+            entry.update({
+                'expected_item_key': expected_key, 'rank': rank,
+                'hit_at_5': bool(rank and rank <= 5), 'hit_at_10': bool(rank and rank <= 10),
+                'latency_ms': round(latency_ms, 1),
+            })
+            if rank and rank <= 5:
+                recall5 += 1
+            if rank and rank <= 10:
+                recall10 += 1
+            reciprocal_ranks.append(1.0 / rank if rank else 0.0)
+            report['results'].append(entry)
+    scored = len(reciprocal_ranks)
+    if scored:
+        report['recall_at_5'] = recall5 / scored
+        report['recall_at_10'] = recall10 / scored
+        report['mrr'] = sum(reciprocal_ranks) / scored
+        latencies.sort()
+        report['query_latency_ms_p50'] = latencies[len(latencies) // 2]
+        report['query_latency_ms_p95'] = latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))]
+    report['status'] = 'MEASURED' if scored else 'BLOCKED'
+    Path(args.output).write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    return 0 if scored else 1
+
+
+def draft_benchmark_candidates(argv: list[str]) -> int:
+    """Draft UNCONFIRMED benchmark candidates from real ALREADY-INDEXED evidence, for review.
+
+    This reads ONLY from the already-published, already-redacted ``knowledge.index_chunks`` --
+    never from raw GCS evidence directly. That means: (1) every candidate's text has already been
+    through the same redaction and ACL authorization path as normal indexing, so nothing
+    unauthorized or unredacted can surface here; (2) an item that isn't indexed yet (never
+    attempted, or failed to read/embed -- see indexer.run()'s per-item try/except, which records
+    such failures in report.failed and never creates an index entry for them) simply never appears
+    as a candidate -- it is silently excluded, not fabricated or guessed at. Index the items you
+    want candidates for FIRST (e.g. `index_cli --only <item-key> ...`), then run this.
+
+    Surfaces titles so a human can write an independently-worded question and confirm the expected
+    match. Nothing here is ground truth until a human edits the query and sets
+    "confirmed_by_human": true.
+    """
+    parser = argparse.ArgumentParser(description='Draft LRN-08 benchmark candidates for review')
+    parser.add_argument('--limit', type=int, default=10)
+    parser.add_argument('--output', required=True)
+    args = parser.parse_args(argv)
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+
+    conninfo = make_conninfo(
+        '', host=os.environ['DB_HOST'], port=int(os.environ.get('DB_PORT', '5432')),
+        dbname=os.environ['DB_NAME'], user=os.environ['DB_INTELLIGENCE_USER'],
+        password=os.environ['DB_INTELLIGENCE_PASSWORD'],
+        sslmode=os.environ.get('DB_SSL_MODE', 'disable'),
+    )
+    with psycopg.connect(conninfo) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT i.provider, i.source_instance, i.project_id, i.kind, i.external_id, c.content
+                FROM knowledge.snapshot_pointer sp
+                JOIN knowledge.snapshot_entries se ON se.snapshot_id = sp.snapshot_id
+                JOIN knowledge.index_chunks c ON c.entry_key = se.entry_key
+                JOIN evidence.source_items i ON i.item_key = se.item_key
+                WHERE i.deleted_at IS NULL AND i.kind = 'work_item_current'
+                ORDER BY length(c.content) DESC, i.item_key LIMIT %s
+            """, (args.limit,))
+            rows = cur.fetchall()
+            total_eligible = conn.execute(
+                "SELECT count(*) FROM evidence.source_items i "
+                "JOIN evidence.source_revisions r ON r.item_key = i.item_key "
+                "  AND r.provider_revision_id = i.latest_revision_id "
+                "WHERE i.deleted_at IS NULL AND r.acl_verified AND i.kind = 'work_item_current'"
+            ).fetchone()[0]
+            indexed_items = conn.execute(
+                "SELECT count(DISTINCT se.item_key) FROM knowledge.snapshot_pointer sp "
+                "JOIN knowledge.snapshot_entries se ON se.snapshot_id = sp.snapshot_id "
+                "JOIN evidence.source_items i ON i.item_key = se.item_key "
+                "WHERE i.deleted_at IS NULL AND i.kind = 'work_item_current'"
+            ).fetchone()[0]
+    print(
+        f'{indexed_items} of {total_eligible} eligible work item(s) are currently published and '
+        f'indexed; candidates can only be drafted from those. Index more (--only <item-key>) '
+        'before drafting if this is too few or too narrow for a real benchmark.'
+    )
+    cases = []
+    for n, (provider, org, project, kind, external_id, content) in enumerate(rows, start=1):
+        title = str(content).strip().splitlines()[0][:200]
+        cases.append({
+            'id': f'draft-{n:03d}',
+            'query': f'REWORD BEFORE USE (do not copy verbatim) -- was indexed as: {title}',
+            'expected_provider': provider, 'expected_organization_url': org,
+            'expected_project': project, 'expected_kind': kind, 'expected_external_id': external_id,
+            'confirmed_by_human': False,
+            'notes': 'Auto-drafted from the indexed title. A human must reword the query in their '
+                     'own words and confirm this is genuinely the right expected match before it '
+                     'counts toward the benchmark.',
+        })
+    Path(args.output).write_text(
+        json.dumps({'schema_version': 1, 'cases': cases}, indent=2) + '\n', encoding='utf-8')
+    print(f'Drafted {len(cases)} candidate(s) to {args.output}; each needs human review before use')
+    return 0
+
+
 def probe_retrieval(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description='Private LRN-09 retrieval probe: no raw evidence output')
     parser.add_argument('--item-key', required=True)
@@ -566,4 +818,13 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'probe':
         sys.path.insert(0, str(INTELLIGENCE))
         raise SystemExit(probe_retrieval(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == 'benchmark':
+        sys.path.insert(0, str(INTELLIGENCE))
+        raise SystemExit(run_benchmark(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == 'draft-benchmark':
+        sys.path.insert(0, str(INTELLIGENCE))
+        raise SystemExit(draft_benchmark_candidates(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == 'isolated-pytest':
+        sys.path.insert(0, str(INTELLIGENCE))
+        raise SystemExit(run_isolated_pytest(sys.argv[2:]))
     raise SystemExit('Call this module through learn_e2e.py or with the probe subcommand')
