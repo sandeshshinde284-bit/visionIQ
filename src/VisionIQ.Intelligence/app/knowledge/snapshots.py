@@ -239,10 +239,7 @@ def build_and_publish(
         # "incremental" passes are expected to be short of it and rely on dropped_too_much/
         # nothing_indexed alone so neither can be mistaken for a complete, ready-to-serve index.
         insufficient_full_coverage = (
-            not force
-            and scope == "full"
-            and eligible > 0
-            and served < min_full_coverage * eligible
+            not force and scope == "full" and eligible > 0 and served < min_full_coverage * eligible
         )
         counts["coverage_status"] = (
             "complete" if eligible == 0 or served >= min_full_coverage * eligible else "partial"
@@ -421,9 +418,12 @@ def refresh(
         reason = f"All {len(report.failed)} targeted evidence item(s) failed indexing"
         log.warning("snapshot.targeted_batch_rejected", failed=len(report.failed), reason=reason)
         return report, SnapshotResult(
-            snapshot_id="", status="rejected", previous=None,
+            snapshot_id="",
+            status="rejected",
+            previous=None,
             counts={"scope": scope, "failed": len(report.failed)},
-            checks={"indexing": False}, reason=reason,
+            checks={"indexing": False},
+            reason=reason,
         )
     result = build_and_publish(
         conninfo, embedder.model_id, force=force, scope=scope, min_full_coverage=min_full_coverage
