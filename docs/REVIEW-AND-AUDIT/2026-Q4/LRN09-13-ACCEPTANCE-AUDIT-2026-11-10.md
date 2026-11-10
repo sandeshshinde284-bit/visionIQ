@@ -5,8 +5,8 @@
 | Story | Existing implementation | Existing verification | Open acceptance |
 | --- | --- | --- | --- |
 | LRN-09 Hybrid retrieval | `app.knowledge.retrieval.retrieve`: keyword + Gemini vector + code-path + lesson candidates, reciprocal-rank fusion, current-record ACL post-filter, required `live_check`, cited snippets, abstention | `test_retrieval.py` unit; `test_retrieval_db.py` snapshot, revocation, live-check, benchmark fixtures; `learn_e2e_stages.py` real canonical probe | Run real 135-item ranking/citation probe with representative query and labelled quality benchmark. Scope alone and a permissive callback do not establish real delegated-user authorization. Cache S07-12 is post-demo. |
-| LRN-10 Evidence-backed lessons | `lessons.py` candidate grouping, `lesson_store.py` atomic persistence, human review/fork, history | `test_lessons.py`, `test_lessons_db.py` including human fork and revert | Confirm isolated DB suites. Missing `import uuid` in `lesson_store.fork` fixed in this branch; original code would raise `NameError` when a valid split reaches UUID creation. |
-| LRN-11 KB readiness | Canonical evidence revocation, snapshots and consistency validation | `test_kb_readiness_db.py` writes per-case evidence; stage runner verifies artifact | Run isolated suite, retain per-case fixture, assertions and snapshot IDs. Real provider outages/revocations remain unverified; do not claim those acceptance checks passed. |
+| LRN-10 Evidence-backed lessons | `lessons.py` candidate grouping, `lesson_store.py` atomic persistence, human review/fork, history | `test_lessons.py`, `test_lessons_db.py` including human fork and revert | Confirm isolated DB suites. Missing `import uuid` in `lesson_store.fork` fixed in this branch. Operator-only review/fork CLI now uses the trusted `DB_INTELLIGENCE_*` role (the regular API role remains read-only), and `resolve` handles an ambiguous observation only when the latest recorded decision is HUMAN_REVIEW and the selected lesson is one of its offered candidates. Tests cover scoped resolution, unverified/verified human review and API write denial. All new database tests still require execution in the disposable local database. |
+| LRN-11 KB readiness | Canonical evidence revocation, snapshots and consistency validation | `test_kb_readiness_db.py` writes per-case evidence; stage runner verifies artifact | Run isolated suite; retain per-case fixture, assertions and snapshot IDs, then inspect each result rather than trusting the artifact filename. Real provider outages/revocations remain unverified; do not claim those acceptance checks passed. |
 | LRN-12 PR service hook | ADO PR event parser and authenticated endpoint; handler refetches canonical current PR state for idempotency/out-of-order updates | `PullRequestEventTests.cs`, `WebhookHttpTests.cs` | Run .NET tests; live authenticated PR created/reviewed/abandoned/merged ADO delivery is still unverified and must not be described as tested. |
 | LRN-13 Proof-only update | Targeted reindex and reused embeddings; lesson consolidator and append-only change events; timeline CLI | `test_lrn13_db.py` tests touched chunks, deletion and synthetic fix/revert | Run isolated suite; a real historical PR fix-then-revert demo is pending. `knowledge.change_events` is a database outbox: Pub/Sub publisher/delivery is a distinct infrastructure dependency, not proven by outbox writes. |
 
@@ -28,3 +28,16 @@ dotnet test tests/VisionIQ.Ingestor.Tests/VisionIQ.Ingestor.Tests.csproj --filte
 - The original Trello cards remain **To be Tested** until evidence is recorded for each acceptance criterion.
 - Enterprise Confluence page-level authorization is separately deferred on existing LRN-02 follow-up Trello #55, not silently accepted as passed for LRN-09.
 - The 14 Payments `mem://` canonical candidates are excluded from production indexing; they are not evidence of LRN-09–13 acceptance.
+
+## New LRN-10 operator review command (code reviewed, test run pending)
+
+Run only from a trusted local engineering session with valid `DB_INTELLIGENCE_*` credentials (not through an unauthenticated API). The CLI requires `--verified-by` as an operator-supplied audit label, not a delegated source-provider authentication proof. It never grants the API role write permission to `knowledge`.
+
+```powershell
+$env:PYTHONPATH = "src/VisionIQ.Intelligence"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import runpy; load_dotenv('.env'); runpy.run_module('app.knowledge.lessons_review_cli', run_name='__main__')" --help
+# For a genuinely ambiguous observation after engineer review:
+# python -m app.knowledge.lessons_review_cli resolve --observation-key <key> --pattern-id <existing-candidate-id> --verified-by <reviewer> --rationale "Reviewed historical evidence"
+```
+
+The human reviewer must inspect the underlying evidence before invoking `resolve`. Database membership changes require the caller transaction to hold the shared consolidation advisory lock and are logged as a separate decision and change event. Full validation still needs the isolated PostgreSQL acceptance suite.
