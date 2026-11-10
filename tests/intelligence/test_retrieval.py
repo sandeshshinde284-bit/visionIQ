@@ -116,3 +116,42 @@ def test_rerank_path_bonus_is_bounded_and_not_a_confidence_probability():
     three, _ = rerank_score(0.04, matched_paths=3)
     assert many == three
     assert rerank_score(0.004, reverted=True)[0] == 0.0
+
+
+def test_insufficient_query_skips_database_and_embedding_search():
+    """A vague query must not surface arbitrary historical citations or hit Vertex AI."""
+    from app.knowledge.retrieval import retrieve
+
+    class NoSearch:
+        model_id = "test-model"
+
+        def embed_query(self, query):
+            raise AssertionError("Vague queries must not invoke the embedding model")
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    from datetime import UTC, datetime
+    from unittest.mock import patch
+
+    def open_connection():
+        return Connection()
+
+    with patch("app.knowledge.retrieval.snapshots.current", return_value=("snap-test", datetime.now(UTC))):
+        result = retrieve(
+            open_connection,
+            NoSearch(),
+            "it does not work",
+            ["ado-project:test"],
+            live_check=lambda _: True,
+        )
+
+    assert result.status == "insufficient_query"
+    assert result.results == []
+    assert result.lessons == []
+    assert result.snapshot_id == "snap-test"
+    assert result.suggestions
