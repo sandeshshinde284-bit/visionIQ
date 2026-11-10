@@ -18,7 +18,7 @@
 $env:PYTHONPATH = "src/VisionIQ.Intelligence"
 .\.venv\Scripts\python.exe -m pytest -q tests/intelligence/test_retrieval.py tests/intelligence/test_lessons.py
 dotnet test tests/VisionIQ.Ingestor.Tests/VisionIQ.Ingestor.Tests.csproj --filter "FullyQualifiedName~PullRequestEventTests|FullyQualifiedName~WebhookHttpTests"
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import runpy,sys; load_dotenv('.env'); sys.argv=['scripts/learn_e2e.py','isolated-pytest','tests/intelligence/test_retrieval_db.py','tests/intelligence/test_lessons_db.py','tests/intelligence/test_kb_readiness_db.py','tests/intelligence/test_lrn13_db.py']; runpy.run_path('scripts/learn_e2e.py', run_name='__main__')"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import runpy,sys; load_dotenv('.env'); sys.argv=['scripts/learn_e2e_stages.py','isolated-pytest','tests/intelligence/test_retrieval_db.py','tests/intelligence/test_lessons_db.py','tests/intelligence/test_kb_readiness_db.py','tests/intelligence/test_lrn13_db.py']; runpy.run_path('scripts/learn_e2e_stages.py', run_name='__main__')"
 ```
 
 **Result interpretation:** A successful run with nonzero passing assertions and zero failures/skips is evidence for the *fixture-level* criteria. It does **not** prove real ADO webhooks, delegated user permissions, Cloud Run deployment, Pub/Sub or labelled real-data retrieval quality. The runner writes logs under `artifacts/learn-e2e/isolated-pytest/` and removes its own disposable database when finished. If admin credentials are missing, stop and configure local development access; never relax the isolation guard.
