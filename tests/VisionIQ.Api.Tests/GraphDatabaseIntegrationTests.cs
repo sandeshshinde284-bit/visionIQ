@@ -327,7 +327,8 @@ public sealed class GraphDatabaseIntegrationTests
             await db.OpenAsync();
             await using var delete = new NpgsqlCommand("""
                 UPDATE evidence.source_items
-                SET deleted_at = @deleted
+                SET deleted_at = @deleted,
+                    deletion_reason = 'deleted_in_source'
                 WHERE item_key = @item
                 """, db);
             delete.Parameters.AddWithValue("deleted", DateTimeOffset.UtcNow);

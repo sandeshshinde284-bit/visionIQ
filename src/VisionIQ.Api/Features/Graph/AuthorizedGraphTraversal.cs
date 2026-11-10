@@ -11,7 +11,6 @@ public sealed class AuthorizedGraphTraversal(IRelationshipGraphStore graph)
     {
         GraphHashes.RequireKey(startNodeKey, nameof(startNodeKey));
         ArgumentNullException.ThrowIfNull(requester);
-        ArgumentNullException.ThrowIfNull(requester);
         if (maxHops is < 1 or > 3 || maxNodes is < 1 or > 100)
         {
             throw new ArgumentOutOfRangeException(nameof(maxHops),

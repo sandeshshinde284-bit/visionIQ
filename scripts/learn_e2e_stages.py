@@ -7,6 +7,7 @@ A unit/integration result is never represented as full story acceptance.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import argparse
 import json
 import os
@@ -14,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import uuid
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,23 +155,90 @@ def historical_lesson(db, fixture: dict, ticket_ids: list[str]) -> bool:
         return cur.fetchone() is not None
 
 
+@contextmanager
+def isolated_fixture_database(env: dict, run_dir: Path, runner, suite: str):
+    """Use a disposable LOCAL database for synthetic tests that publish snapshots.
+
+    Synthetic HashingEmbedder snapshots must not move the pointer serving real
+    ADO/Gemini evidence. The operator's configured DB and Docker volume are not
+    dropped or reset.
+    """
+    if env.get('DB_TARGET', 'local').strip().lower() != 'local':
+        raise ValueError('Synthetic database integration is local-only')
+    if env.get('DB_HOST', 'localhost').strip().lower() not in ('localhost', '127.0.0.1', '::1'):
+        raise ValueError('Synthetic database integration requires loopback PostgreSQL')
+    if not env.get('DB_LOCAL_USER') or not env.get('DB_LOCAL_PASSWORD'):
+        raise ValueError('DB_LOCAL_USER and DB_LOCAL_PASSWORD are required for test DB setup')
+    import psycopg
+    from psycopg import sql
+
+    dbname = 'visioniq_e2e_' + uuid.uuid4().hex[:16]
+    test_env = dict(env)
+    test_env.update({
+        'DB_NAME': dbname,
+        'DB_LOCAL_NAME': dbname,
+        'DB_TARGET': 'local',
+        'DB_SSL_MODE': 'disable',
+        'VISIONIQ_DB_INTEGRATION': '1',
+    })
+
+    def admin_connection():
+        return psycopg.connect(
+            host=env.get('DB_HOST', 'localhost'),
+            port=int(env.get('DB_PORT', '5432')),
+            dbname='postgres',
+            user=env['DB_LOCAL_USER'],
+            password=env['DB_LOCAL_PASSWORD'],
+            connect_timeout=10,
+            autocommit=True,
+        )
+
+    created = False
+    try:
+        with admin_connection() as admin:
+            admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(dbname)))
+            created = True
+        for action in ('migrate', 'roles'):
+            rc = runner.run_command(
+                [sys.executable, '-m', 'db.manage', action],
+                test_env, run_dir / f'{suite}-isolated-db-{action}.log')
+            if rc != 0:
+                raise RuntimeError(f'Isolated database {action} failed (exit={rc})')
+        yield test_env
+    finally:
+        if created:
+            with admin_connection() as admin:
+                # Only the database uniquely created in THIS context may be
+                # dropped, including if a pytest subprocess left connections.
+                admin.execute(
+                    sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(dbname)))
+
+
 def run_pytest(path: str, env: dict, run_dir: Path, runner, name: str, results: list) -> bool:
-    """Reject zero-collected and skipped suites even when pytest exits zero."""
+    """Reject skipped suites; isolate synthetic database fixture side effects."""
     add = runner.result_add
     target = ROOT / path
     if not target.is_file():
         add_blocked(results, add, int(re.search(r'LRN-(\d+)', name).group(1)), f'Missing {path}')
         return False
     log = run_dir / (Path(path).stem + '.log')
-    rc = runner.run_command([sys.executable, '-m', 'pytest', '-q', '-r', 'a', str(target)], env, log)
+    try:
+        with isolated_fixture_database(env, run_dir, runner, Path(path).stem) as test_env:
+            rc = runner.run_command(
+                [sys.executable, '-m', 'pytest', '-q', '-r', 'a', str(target)], test_env, log)
+    except Exception as exc:
+        add(results, name, 'FAIL',
+            f'Isolated DB fixture setup or test failed ({type(exc).__name__}); '
+            f'see {Path(path).stem}-isolated-db-*.log and {log.name}')
+        return False
     message = log.read_text(encoding='utf-8', errors='replace') if log.is_file() else ''
     match = re.search(r'(\d+) passed', message)
     passed = int(match.group(1)) if match else 0
     clean = rc == 0 and passed > 0 and not re.search(r'\d+ (?:skipped|failed|error)', message)
     add(results, name, 'PASS' if clean else 'FAIL',
-        f'pytest exit={rc}, passed={passed}; {log.name}; database fixture tests, not live external acceptance')
+        f'pytest exit={rc}, passed={passed}; {log.name}; '
+        'isolated local database fixtures, not live external acceptance')
     return clean
-
 
 def run_dotnet_pr_event_tests(env: dict, run_dir: Path, runner, results: list) -> bool:
     add = runner.result_add
@@ -214,25 +283,63 @@ def run_stage_b(args: Any, env: dict, run_dir: Path, fixture: dict,
             add_blocked(results, add, n, 'Knowledge writes not approved. Interactive: type KNOWLEDGE; noninteractive: -ApproveKnowledgeWrites')
         return
 
-    # Index first as a dependency for retrieval even when LRN-09 is selected individually.
+    # Functional acceptance indexes the selected source fixture, not an unbounded
+    # historical backfill. Bulk refresh stays available through index_cli alone.
     need_index = 8 in chosen or 9 in chosen or 10 in chosen or 11 in chosen or 13 in chosen
     indexed = False
     if need_index:
         if not (INTELLIGENCE / 'app' / 'knowledge' / 'index_cli.py').is_file():
             add_blocked(results, add, 8, 'index_cli.py missing from local checkout')
         else:
-            rc = runner.run_command([sys.executable, '-m', 'app.knowledge.index_cli'],
-                                    pyenv, run_dir / 'lrn08-index.log')
             try:
                 with runner.canonical_connection(env) as db:
-                    row = index_snapshot(db, fixture)
-                indexed = rc == 0 and row is not None and row[2] > 0 and row[2] == row[3]
-                add(results, 'LRN-08 actual index and published fixture snapshot', 'PASS' if indexed else 'FAIL',
-                    f'CLI exit={rc}; fixture chunks/vectors={(row[2], row[3]) if row else None}; '
-                    f'model={row[1] if row else "none"}; see lrn08-index.log')
+                    fixture_key = source_key(db, fixture)
+                if fixture_key is None:
+                    add_blocked(
+                        results, add, 8,
+                        'Selected ADO work item is absent from canonical evidence; '
+                        'check the ingestion date window or reuse a previously ingested record')
+                else:
+                    rc = runner.run_command(
+                        [sys.executable, '-m', 'app.knowledge.index_cli', '--only', fixture_key],
+                        pyenv, run_dir / 'lrn08-index.log')
+                    with runner.canonical_connection(env) as db:
+                        row = index_snapshot(db, fixture)
+                    indexed = rc == 0 and row is not None and row[2] > 0 and row[2] == row[3]
+                    add(
+                        results, 'LRN-08 actual index and published fixture snapshot',
+                        'PASS' if indexed else 'FAIL',
+                        f'Fixture-only index; CLI exit={rc}; '
+                        f'fixture chunks/vectors={(row[2], row[3]) if row else None}; '
+                        f'model={row[1] if row else "none"}; see lrn08-index.log')
             except Exception as exc:
                 add(results, 'LRN-08 actual index and published fixture snapshot', 'FAIL',
                     f'Index assertion unavailable ({type(exc).__name__}); see lrn08-index.log')
+        if 8 in chosen and indexed:
+            try:
+                output = run_dir / 'lrn08-search-probe.json'
+                with runner.canonical_connection(env) as db:
+                    fixture_key = source_key(db, fixture)
+                if not fixture_key:
+                    raise ValueError('Fixture canonical work item missing')
+                command = [
+                    sys.executable, str(Path(__file__).resolve()), 'probe-index',
+                    '--item-key', str(fixture_key),
+                    '--output', str(output),
+                ]
+                rc = runner.run_command(command, pyenv, run_dir / 'lrn08-search-probe.log')
+                probe = json.loads(output.read_text(encoding='utf-8')) if output.is_file() else {}
+                ok = (rc == 0 and all(probe.get(k) is True for k in
+                       ('keyword_found', 'vector_found', 'wrong_scope_hidden')))
+                add(results, 'LRN-08 real keyword + vector retrieval of indexed fixture',
+                    'PASS' if ok else 'FAIL',
+                    f"keyword={probe.get('keyword_found')}, vector={probe.get('vector_found')}, "
+                    f"wrong-scope excluded={probe.get('wrong_scope_hidden')}; "
+                    f"keyword hits={probe.get('keyword_hits')}, vector hits={probe.get('vector_hits')}; "
+                    "indexed canonical item, not a labelled quality benchmark")
+            except Exception as exc:
+                add(results, 'LRN-08 real keyword + vector retrieval of indexed fixture',
+                    'FAIL', f"Search acceptance error ({type(exc).__name__})")
         if 'test' == pyenv.get('EMBEDDING_PROVIDER'):
             add(results, 'LRN-08 real Gemini embedding acceptance', 'BLOCKED',
                 'EMBEDDING_PROVIDER=test uses hashing; real Vertex/Gemini accuracy and latency not validated')
@@ -346,6 +453,76 @@ def run_stage_b(args: Any, env: dict, run_dir: Path, fixture: dict,
             'Needs controlled completed PR and revert progression, not just one historical PR snapshot or synthetic DB scenario')
 
 
+def probe_index(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description='Verify LRN-08 keyword and vector search')
+    parser.add_argument('--item-key', required=True)
+    parser.add_argument('--output', required=True)
+    args = parser.parse_args(argv)
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+    from app.knowledge import search
+    from app.knowledge.embeddings import from_environment
+
+    conninfo = make_conninfo(
+        '', host=os.environ['DB_HOST'], port=int(os.environ.get('DB_PORT', '5432')),
+        dbname=os.environ['DB_NAME'], user=os.environ['DB_INTELLIGENCE_USER'],
+        password=os.environ['DB_INTELLIGENCE_PASSWORD'],
+        sslmode=os.environ.get('DB_SSL_MODE', 'disable'),
+    )
+    report = {
+        'keyword_found': False, 'vector_found': False, 'wrong_scope_hidden': False,
+        'keyword_hits': 0, 'vector_hits': 0, 'model': '',
+    }
+    try:
+        with psycopg.connect(conninfo) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT c.content, c.acl_principals, ie.model_id
+                    FROM knowledge.snapshot_pointer sp
+                    JOIN knowledge.snapshot_entries se ON se.snapshot_id=sp.snapshot_id
+                    JOIN knowledge.index_entries ie ON ie.entry_key=se.entry_key
+                    JOIN knowledge.index_chunks c ON c.entry_key=ie.entry_key
+                    JOIN evidence.source_items i ON i.item_key=se.item_key
+                    JOIN evidence.source_revisions r
+                      ON r.item_key=i.item_key
+                     AND r.provider_revision_id=i.latest_revision_id
+                    WHERE se.item_key=%s AND ie.provider_revision_id=i.latest_revision_id
+                      AND i.deleted_at IS NULL AND r.acl_verified
+                      AND jsonb_array_length(r.acl_principals) > 0
+                    ORDER BY length(c.content) DESC, c.chunk_key LIMIT 1
+                """, (args.item_key,))
+                row = cur.fetchone()
+            if row is None:
+                raise ValueError('No current, verified published chunk')
+            content, scopes, model = row
+            query = str(content).strip()[:300]
+            if len(query.split()) < 2:
+                raise ValueError('Published chunk too short for test')
+            embedder = from_environment()
+            if embedder.model_id != model:
+                raise ValueError('Query embedding model differs from published model')
+            # Probe executes SELECT-only operations. The search.vector helper
+            # creates its own transaction for pgvector's SET LOCAL tuning.
+            lexical = search.keyword(conn, query, list(scopes), limit=100, match='any')
+            semantic = search.vector(conn, embedder, query, list(scopes), limit=100)
+            wrong_scope = search.keyword(
+                conn, query, ['ado-project:https://invalid.example.test/denied'],
+                limit=100, match='any',
+            )
+            report = {
+                'keyword_found': any(h.item_key == args.item_key for h in lexical),
+                'vector_found': any(h.item_key == args.item_key for h in semantic),
+                'wrong_scope_hidden': not any(h.item_key == args.item_key for h in wrong_scope),
+                'keyword_hits': len(lexical), 'vector_hits': len(semantic),
+                'model': model,
+            }
+    except (ValueError, psycopg.Error) as error:
+        report['error_type'] = type(error).__name__
+    Path(args.output).write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    return 0 if all(report[k] for k in
+                    ('keyword_found', 'vector_found', 'wrong_scope_hidden')) else 1
+
+
 def probe_retrieval(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description='Private LRN-09 retrieval probe: no raw evidence output')
     parser.add_argument('--item-key', required=True)
@@ -383,6 +560,9 @@ def probe_retrieval(argv: list[str]) -> int:
 
 
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == 'probe-index':
+        sys.path.insert(0, str(INTELLIGENCE))
+        raise SystemExit(probe_index(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == 'probe':
         sys.path.insert(0, str(INTELLIGENCE))
         raise SystemExit(probe_retrieval(sys.argv[2:]))

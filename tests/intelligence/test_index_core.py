@@ -230,6 +230,8 @@ def test_empty_settings_copied_from_the_template_fall_back_to_defaults(monkeypat
         "EMBEDDING_MODEL",
         "EMBEDDING_DIMENSION",
         "EMBEDDING_BATCH_SIZE",
+        "EMBEDDING_REQUEST_TIMEOUT",
+        "EMBEDDING_MAX_RETRIES",
     ):
         monkeypatch.setenv(name, "")  # present but empty, as in a .env copied from the template
     monkeypatch.setenv("GCP_PROJECT_ID", "my-gcp-project")
@@ -243,6 +245,8 @@ def test_empty_settings_copied_from_the_template_fall_back_to_defaults(monkeypat
         "model": "gemini-embedding-001",
         "dimension": 768,
         "batch_size": 1,
+        "request_timeout": 60,
+        "max_retries": 5,
     }
 
 
