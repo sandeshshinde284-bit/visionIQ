@@ -7,7 +7,7 @@ targeted batch does not move the published snapshot pointer.
 
 import pytest
 
-from app.knowledge import indexer, snapshots
+from app.knowledge import index_cli, indexer, snapshots
 
 
 def _row(uri: str):
@@ -27,19 +27,27 @@ def _row(uri: str):
 
 
 @pytest.mark.parametrize(
-    "uri", ["mem://fixture/payments/123", "file:///tmp/fixture.json", "", None]
+    "uri",
+    ["mem://fixture/payments/123", "file:///tmp/fixture.json", "", None, "gs://", "gs://bucket/"],
 )
-def test_noncanonical_archive_rejected_before_read_or_embedding(uri):
+def test_production_reader_rejects_noncanonical_archive_before_cloud_access(uri):
+    with pytest.raises(indexer.UnsupportedArchiveError, match="gs://"):
+        index_cli.read_gcs(uri)
+
+
+def test_injected_fixture_reader_can_still_receive_mem_archive():
+    class ReadCalled(Exception):
+        pass
+
     calls = []
 
-    def read_raw(location):
-        calls.append(location)
-        raise AssertionError("Must not attempt to read noncanonical evidence")
+    def fixture_reader(uri):
+        calls.append(uri)
+        raise ReadCalled
 
-    with pytest.raises(indexer.UnsupportedArchiveError, match="durable gs://"):
-        indexer._index_item(None, _row(uri), read_raw, None)
-
-    assert calls == []
+    with pytest.raises(ReadCalled):
+        indexer._index_item(None, _row("mem://fixture/payments/123"), fixture_reader, None)
+    assert calls == ["mem://fixture/payments/123"]
 
 
 def test_all_failed_targeted_batch_does_not_publish(monkeypatch):

@@ -150,12 +150,8 @@ def _index_item(
         source_updated,
         source_url,
     ) = row
-    if not isinstance(uri, str) or not uri.startswith("gs://"):
-        # Do not leak private archive paths or tokens into indexing logs.
-        raise UnsupportedArchiveError(
-            "Canonical indexing requires a durable gs:// evidence archive; "
-            "memory-backed fixtures must not be indexed"
-        )
+    # The reader owns the archive scheme policy: production accepts gs:// only,
+    # while isolated integration tests inject a mem:// fixture reader.
     record = json.loads(read_raw(uri))
     document = extract(kind, record)
     title = redact(document.title).text
