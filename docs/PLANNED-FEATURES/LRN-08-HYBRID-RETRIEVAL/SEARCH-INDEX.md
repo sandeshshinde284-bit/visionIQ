@@ -74,9 +74,6 @@ Default Credentials for Vertex AI already configured:
 
 ```powershell
 $env:PYTHONPATH = "src/VisionIQ.Intelligence"
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_dotenv('.env')"
-# Environment variables from the command above do not persist to this shell.
-# Use your existing environment loader, or run the acceptance module in one process:
 .\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import sys; from app.knowledge.lrn08_acceptance import main; load_dotenv('.env'); sys.exit(main(['--project','Genoa Kiosk','--query','kiosk payment ticket']))"
 ```
 
