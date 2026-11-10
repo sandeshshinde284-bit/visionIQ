@@ -78,6 +78,19 @@ query such as `it does not work`, expect `insufficient_query`, an empty `results
 array, zero lessons, and no Vertex embedding request. Source URLs are
 emitted as citations; private evidence snippets are not printed.
 
+For convenience, generate unconfirmed examples from the current, published,
+scope-verified Genoa Kiosk history (read-only; no ADO writes):
+
+```powershell
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_benchmark_draft import main; load_dotenv('.env'); raise SystemExit(main(['--project','Genoa Kiosk','--limit','10','--output','artifacts/lrn09-cases.json']))"
+```
+
+The draft contains internal source URLs, item keys and redacted indexed excerpts.
+Keep it local. Open at least three source tickets, independently reword each
+`query` and confirm each `expected_item_keys` entry is genuinely relevant.
+Only then set `confirmed_by_human` to `true` for the reviewed examples.
+Never auto-confirm AI-generated examples; the draft itself is not a benchmark.
+
 The labelled benchmark requires **at least three** reviewed real defect queries and
 their expected canonical `item_key` strings. Labels cannot be invented by a test;
 an independent reviewer must confirm them. Create your own non-sensitive file,
