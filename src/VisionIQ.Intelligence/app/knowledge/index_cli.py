@@ -132,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         embedded=report.embedded,
         reused=report.reused,
         failed=len(report.failed),
+        failed_item_keys=report.failed[:20],
         eligible=published.counts.get("eligible"),
         covered=published.counts.get("items"),
         coverage_status=published.counts.get("coverage_status"),
