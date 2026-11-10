@@ -24,7 +24,7 @@ EvidenceBundle; see [snapshots.md](snapshots.md) (LRN-15).
 7. **Evidence-based reranking**: start from fused rank, add a bounded bonus for matching changed files and explicit ticket-fix links, penalise reverted fixes and stale revisions; record individual ranking reasons. These are heuristic weights, not an AI confidence percentage.
 8. **Grounded snippets**: a verbatim window of the redacted chunk with its citation
    (item, revision, section, chunk, URL).
-9. **Abstention**: `insufficient_query` when the query has too few specific terms;
+9. **Abstention**: `insufficient_query` when the query has too few specific terms; this short-circuits before keyword/vector retrieval and returns no candidates or lessons.
    `weak_evidence` when no result is supported by two independent lanes or a code-path match. Both
    come with reasons and what to add, never a guess.
 
@@ -73,7 +73,9 @@ $env:PYTHONPATH = "src/VisionIQ.Intelligence"
 ```
 
 Expected: ranked, sourced results (only if real history matches), explicit weak or
-insufficient status when evidence is absent, and no fabricated cause. Source URLs are
+insufficient status when evidence is absent, and no fabricated cause. For a vague
+query such as `it does not work`, expect `insufficient_query`, an empty `results`
+array, zero lessons, and no Vertex embedding request. Source URLs are
 emitted as citations; private evidence snippets are not printed.
 
 The labelled benchmark requires **at least three** reviewed real defect queries and
