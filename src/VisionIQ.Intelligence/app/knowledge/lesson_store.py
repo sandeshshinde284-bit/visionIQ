@@ -8,6 +8,7 @@ advisory lock, so concurrent runs cannot create duplicate lessons.
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
