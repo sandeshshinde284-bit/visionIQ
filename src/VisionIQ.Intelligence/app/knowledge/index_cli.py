@@ -17,16 +17,19 @@ from psycopg.conninfo import make_conninfo
 
 from app.knowledge import snapshots
 from app.knowledge.embeddings import from_environment
+from app.knowledge.indexer import UnsupportedArchiveError
 from app.logging_config import configure_from_environment
 
 
 def read_gcs(uri: str) -> bytes:
     """Read an archived raw evidence object (gs://bucket/path) with the job's own credentials."""
+    if not isinstance(uri, str) or not uri.startswith("gs://"):
+        raise UnsupportedArchiveError("Production raw evidence must use gs:// archives")
+    bucket, _, name = uri[5:].partition("/")
+    if not bucket or not name:
+        raise UnsupportedArchiveError("Production raw evidence requires a complete gs:// URI")
     from google.cloud import storage
 
-    if not uri.startswith("gs://"):
-        raise ValueError("Raw evidence must be archived in Cloud Storage")
-    bucket, _, name = uri[5:].partition("/")
     return storage.Client().bucket(bucket).blob(name).download_as_bytes()
 
 
