@@ -20,13 +20,21 @@ def conninfo(prefix: str) -> str:
     )
 
 
+# All fixture organisations in one disposable PostgreSQL database share the same
+# simulated raw evidence store, just as independent organisations in production
+# use the same GCS reader. A per-Corpus archive incorrectly made previously
+# inserted evidence unreadable during later full-index passes.
+_ARCHIVES_BY_DATABASE: dict[str, dict[str, bytes]] = {}
+
+
 class Corpus:
-    """One isolated organisation per test: its own source instance and access scope."""
+    """Isolated source identity and ACL, with a DB-scoped fake raw archive."""
 
     def __init__(self) -> None:
         self.org = f"https://dev.azure.com/t{uuid.uuid4().hex[:10]}"
         self.scope = f"ado-project:{self.org}/Payments"
-        self.archive: dict[str, bytes] = {}
+        dbname = os.environ.get("DB_NAME", "visioniq")
+        self.archive = _ARCHIVES_BY_DATABASE.setdefault(dbname, {})
 
     def key(self, kind: str, native: str) -> str:
         return hashlib.sha256(f"{self.org}|{kind}|{native}".encode()).hexdigest()
@@ -100,4 +108,5 @@ class Corpus:
             )
 
     def read(self, uri: str) -> bytes:
+        """Test-only GCS stand-in: the reader can access all fixtures in this DB."""
         return self.archive[uri]
