@@ -86,14 +86,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--query must not be blank")
 
     with psycopg.connect(conninfo()) as conn:
-        snapshot = conn.execute(
-            "SELECT snapshot_id FROM knowledge.snapshot_pointer"
-        ).fetchone()
+        snapshot = conn.execute("SELECT snapshot_id FROM knowledge.snapshot_pointer").fetchone()
         if not snapshot:
             print("FAIL: no published snapshot")
             return 1
         scopes = [
-            row[0] for row in conn.execute(SCOPES_SQL, (args.project,))
+            row[0]
+            for row in conn.execute(SCOPES_SQL, (args.project,))
             if row[0].startswith("ado-project:")
         ]
         if len(scopes) != 1:
@@ -105,9 +104,18 @@ def main(argv: list[str] | None = None) -> int:
         ).fetchone()
         chunks, items, invalid_provenance, invalid_vectors, models = stats
         if not chunks or not items or invalid_provenance or invalid_vectors or models != 1:
-            print(json.dumps({"status": "FAIL", "items": items, "chunks": chunks,
-                              "invalid_provenance": invalid_provenance,
-                              "invalid_vectors": invalid_vectors, "models": models}))
+            print(
+                json.dumps(
+                    {
+                        "status": "FAIL",
+                        "items": items,
+                        "chunks": chunks,
+                        "invalid_provenance": invalid_provenance,
+                        "invalid_vectors": invalid_vectors,
+                        "models": models,
+                    }
+                )
+            )
             return 1
 
         valid_keys = {row[0] for row in conn.execute(ITEMS_SQL, (args.project,))}
