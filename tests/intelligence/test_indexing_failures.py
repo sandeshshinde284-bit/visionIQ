@@ -12,13 +12,23 @@ from app.knowledge import indexer, snapshots
 
 def _row(uri: str):
     return (
-        "item-key", "azure_devops", "work_item_current", "Payments",
-        None, "revision-1", "sha", uri, ["ado-project:Payments"],
-        None, None,
+        "item-key",
+        "azure_devops",
+        "work_item_current",
+        "Payments",
+        None,
+        "revision-1",
+        "sha",
+        uri,
+        ["ado-project:Payments"],
+        None,
+        None,
     )
 
 
-@pytest.mark.parametrize("uri", ["mem://fixture/payments/123", "file:///tmp/fixture.json", "", None])
+@pytest.mark.parametrize(
+    "uri", ["mem://fixture/payments/123", "file:///tmp/fixture.json", "", None]
+)
 def test_noncanonical_archive_rejected_before_read_or_embedding(uri):
     calls = []
 
@@ -35,7 +45,8 @@ def test_noncanonical_archive_rejected_before_read_or_embedding(uri):
 def test_all_failed_targeted_batch_does_not_publish(monkeypatch):
     failed = ["payments-key-1", "payments-key-2"]
     monkeypatch.setattr(
-        snapshots.indexer, "run",
+        snapshots.indexer,
+        "run",
         lambda *args, **kwargs: indexer.IndexReport(failed=failed),
     )
 
@@ -45,9 +56,7 @@ def test_all_failed_targeted_batch_does_not_publish(monkeypatch):
     monkeypatch.setattr(snapshots, "build_and_publish", unexpected_publish)
     monkeypatch.setattr(snapshots, "cleanup", unexpected_publish)
 
-    report, result = snapshots.refresh(
-        "unused", lambda uri: b"{}", object(), only=failed
-    )
+    report, result = snapshots.refresh("unused", lambda uri: b"{}", object(), only=failed)
 
     assert report.failed == failed
     assert report.indexed == 0
@@ -63,9 +72,7 @@ def test_full_refresh_still_publishes_for_revocation_even_when_indexing_fails(mo
 
     failure = indexer.IndexReport(failed=["unreadable-item"])
     monkeypatch.setattr(snapshots.indexer, "run", lambda *args, **kwargs: failure)
-    published = snapshots.SnapshotResult(
-        "revocation-snapshot", "published", "prior-snapshot"
-    )
+    published = snapshots.SnapshotResult("revocation-snapshot", "published", "prior-snapshot")
     observed = []
 
     def publish(*args, **kwargs):
