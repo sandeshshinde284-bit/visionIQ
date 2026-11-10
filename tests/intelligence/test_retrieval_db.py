@@ -150,7 +150,6 @@ def test_the_live_check_hook_and_other_scopes_are_honoured() -> None:
     assert stranger.results == [] and stranger.lessons == []
 
 
-
 def test_a_lesson_is_hidden_if_live_check_denies_a_supporting_ticket() -> None:
     corpus = Corpus()
     keys = demo_history(corpus)
@@ -175,7 +174,6 @@ def test_live_check_exception_fails_closed_for_items_and_lessons() -> None:
 
     bundle = ask(corpus, LIVE_DEFECT, live_check=failing_provider_check)
     assert bundle.results == [] and bundle.lessons == []
-
 
 
 def test_a_lesson_is_hidden_when_any_supporting_ticket_is_unreadable() -> None:
