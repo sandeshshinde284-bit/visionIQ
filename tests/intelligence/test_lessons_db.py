@@ -187,11 +187,11 @@ def test_review_requires_a_named_human_and_records_their_verdict() -> None:
     pattern_id = evidence.pattern_id()
     now = datetime.now(UTC)
 
-    with psycopg.connect(_conninfo("API")) as conn:
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
         with pytest.raises(ValueError, match="verified_by"):
             lesson_store.review(conn, pattern_id, "reviewed", "", now)
 
-    with psycopg.connect(_conninfo("API")) as conn, conn.transaction():
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn, conn.transaction():
         revision = lesson_store.review(
             conn, pattern_id, "reviewed", "jane.doe", now, cause_status="verified",
             rationale="Confirmed: both tickets hit the same retry bug.",
@@ -214,11 +214,11 @@ def test_fork_splits_a_pattern_and_rejects_a_split_too_small_to_remain_a_lesson(
 
     # Splitting out only one observation would leave the new pattern with a single member --
     # rejected before any write happens.
-    with psycopg.connect(_conninfo("API")) as conn, conn.transaction():
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn, conn.transaction():
         with pytest.raises(ValueError, match="at least 2"):
             lesson_store.fork(conn, pattern_id, keys[:1], "jane.doe", now)
 
-    with psycopg.connect(_conninfo("API")) as conn, conn.transaction():
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn, conn.transaction():
         new_pattern_id = lesson_store.fork(
             conn, pattern_id, keys[:2], "jane.doe", now,
             rationale="These two actually come from an unrelated regression.",
@@ -227,9 +227,73 @@ def test_fork_splits_a_pattern_and_rejects_a_split_too_small_to_remain_a_lesson(
     original_revisions = evidence.lessons()
     assert original_revisions[-1][:4] == (2, "candidate", "unverified", "REVISE_EXISTING")
     assert original_revisions[-1][4] == 2  # 2 members remain on the original pattern
-    with psycopg.connect(_conninfo("API")) as conn:
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
         new_members = conn.execute(
             "SELECT count(*) FROM knowledge.lesson_memberships WHERE pattern_id = %s",
             (new_pattern_id,),
         ).fetchone()[0]
     assert new_members == 2
+
+
+def test_ambiguous_observation_requires_explicit_human_resolution() -> None:
+    evidence = Evidence()
+    evidence.defect("601", files=["/src/A.cs"])
+    evidence.defect("602", files=["/src/A.cs"])
+    evidence.defect("603", files=["/src/B.cs"])
+    evidence.defect("604", files=["/src/B.cs"])
+    run(_conninfo("INTELLIGENCE"))
+
+    evidence.defect("605", files=["/src/A.cs", "/src/B.cs"])
+    outcome = run(_conninfo("INTELLIGENCE"))
+    assert outcome["human_review"] == 1
+
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
+        observation = conn.execute(
+            "SELECT observation_key::text, pattern_ids::text[] "
+            "FROM knowledge.lesson_decisions WHERE decision = 'HUMAN_REVIEW' "
+            "AND observation_key IN (SELECT observation_key FROM knowledge.lesson_observations "
+            "WHERE source_instance = %s) ORDER BY decision_id DESC LIMIT 1",
+            (evidence.org,),
+        ).fetchone()
+        assert observation is not None
+        key, options = observation
+        assert len(options) == 2
+        with pytest.raises(ValueError, match="verified_by"):
+            lesson_store.resolve_ambiguous(conn, key, options[0], "", datetime.now(UTC), "reviewed")
+        with pytest.raises(ValueError, match="not a candidate"):
+            lesson_store.resolve_ambiguous(
+                conn, key, str(uuid.uuid4()), "engineer", datetime.now(UTC), "reviewed"
+            )
+
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn, conn.transaction():
+        chosen = lesson_store.resolve_ambiguous(
+            conn, key, options[0], "engineer", datetime.now(UTC),
+            "Confirmed the same fix behavior and affected files.",
+        )
+        assert chosen == options[0]
+
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
+        assert conn.execute(
+            "SELECT pattern_id::text FROM knowledge.lesson_memberships WHERE observation_key = %s",
+            (key,),
+        ).fetchone() == (chosen,)
+        with pytest.raises(ValueError, match="pending HUMAN_REVIEW"):
+            lesson_store.resolve_ambiguous(
+                conn, key, chosen, "engineer", datetime.now(UTC), "repeat"
+            )
+
+
+def test_api_role_cannot_modify_lesson_history() -> None:
+    evidence = Evidence()
+    evidence.defect("701")
+    evidence.defect("702")
+    run(_conninfo("INTELLIGENCE"))
+    pattern_id = evidence.pattern_id()
+
+    with psycopg.connect(_conninfo("API")) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            lesson_store.review(
+                conn, pattern_id, "reviewed", "operator", datetime.now(UTC),
+                cause_status="verified",
+            )
+        conn.rollback()
