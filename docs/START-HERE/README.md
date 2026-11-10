@@ -1,150 +1,118 @@
-# Getting Started with VisionIQ
+# VisionIQ Documentation
 
-Welcome! This guide will get you up to speed in 15 minutes.
+Welcome to VisionIQ! This folder contains all documentation organized by purpose and phase.
 
-## What is VisionIQ?
+## 🚀 Quick Start
 
-VisionIQ is an engineering intelligence platform that reads approved engineering history (Azure DevOps, Confluence, Git) and stores it as versioned, permission-aware evidence.
+**New to VisionIQ?** Start here:
+- [Getting Started Guide](START-HERE/README.md) — First 15 minutes
+- [System Architecture Overview](START-HERE/ARCHITECTURE-OVERVIEW.md) — High-level diagram
+- [Glossary](START-HERE/GLOSSARY.md) — Terms and acronyms
 
-**Current Phase:** LEARN (LRN-01 through LRN-07) — **✅ Complete**
+## 📚 Documentation by Purpose
 
-See [System Architecture Overview](ARCHITECTURE-OVERVIEW.md) for a visual introduction.
+### **🎓 LEARN Phase** (Currently Active)
+Complete documentation for LRN-01 through LRN-07 features.
+- **Status:** ✅ Complete and verified
+- **Read:** [LEARN Phase Documentation](LEARN-PHASE-COMPLETE/README.md)
+- Includes: Architecture, implementation, testing, acceptance criteria
+
+### **🔮 Planned Features** (Future Work)
+Upcoming features and infrastructure components.
+- **Status:** 🚧 In development or planned
+- **Read:** [Planned Features](PLANNED-FEATURES/README.md)
+- Includes: LRN-08 retrieval, LRN-09+ search, FND series
+
+### **🛠️ Operations & Infrastructure**
+Setup, deployment, troubleshooting, and operations guides.
+- **Read:** [Operations Guide](OPERATIONS-AND-INFRASTRUCTURE/README.md)
+- Includes: Local setup, Docker, database, cloud, troubleshooting
+
+### **📖 Reference Materials**
+Technical reference documentation.
+- **Read:** [Reference Materials](REFERENCE-MATERIALS/README.md)
+- Includes: Schema, API contracts, data models, security model
+
+### **✅ Quality Assurance**
+Testing strategy, acceptance criteria, and verification.
+- **Read:** [QA Documentation](QUALITY-ASSURANCE/README.md)
+- Includes: Test levels, acceptance matrix, benchmarks
+
+### **🎯 Developer Guides**
+For developers contributing to VisionIQ.
+- **Read:** [Developer Guides](DEVELOPER-GUIDES/README.md)
+- Includes: Onboarding, contributing, debugging, code style
+
+### **📋 Review & Audit**
+Design decisions, findings, and audit trail.
+- **Read:** [Review & Audit](REVIEW-AND-AUDIT/README.md)
+- Includes: Decision log, findings, integration review results
+
+### **📦 Archive**
+Historical and deprecated documentation.
+- **Status:** 📚 Historical reference only
+- **Read:** [Archive](ARCHIVE/README.md)
 
 ---
 
-## 🚀 First 5 Minutes
-
-### 1. Understand the LEARN Phase
-VisionIQ's LEARN phase consists of 7 features that work together:
-
-| Feature | What It Does |
-|---------|-------------|
-| **LRN-01** | Reads Azure DevOps history (work items, PRs, commits, builds) |
-| **LRN-02** | Imports Confluence design decisions with ACL enforcement |
-| **LRN-03** | Stores evidence as immutable, versioned records |
-| **LRN-04** | Links tickets to the fixes that closed them |
-| **LRN-05** | Keeps evidence current via webhooks + scheduled sync |
-| **LRN-06** | Scans code for symbols, imports, dependencies |
-| **LRN-07** | Builds relationship graph connecting tickets→code→symbols |
-
-**[Read full descriptions](../LEARN-PHASE-COMPLETE/README.md)**
-
-### 2. See It in Action
-Look at [System Architecture Overview](ARCHITECTURE-OVERVIEW.md) — shows how data flows from sources → VisionIQ → storage.
-
-### 3. Pick Your Path
-
-**I'm a developer:**
-→ [Developer Guides](../DEVELOPER-GUIDES/)
-
-**I need to set up VisionIQ:**
-→ [Operations & Infrastructure](../OPERATIONS-AND-INFRASTRUCTURE/)
-
-**I want to understand design decisions:**
-→ [Review & Audit](../REVIEW-AND-AUDIT/)
-
-**I need to troubleshoot:**
-→ [Troubleshooting Guide](../OPERATIONS-AND-INFRASTRUCTURE/TROUBLESHOOTING/BY-FEATURE.md)
-
-**I want technical reference:**
-→ [Reference Materials](../REFERENCE-MATERIALS/)
-
----
-
-## 📚 Documentation Structure
+## 🗺️ Complete Structure
 
 ```
-START-HERE/                    ← You are here
-├── README.md                  Getting started
-├── ARCHITECTURE-OVERVIEW.md   System diagram
-└── GLOSSARY.md               Terms and acronyms
-
-LEARN-PHASE-COMPLETE/          ✅ Complete features
-├── LRN-01/ through LRN-07/    Each with architecture, testing, acceptance
-
-OPERATIONS-AND-INFRASTRUCTURE/ Setup, deployment, troubleshooting
-REFERENCE-MATERIALS/           Technical reference
-DEVELOPER-GUIDES/              For contributors
-REVIEW-AND-AUDIT/              Design decisions & findings
+docs/
+├── START-HERE/                      Getting started guides
+├── LEARN-PHASE-COMPLETE/            LRN-01 through LRN-07 (✅ Complete)
+│   ├── LRN-01-HISTORY-CONNECTORS/
+│   ├── LRN-02-CONFLUENCE/
+│   ├── LRN-03-VERSIONED-EVIDENCE/
+│   ├── LRN-04-TICKET-FIX-LINKS/
+│   ├── LRN-05-BACKFILL-AND-SYNC/
+│   ├── LRN-06-CODE-INTELLIGENCE/
+│   └── LRN-07-RELATIONSHIP-GRAPH/
+├── PLANNED-FEATURES/                Future work (🔮 In development)
+├── OPERATIONS-AND-INFRASTRUCTURE/   Setup, deployment, troubleshooting
+├── REFERENCE-MATERIALS/             Technical reference
+├── QUALITY-ASSURANCE/               Testing and acceptance
+├── DEVELOPER-GUIDES/                For contributors
+├── REVIEW-AND-AUDIT/                Decisions and findings
+└── ARCHIVE/                         Historical docs (📦 Archived)
 ```
 
-See [Complete Map](../DOCS-MAP.md) for full structure.
+See [Complete Documentation Map](DOCS-MAP.md) for details.
 
 ---
 
-## 🎯 Common Tasks
+## 📍 Status Indicators
 
-### "How do I run the tests?"
-[LRN-01-07 Testing Guide](../LEARN-PHASE-COMPLETE/README.md) → each feature has a LOCAL-TESTING.md
-
-### "How do I set up my local environment?"
-[Local Environment Setup](../OPERATIONS-AND-INFRASTRUCTURE/README.md)
-
-### "What does feature X do?"
-[LEARN Phase](../LEARN-PHASE-COMPLETE/README.md) → pick a feature
-
-### "Why was decision Y made?"
-[Decision Log](../REVIEW-AND-AUDIT/DECISION-LOG.md)
-
-### "Something's not working, help!"
-[Troubleshooting by Feature](../OPERATIONS-AND-INFRASTRUCTURE/TROUBLESHOOTING/BY-FEATURE.md)
-
-### "I want to contribute"
-[Developer Guides](../DEVELOPER-GUIDES/)
+- ✅ **COMPLETE** — Feature finished and verified
+- 🔮 **PLANNED** — Feature in development or planned
+- 🚧 **IN PROGRESS** — Active work
+- ⚠️ **STALE** — Needs update
+- 📦 **ARCHIVED** — Historical reference only
 
 ---
 
-## 🔑 Key Concepts
+## 🔗 Quick Links
 
-**Evidence:** Immutable records of engineering history (work items, PRs, commits) with versions and ACLs
-
-**Source:** Where evidence comes from (Azure DevOps, Confluence, Git)
-
-**Checkpoint:** Cursor tracking what's been synced so re-runs are fast
-
-**Retraction:** When a work item removes an association (e.g., "this is no longer linked to that PR")
-
-**Revert:** When a commit undoes another commit's changes
-
-**Revision:** A version of an evidence item (e.g., work item revision 5)
-
-See [Glossary](GLOSSARY.md) for all terms.
+| I want to... | Go to |
+|-------------|--------|
+| Get started | [START-HERE](START-HERE/) |
+| Understand LRN-01-07 | [LEARN Phase](LEARN-PHASE-COMPLETE/) |
+| Troubleshoot an issue | [Troubleshooting Guide](OPERATIONS-AND-INFRASTRUCTURE/TROUBLESHOOTING/) |
+| Understand design decisions | [Decision Log](REVIEW-AND-AUDIT/) |
+| Set up my environment | [Operations Guide](OPERATIONS-AND-INFRASTRUCTURE/) |
+| Contribute to VisionIQ | [Developer Guides](DEVELOPER-GUIDES/) |
+| Check API/Schema | [Reference Materials](REFERENCE-MATERIALS/) |
 
 ---
 
-## 📖 Recommended Reading Order
+## 📞 Need Help?
 
-1. **This page** (5 min)
-2. [Architecture Overview](ARCHITECTURE-OVERVIEW.md) (5 min)
-3. **Then pick:**
-   - Developer? → [Developer Guides](../DEVELOPER-GUIDES/ONBOARDING.md)
-   - Operations? → [Operations](../OPERATIONS-AND-INFRASTRUCTURE/README.md)
-   - Review? → [LEARN Phase](../LEARN-PHASE-COMPLETE/README.md)
+1. Check [START-HERE](START-HERE/) for common questions
+2. Search [Troubleshooting Guide](OPERATIONS-AND-INFRASTRUCTURE/TROUBLESHOOTING/BY-FEATURE.md)
+3. Review [Reference Materials](REFERENCE-MATERIALS/)
+4. Check [Decision Log](REVIEW-AND-AUDIT/DECISION-LOG.md) for why decisions were made
 
 ---
 
-## ❓ FAQ
-
-**Q: Is LEARN complete?**  
-A: ✅ Yes. All LRN-01-07 features are implemented, tested, and accepted.
-
-**Q: What's the status of LRN-08+?**  
-A: 🔮 Planned future work. See [Planned Features](../PLANNED-FEATURES/).
-
-**Q: Where are the old docs?**  
-A: 📦 Historical docs moved to [Archive](../ARCHIVE/).
-
-**Q: How do I find something?**  
-A: Start with [main README](../README.md) or [Complete Map](../DOCS-MAP.md).
-
----
-
-## 🚀 Next Steps
-
-1. Read [Architecture Overview](ARCHITECTURE-OVERVIEW.md)
-2. Pick your path above (developer / operations / review)
-3. Follow the guide for your path
-
----
-
-**Questions?** Check [Troubleshooting](../OPERATIONS-AND-INFRASTRUCTURE/TROUBLESHOOTING/) or [Glossary](GLOSSARY.md).
+**Last Updated:** November 5, 2026  
+**Documentation Version:** 2.0 (Restructured)
