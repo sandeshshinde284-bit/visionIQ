@@ -62,6 +62,18 @@ jobs:
           tests/intelligence/test_retrieval_db.py
           tests/intelligence/test_kb_readiness_db.py
           tests/intelligence/test_lrn13_db.py
+      - name: Show failed suite diagnostics without exposing secrets
+        if: failure()
+        run: |
+          for suite in test_retrieval_db test_kb_readiness_db test_lrn13_db; do
+            for log in artifacts/learn-e2e/isolated-pytest/*/"${suite}.log"; do
+              if [ -f "$log" ]; then
+                echo "::group::$suite"
+                tail -n 110 "$log"
+                echo "::endgroup::"
+              fi
+            done
+          done
       - name: Upload isolated DB execution logs
         if: always()
         uses: actions/upload-artifact@v4
