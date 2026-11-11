@@ -4,10 +4,10 @@ import os
 
 import psycopg
 import pytest
+from corpus_support import Corpus, conninfo
 
 from app.knowledge import lessons_cli, snapshots
 from app.knowledge.embeddings import HashingEmbedder
-from corpus_support import Corpus, conninfo
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("VISIONIQ_DB_INTEGRATION") != "1",
