@@ -13,13 +13,13 @@ Uses the intelligence database login (`DB_INTELLIGENCE_*`): it reads evidence an
 | Rule | Detail |
 |---|---|
 | Observation | A defect ticket (not deleted) with an **explicit** fix link that a review has not disputed, plus the files that fix **changed** (`evidence.fix_change_sets`), ignoring build/lock/doc noise |
-| New lesson | At least **2 distinct tickets** whose fixes changed overlapping files (Jaccard ≥ **0.5**) in the **same repository**. One ticket alone stays an observation. Titles and wording are never compared |
-| Join | A new observation overlapping exactly one lesson joins it (no new lesson version) |
-| Ambiguous | Overlapping several lessons → `HUMAN_REVIEW` (not joined) |
+| New lesson | At least **2 distinct current Bug tickets** with explicit undisputed fix links and changed-file overlap (Jaccard ≥ **0.5**) in the **same repository**, plus matching normalized failure symptoms from the source title/reproduction text (symptom Jaccard ≥ **0.67** and at least **3 distinctive shared terms**). Only the title/repro from the **current ACL-verified revision** is used. Same changed file alone never qualifies |
+| Join | A new observation joins exactly one **candidate** lesson only when it independently matches at least two existing distinct-ticket members on code and symptoms; reviewed lessons require another human review, while disputed/retired lessons cannot silently absorb similar evidence |
+| Ambiguous | Several qualified lesson matches, or a new observation for a reviewed lesson → `HUMAN_REVIEW` (not joined). Missing/generic symptoms or matches against disputed/retired lessons → `WAIT_FOR_EVIDENCE` |
 | Cause | Always `unverified`; only a named human can mark a lesson reviewed or its cause verified (the database enforces this) |
 | Revert | A later revert of any supporting fix appends a **disputed** revision; earlier revisions are kept (the database rejects edits and deletions) |
 
-Thresholds and noise patterns are constants in `app/knowledge/lessons.py` (`MIN_TICKETS`, `OVERLAP`, `NOISE`).
+Thresholds, token normalization and noise patterns are transparent constants in `app/knowledge/lessons.py` (`MIN_TICKETS`, `OVERLAP`, `SYMPTOM_OVERLAP`, `MIN_SHARED_SYMPTOM_TERMS`, `NOISE`, `STOPWORDS`). The matching is deterministic, conservative lexical corroboration: **not** a semantic embedding model, verified root-cause inference or assertion of an effective fix. It may miss genuinely similar failures described with very different words; such evidence remains ungrouped for human judgment. Only normalized diagnostic tokens are used in-memory; raw ticket descriptions are not added to lesson-observation rows.
 
 ## Where things are
 
@@ -54,3 +54,17 @@ Every index update and removal, new lesson and lesson revision writes a row to
 `knowledge.change_events` **in the same transaction** as the change (transactional outbox). A publisher
 that drains unpublished rows to Pub/Sub and sets `published_at` is FND-06 infrastructure.
 
+
+## Qualification safety and rollout (LRN-10 strengthening)
+
+- Three unrelated bugs that modify one shared service file must remain observations, not become a false common lesson.
+- Same symptom but unrelated changed files also must not merge. A generic title, missing title or missing source-verified access must not qualify.
+- Two fixes on the same defect ticket count as **one defect**, not two independent confirmations. The grouping is pairwise-corroborated to avoid transitive chaining through a hub file.
+- Previously approved/reviewed lessons are never silently expanded. A new member requires recorded `HUMAN_REVIEW`; history and verification remain human-controlled.
+- Disputed or retired patterns are not automatically re-created as a fresh candidate from the same corroborated evidence. A revert still appends a disputed revision.
+- **Existing legacy lessons are not retroactively deleted, merged or reclassified.** Existing memberships must be reviewed before claiming the stronger rule applies to older lessons; reindexing is not a substitute for a human revision audit.
+- A lesson is still a candidate with an unverified cause, even if all code paths and symptoms agree. No code or AI should say \"same root cause\" without independent verification.
+
+### Safe validation
+
+Run `tests/intelligence/test_lessons.py` as pure unit tests, then use the guarded disposable PostgreSQL runner for `tests/intelligence/test_lessons_db.py`, `tests/intelligence/test_kb_readiness_db.py`, `tests/intelligence/test_retrieval_db.py` and `tests/intelligence/test_lrn13_db.py`. Keep the published Genoa Kiosk index read-only. A passing fixture suite establishes **local behavior only**, not production classification accuracy. Review real source tickets for false-positive and false-negative rates before tuning thresholds.
