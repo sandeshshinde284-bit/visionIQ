@@ -23,7 +23,7 @@ from fnmatch import fnmatch
 
 MIN_TICKETS = 2
 OVERLAP = 0.5
-SYMPTOM_OVERLAP = 0.67
+SYMPTOM_OVERLAP = 2 / 3
 MIN_SHARED_SYMPTOM_TERMS = 3
 # LRN-13 (S12-12): a lesson gets a new version only when its file signature changes materially
 # (overlap with the previous signature below this) or it becomes disputed. A ticket joining,
