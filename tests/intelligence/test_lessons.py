@@ -291,5 +291,4 @@ def test_two_fixes_from_one_ticket_do_not_supply_independent_support():
         NOW,
     )
     assert len(plan.new_patterns) == 1
-    assert {o.ticket_id for o in [obs("1", "/a.cs"), obs("2", "/a.cs")]} == {"1", "2"}
-    assert len(plan.revisions[0].observation_keys) >= 2
+    assert len(plan.revisions[0].observation_keys) == 2
