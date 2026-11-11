@@ -8,7 +8,10 @@ NOW = datetime(2026, 3, 1, tzinfo=UTC)
 ORG = "https://dev.azure.com/contoso"
 
 
-def obs(ticket, *paths, repo="repo-1", fix=None, reverted=(), symptom="Barcode print fails after payment retry"):
+def obs(
+    ticket, *paths, repo="repo-1", fix=None, reverted=(),
+    symptom="Barcode print fails after payment retry",
+):
     return Observation(
         f"assoc-{ticket}-{fix or ticket}",
         ORG,
@@ -198,7 +201,10 @@ def test_shared_changed_file_does_not_merge_unrelated_defects():
     plan = consolidate(
         [
             obs("1", same_file, symptom="Barcode print fails after payment retry"),
-            obs("2", same_file, symptom="Card reader timeout causes contactless authorization error"),
+            obs(
+                "2", same_file,
+                symptom="Card reader timeout causes contactless authorization error",
+            ),
             obs("3", same_file, symptom="Refund balance calculation displays incorrect total"),
         ],
         [],
