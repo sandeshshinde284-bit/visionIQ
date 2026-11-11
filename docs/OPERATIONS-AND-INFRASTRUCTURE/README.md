@@ -1,45 +1,23 @@
-# Operations & Infrastructure
+# VisionIQ — Operations and manual deployment
 
-**Purpose:** Setup, deployment, troubleshooting, and operations guides
+**Updated:** 11 November 2026 · No blanket cloud acceptance claim.
 
----
+## Working guides
 
-## Contents
+| Task | Current documentation |
+|---|---|
+| First-time local environment | [Developer Team Guide](../START-HERE/VisionIQ_Developer_Team_Guide.md) · [repository setup](../../README.md) |
+| Database migrations and roles | [Database README](../../db/README.md) |
+| Approved manual Cloud Run build/deploy | [FND-04 manual deployment](fnd04-manual-deployment.md) · [GCP setup guide](../Functional/VisionIQ_Google_Cloud_Setup_Deployment_Guide.md) |
+| ADO PR webhook image and approved ingress | [LRN-12 webhook deployment](LRN12-WEBHOOK-CLOUD-DEPLOYMENT.md) |
+| Vertex embeddings | [Vertex AI setup](VERTEX-AI-SETUP.md) |
+| Manual LEARN LRN-01–13 scope | [LEARN handbook](../LEARN-PHASE-COMPLETE/LEARN-HANDBOOK.md) |
+| Targeted manual fix/revert lessons | [LRN-13 manual acceptance](../LEARN-PHASE-COMPLETE/LRN-13-MANUAL-LEARNING-ACCEPTANCE.md) |
+| Logging, metrics, failures | [Logging and monitoring](LOGGING-AND-MONITORING.md) · [reliable events troubleshooting](TROUBLESHOOTING/fnd05-reliable-events.md) |
 
-### Setup & Configuration
-- **[Local Environment Setup](README.md)** — First-time setup (.env, Docker, database)
-- **[Docker Setup](DOCKER-SETUP.md)** — Docker Compose configuration
-- **[Database Setup](DATABASE-SETUP.md)** — PostgreSQL, Alembic, migrations
-- **[Cloud Setup](CLOUD-SETUP.md)** — Google Cloud, Cloud SQL, storage
-- **[Vertex AI Setup](VERTEX-AI-SETUP.md)** — Vertex AI configuration
+## Deployment safety
 
-### Troubleshooting
-- **[Troubleshooting by Feature](TROUBLESHOOTING/BY-FEATURE.md)** — LRN-01-07 common issues
-- **[Database Troubleshooting](TROUBLESHOOTING/DATABASE-ISSUES.md)** — PostgreSQL issues
-- **[Cloud Troubleshooting](TROUBLESHOOTING/CLOUD-ISSUES.md)** — GCP issues
-- **[Common Mistakes](TROUBLESHOOTING/COMMON-MISTAKES.md)** — What developers often get wrong
-
-### Monitoring & Logging
-- **[Logging & Monitoring](LOGGING-AND-MONITORING.md)** — Logging configuration, log levels
-
----
-
-## Quick Links
-
-| Task | Go to |
-|------|-------|
-| First-time setup | [Local Environment Setup](README.md) |
-| Run tests | See each LRN feature's LOCAL-TESTING.md |
-| Deploy to cloud | [Cloud Setup](CLOUD-SETUP.md) |
-| Something's broken | [Troubleshooting](TROUBLESHOOTING/BY-FEATURE.md) |
-| Configure logging | [Logging & Monitoring](LOGGING-AND-MONITORING.md) |
-
----
-
-## Developer Bible
-
-For comprehensive onboarding and testing procedures, see the Developer Team Guide PDF (the "bible").
-
----
-
-**Note:** Cloud deployment is pending FND-06 infrastructure work.
+- Use reviewed commit-tagged images and explicit source/database/project restrictions. Confirm the actual Cloud SQL address, database, service-account grants, secrets and private networking *before* deploying.
+- Existing API/Intelligence Cloud Run services are internal/IAM-protected. Do **not** make them public just to receive ADO hooks; that needs its own approved ingress/security decision.
+- A manual run still needs passing migrations, service health, real source connectivity, indexed-snapshot integrity, cited Brief output and safe defect outcome. Cloud deployment and acceptance are distinct steps.
+- Do not run disposable database integration fixtures against the published Genoa Kiosk evidence database.

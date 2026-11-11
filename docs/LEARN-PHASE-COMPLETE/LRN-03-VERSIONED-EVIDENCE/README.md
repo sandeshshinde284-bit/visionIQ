@@ -117,7 +117,7 @@ if ($LASTEXITCODE -ne 0) { throw "LRN-03 boundary tests failed" }
   exists ([06](06-Index-Retrieval-Deployment-Audit.md)). The LEARN search index (LRN-08 and later) is
   being built on `feature/learn-08-14`; it must pass the sentinel test described in 06 once merged.
 - **Per-engineer access to Confluence pages** is decided at read time by LRN-02's live Confluence
-  permission check; see [LRN-02 acceptance](../LRN-02-confluence/04-Acceptance-and-LRN03-Handoff.md).
+  permission check; see [LRN-02 acceptance](../LRN-02-CONFLUENCE/04-Acceptance-and-LRN03-Handoff.md).
 - **Bucket-wide retention and IAM** are infrastructure responsibilities; the code prevents overwrites
   of individual objects.
 - **Rows stored before the redaction hardening** keep their old metadata until they are re-imported.
@@ -130,9 +130,9 @@ if ($LASTEXITCODE -ne 0) { throw "LRN-03 boundary tests failed" }
    job fail on `feature/learn` since the test was added (commit `9c05d76`). Both should report an
    explicit **skip** when not opted in.
 2. Build warnings (63–65 depending on the run) are analyzer advisories, not failures; see the
-   [LRN-01 warning review](../LRN-01-history-connectors/acceptance.md).
+   [LRN-01 warning review](../LRN-01-HISTORY-CONNECTORS/acceptance.md).
 3. Historic rows: re-import or backfill if older metadata must match the hardened allowlist.
 
-**Related:** [LRN-01 visual guide](../LRN-01-history-connectors/visual-guide.md) ·
-[LRN-02 acceptance](../LRN-02-confluence/04-Acceptance-and-LRN03-Handoff.md) ·
-[Canonical evidence contract](../../lrn03-canonical-evidence-contract.md)
+**Related:** [LRN-01 visual guide](../LRN-01-HISTORY-CONNECTORS/visual-guide.md) ·
+[LRN-02 acceptance](../LRN-02-CONFLUENCE/04-Acceptance-and-LRN03-Handoff.md) ·
+[Canonical evidence contract](CONTRACTS.md)

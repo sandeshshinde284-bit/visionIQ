@@ -58,7 +58,7 @@ Local JSONL is useful for checking shapes and counts; it is not an ACL-aware ret
 
 ## 5. Real test observations versus illustration
 
-The previously documented LRN-01 runs found **4,438 work items, 9 repositories and 22 pipelines** (inventory recorded in the [test report](../../LRN-01-Test-Report.md); counts change as ADO grows) in the approved inventory; test evidence further includes **86 builds and 149 links**, **402/402 regression tests**, and **8/8 changed-file fidelity**. Consult the dated [test report](../../LRN-01-Test-Report.md) for scope and caveats. None of these figures alone proves the AI can produce a correct fix recommendation.
+The previously documented LRN-01 runs found **4,438 work items, 9 repositories and 22 pipelines** (inventory recorded in the [test report](../../REVIEW-AND-AUDIT/2026-Q4/LRN-01-Test-Report.md); counts change as ADO grows) in the approved inventory; test evidence further includes **86 builds and 149 links**, **402/402 regression tests**, and **8/8 changed-file fidelity**. Consult the dated [test report](../../REVIEW-AND-AUDIT/2026-Q4/LRN-01-Test-Report.md) for scope and caveats. None of these figures alone proves the AI can produce a correct fix recommendation.
 
 ## 6. Where to go next
 

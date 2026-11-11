@@ -3,14 +3,14 @@
 VisionIQ learns from engineering history (tickets, pull requests, commits, builds) and briefs engineers
 on every new defect or enhancement. AI proposes; engineers decide. Nothing is merged automatically.
 
-This repository is a hybrid build: an ASP.NET Core API and a Python (FastAPI) intelligence service, both
-backed by PostgreSQL with pgvector. Cloud deployment (Google Cloud) comes later.
+This repository is a hybrid build: an ASP.NET Core 10 API and a Python (FastAPI) intelligence service, both
+backed by PostgreSQL with pgvector. Google Cloud infrastructure and manual deployments exist, but the integrated source-to-Brief/DEFECT cloud acceptance is still pending.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `src/VisionIQ.Api` | ASP.NET Core 8 API (port 5100) |
+| `src/VisionIQ.Api` | ASP.NET Core 10 API (port 5100) |
 | `src/VisionIQ.Intelligence` | Python FastAPI service (port 8000), package `app` |
 | `tests/VisionIQ.Api.Tests` | xUnit tests for the API |
 | `tests/intelligence` | pytest tests for the Python service |
@@ -39,7 +39,7 @@ dotnet run --project src/VisionIQ.Api
 
 ## Database foundation
 
-SQLAlchemy/Alembic handles database migrations, with PostgreSQL enforcing separate .NET and Python runtime permissions. See [db/README.md](db/README.md). The bootstrap supports existing local volumes without deleting data. Cloud SQL provisioning is deferred to the approved cloud infrastructure story.
+SQLAlchemy/Alembic handles database migrations, with PostgreSQL enforcing separate .NET and Python runtime permissions. See [db/README.md](db/README.md). The bootstrap supports existing local volumes without deleting data. Cloud SQL exists in the approved development project; validate permissions, connectivity and migrations before a manual deployment.
 
 ## Checks
 
@@ -53,4 +53,12 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
-Python 3.12 and the .NET 8 SDK are the pinned versions (`.python-version`, `global.json`).
+Python 3.12 and the .NET 10 SDK are the pinned versions (`.python-version`, `global.json`).
+
+## Current documentation
+
+- [Start here](docs/START-HERE/README.md)
+- [Single living LRN-01–13 LEARN handbook](docs/LEARN-PHASE-COMPLETE/LEARN-HANDBOOK.md)
+- [Operations, manual deployment, cloud and troubleshooting](docs/OPERATIONS-AND-INFRASTRUCTURE/README.md)
+
+LEARN is operated manually during the hackathon. Merge history or isolated fixture tests do not prove live source/cloud acceptance; automatic PR-triggered learning and Pub/Sub knowledge-change publication are deferred.
