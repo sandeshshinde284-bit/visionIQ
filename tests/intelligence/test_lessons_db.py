@@ -198,6 +198,13 @@ def test_review_requires_a_named_human_and_records_their_verdict() -> None:
         )
     assert revision == 2  # 1 was the automated CREATE_NEW; this is the human verdict
     assert evidence.lessons()[-1] == (2, "reviewed", "verified", "REVISE_EXISTING", 2)
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM knowledge.change_events WHERE subject = %s "
+            "AND event_type = 'lesson.reviewed'",
+            (pattern_id,),
+        ).fetchone()[0] == 1
+
 
 
 def test_fork_splits_a_pattern_and_rejects_a_split_too_small_to_remain_a_lesson() -> None:
@@ -224,6 +231,13 @@ def test_fork_splits_a_pattern_and_rejects_a_split_too_small_to_remain_a_lesson(
             rationale="These two actually come from an unrelated regression.",
         )
     assert new_pattern_id != pattern_id
+    with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM knowledge.change_events WHERE subject = %s "
+            "AND event_type = 'lesson.forked'",
+            (pattern_id,),
+        ).fetchone()[0] == 1
+
     original_revisions = evidence.lessons()
     assert original_revisions[-1][:4] == (2, "candidate", "unverified", "REVISE_EXISTING")
     assert original_revisions[-1][4] == 2  # 2 members remain on the original pattern
@@ -271,6 +285,12 @@ def test_ambiguous_observation_requires_explicit_human_resolution() -> None:
             "Confirmed the same fix behavior and affected files.",
         )
         assert chosen == options[0]
+        assert conn.execute(
+            "SELECT count(*) FROM knowledge.change_events WHERE subject = %s "
+            "AND event_type = 'lesson.observation_resolved'",
+            (chosen,),
+        ).fetchone()[0] == 1
+
 
     with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
         assert conn.execute(
