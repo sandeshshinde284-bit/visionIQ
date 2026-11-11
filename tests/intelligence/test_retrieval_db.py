@@ -49,7 +49,7 @@ def demo_history(corpus: Corpus) -> dict[str, str]:
             "work_item_current",
             bug(
                 102,
-                "Duplicate receipt printed on retry",
+                "Barcode print fails after payment retry; duplicate receipt",
                 "Retrying a captured payment prints twice.",
             ),
         ),
