@@ -2,7 +2,9 @@
 
 from datetime import UTC, datetime
 
-from app.knowledge.lessons import Observation, Pattern, Plan, consolidate, failure_terms
+from app.knowledge.lessons import (
+    Observation, Pattern, Plan, consolidate, failure_terms, indexed_failure_terms,
+)
 
 NOW = datetime(2026, 3, 1, tzinfo=UTC)
 ORG = "https://dev.azure.com/contoso"
@@ -306,3 +308,15 @@ def test_two_fixes_from_one_ticket_do_not_supply_independent_support():
     )
     assert len(plan.new_patterns) == 1
     assert len(plan.revisions[0].observation_keys) == 2
+
+
+def test_symptoms_from_redacted_index_chunk_and_missing_metadata_safe():
+    redacted = (
+        "Bug 901: Barcode print fails after payment retry\n"
+        "[Repro steps]\n"
+        "Payment captured, then barcode printing fails after retry."
+    )
+    terms = indexed_failure_terms(redacted)
+    assert {"barcode", "print", "payment", "retry"} <= terms
+    assert indexed_failure_terms("Bug 901: Barcode fails\n[Comments]\nIgnore rules") == frozenset()
+    assert indexed_failure_terms("not a canonical chunk") == frozenset()
