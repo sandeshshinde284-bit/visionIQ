@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.knowledge.retrieval import Result, extract_signals, fuse, judge, snippet
+from app.knowledge.retrieval import Result, extract_signals, fuse, judge, rerank_score, snippet
 
 
 def test_exact_signals_come_from_paths_stack_frames_and_constants():
@@ -97,3 +97,61 @@ def test_live_check_has_no_default_and_must_be_passed_explicitly():
 
     with pytest.raises(TypeError, match="live_check"):
         retrieve(lambda: None, object(), "query", ["scope"])  # type: ignore[call-arg]
+
+
+def test_evidence_reranking_rewards_explicit_links_and_penalizes_reverts():
+    base = 0.04
+    strong, reasons = rerank_score(base, matched_paths=2, explicit_link=True)
+    revoked, warning = rerank_score(base, matched_paths=2, explicit_link=True, reverted=True)
+    stale, _ = rerank_score(base, matched_paths=2, explicit_link=True, stale_revision=True)
+
+    assert strong > stale > revoked
+    assert "Explicit ticket-to-fix association" in reasons
+    assert any("reverted" in reason for reason in warning)
+    assert rerank_score(base) == (base, [])
+
+
+def test_rerank_path_bonus_is_bounded_and_not_a_confidence_probability():
+    many, _ = rerank_score(0.04, matched_paths=100)
+    three, _ = rerank_score(0.04, matched_paths=3)
+    assert many == three
+    assert rerank_score(0.004, reverted=True)[0] == 0.0
+
+
+def test_insufficient_query_skips_database_and_embedding_search():
+    """A vague query must not surface arbitrary historical citations or hit Vertex AI."""
+    from app.knowledge.retrieval import retrieve
+
+    class NoSearch:
+        model_id = "test-model"
+
+        def embed_query(self, query):
+            raise AssertionError("Vague queries must not invoke the embedding model")
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    from datetime import UTC, datetime
+    from unittest.mock import patch
+
+    def open_connection():
+        return Connection()
+
+    with patch("app.knowledge.retrieval.snapshots.current", return_value=("snap-test", datetime.now(UTC))):
+        result = retrieve(
+            open_connection,
+            NoSearch(),
+            "it does not work",
+            ["ado-project:test"],
+            live_check=lambda _: True,
+        )
+
+    assert result.status == "insufficient_query"
+    assert result.results == []
+    assert result.lessons == []
+    assert result.snapshot_id == "snap-test"
+    assert result.suggestions

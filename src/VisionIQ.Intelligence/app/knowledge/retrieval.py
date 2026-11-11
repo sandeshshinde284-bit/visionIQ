@@ -112,6 +112,8 @@ class Result:
     counterevidence: list[str] = field(default_factory=list)
     # Source text is data, never instructions: text addressed to an AI is flagged for later phases.
     warnings: list[str] = field(default_factory=list)
+    # Traceable ranking factors; never describe an unverified fix as successful.
+    rank_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -173,7 +175,8 @@ WITH wanted AS (
       AND regexp_replace(sn.native_id, '{SYMBOL_NAME_PATTERN}', '\\1') = ANY(%(symbols)s::text[])
 )
 SELECT t.item_key, count(DISTINCT w.name) AS matched,
-       bool_or(jsonb_array_length(l.revert_commit_shas) > 0) AS reverted
+       bool_or(jsonb_array_length(l.revert_commit_shas) > 0) AS reverted,
+       bool_or(l.source_classification = 'explicit') AS explicit_link
 FROM evidence.ticket_fix_links AS l
 JOIN evidence.fix_change_sets AS cs
   ON cs.source_instance = l.source_instance AND cs.project_id = l.project_id
@@ -195,7 +198,18 @@ LIMIT %(limit)s
 """
 
 LESSON_SQL = """
-SELECT p.pattern_id::text, r.revision, r.status, r.title, r.signature_paths
+SELECT p.pattern_id::text, r.revision, r.status, r.title, r.signature_paths,
+       ARRAY(
+           SELECT t.item_key
+           FROM knowledge.lesson_memberships AS m
+           JOIN knowledge.lesson_observations AS o ON o.observation_key = m.observation_key
+           JOIN evidence.source_items AS t
+             ON t.provider = 'azure_devops' AND t.source_instance = o.source_instance
+            AND t.project_id = o.project_id AND t.kind = 'work_item_current'
+            AND t.external_id = o.ticket_id AND t.deleted_at IS NULL
+           WHERE m.pattern_id = p.pattern_id
+           ORDER BY t.item_key
+       ) AS supporting_item_keys
 FROM knowledge.lesson_patterns AS p
 JOIN knowledge.lesson_revisions AS r
   ON r.pattern_id = p.pattern_id AND r.revision = p.latest_revision
@@ -288,6 +302,39 @@ def judge(signals: Signals, results: list[Result]) -> tuple[str, list[str], list
     return "answered", [], []
 
 
+# ---- Evidence-based reranking ---------------------------------------------------------------
+
+
+def rerank_score(
+    base: float,
+    *,
+    matched_paths: int = 0,
+    explicit_link: bool = False,
+    reverted: bool = False,
+    stale_revision: bool = False,
+) -> tuple[float, list[str]]:
+    """Small, auditable adjustments to RRF using *observed* engineering evidence.
+
+    The numbers are heuristic ranking weights, not confidence or causality probabilities.
+    Missing tests, unsupported outcomes and absent graph links receive no fabricated bonus.
+    """
+    reasons: list[str] = []
+    score = base
+    if matched_paths > 0:
+        score += 0.004 * min(matched_paths, 3)
+        reasons.append(f"Historical fix changed {matched_paths} matching file(s)")
+    if explicit_link:
+        score += 0.004
+        reasons.append("Explicit ticket-to-fix association")
+    if reverted:
+        score -= 0.012
+        reasons.append("Linked fix was reverted; evidence is disputed")
+    if stale_revision:
+        score -= 0.006
+        reasons.append("Snippet is older than the current source revision")
+    return round(max(0.0, score), 6), reasons
+
+
 # ---- Orchestration --------------------------------------------------------------------------
 
 
@@ -338,6 +385,24 @@ def retrieve(
         )
     snapshot_id, published_at = served
     age = round((datetime.now(UTC) - published_at).total_seconds(), 1)
+
+    # Abstain *before* searching or calling the embedding provider. Reporting
+    # insufficient_query while returning incidental matches would imply that
+    # unrelated historical tickets were relevant to a meaningless query.
+    initial_status, initial_reasons, initial_suggestions = judge(signals, [])
+    if initial_status == "insufficient_query":
+        return EvidenceBundle(
+            status=initial_status,
+            reasons=initial_reasons,
+            suggestions=initial_suggestions,
+            results=[],
+            lessons=[],
+            model_id=embedder.model_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+            snapshot_id=snapshot_id,
+            snapshot_age_seconds=age,
+        )
+
     files = [f.lower() for f in signals.files]
     terms = " ".join(signals.terms + signals.symbols + signals.files) or clean
 
@@ -380,7 +445,8 @@ def retrieve(
             return []
         with connect() as conn:
             return [
-                Lesson(*row) for row in conn.execute(LESSON_SQL, {"files": files, "scopes": scopes})
+                (Lesson(*row[:5]), tuple(row[5]))
+                for row in conn.execute(LESSON_SQL, {"files": files, "scopes": scopes})
             ]
 
     with ThreadPoolExecutor(max_workers=4) as pool:  # step 3: lanes run in parallel
@@ -398,13 +464,14 @@ def retrieve(
     degraded = [
         f"{n} search unavailable ({type(e).__name__})" for n, (_, e) in outcomes.items() if e
     ]
-    keyword, vector, code_rows, lessons = (
+    keyword, vector, code_rows, lesson_candidates = (
         outcomes[n][0] for n in ("keyword", "vector", "code_path", "lessons")
     )
 
     code_path = [row[0] for row in code_rows]
     reverted = {row[0] for row in code_rows if row[2]}
-    matched = {row[0]: row[1] for row in code_rows}
+    matched = {row[0]: int(row[1]) for row in code_rows}
+    explicit = {row[0] for row in code_rows if row[3]}
     lanes = {"keyword": keyword, "vector": vector, "code_path": code_path}
     fused = fuse(
         lanes, {"code_path": 1.5}
@@ -426,10 +493,22 @@ def retrieve(
                 {"keys": list(readable), "scopes": scopes, "q": terms, "snapshot": snapshot_id},
             )
         }
+    # The callback is mandatory and fail-closed. Cache its outcome across result/lesson checks
+    # so one candidate cannot appear in a lesson after its individual access was denied.
+    checked: dict[str, bool] = {}
+
+    def access_allowed(key: str) -> bool:
+        if key not in checked:
+            try:
+                checked[key] = bool(live_check(key))
+            except Exception:
+                checked[key] = False
+        return checked[key]
+
     results: list[Result] = []
     query_terms = list(signals.files) + list(signals.symbols) + list(signals.terms)
     for key in candidates:
-        if key not in readable or key not in chunks or not live_check(key):
+        if key not in readable or key not in chunks or not access_allowed(key):
             continue  # revoked, deleted, re-scoped since indexing, or denied live: never shown
         _, chunk_key, kind, section, content, chunk_revision, url = chunks[key]
         current_revision = readable[key][1]
@@ -446,12 +525,19 @@ def retrieve(
         )
         if chunk_revision != current_revision:
             counter.append("The source changed since it was indexed; the snippet may be outdated.")
+        reranked, rank_reasons = rerank_score(
+            fused[key],
+            matched_paths=matched.get(key, 0),
+            explicit_link=key in explicit,
+            reverted=key in reverted,
+            stale_revision=chunk_revision != current_revision,
+        )
         results.append(
             Result(
                 item_key=key,
                 kind=kind,
                 title=content.split("\n", 1)[0],
-                score=round(fused[key], 6),
+                score=reranked,
                 lanes=lane_info,
                 snippet=snippet(content, [t.lower() for t in query_terms]),
                 citation={
@@ -463,10 +549,18 @@ def retrieve(
                 },
                 counterevidence=counter,
                 warnings=warnings,
+                rank_reasons=rank_reasons,
             )
         )
-        if len(results) == limit:
-            break
+    results.sort(key=lambda item: (-item.score, item.item_key))
+    results = results[:limit]
+    # A lesson itself can expose restricted engineering knowledge: every supporting
+    # ticket must pass the *same* live callback as an individual search result.
+    lessons = [
+        lesson
+        for lesson, member_keys in lesson_candidates
+        if member_keys and all(access_allowed(key) for key in member_keys)
+    ]
     status, reasons, suggestions = judge(signals, results)
     if degraded:
         reasons = [*reasons, *degraded, "Results may be incomplete."]
