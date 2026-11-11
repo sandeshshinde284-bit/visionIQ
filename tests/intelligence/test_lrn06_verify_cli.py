@@ -4,7 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from app.code_intelligence.verify_cli import main, report
+from app.code_intelligence.verify_cli import main
 
 
 def git(repo: Path, *args: str) -> str:
