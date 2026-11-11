@@ -46,7 +46,7 @@ class Evidence:
     def __init__(self) -> None:
         self.org = f"https://dev.azure.com/t{uuid.uuid4().hex[:10]}"
 
-    def defect(self, ticket, kind="Bug", files=FILES, review=None, deleted=False, reverts=()):
+    def defect(self, ticket, kind="Bug", files=FILES, review=None, deleted=False, reverts=(), title="Barcode print fails after payment retry"):
         item = _sha(self.org + ticket)
         with psycopg.connect(_conninfo("API")) as conn:
             conn.execute(
@@ -70,7 +70,7 @@ class Evidence:
                 "normalizer_version, raw_snapshot_uri, archive_status, acl_verified, "
                 "acl_principals) VALUES (%s, '1', now(), now(), repeat('0', 64), 'https://x', "
                 "'t', %s, 'v', 'v', 'gs://t/x', 'ARCHIVED', true, '[\"p\"]')",
-                (item, json.dumps({"kind": "work_item_current", "workItemType": kind})),
+                (item, json.dumps({"kind": "work_item_current", "workItemType": kind, "title": title})),
             )
             conn.execute(
                 "INSERT INTO evidence.ticket_fix_links (association_key, source_instance, "
@@ -317,3 +317,22 @@ def test_api_role_cannot_modify_lesson_history() -> None:
                 cause_status="verified",
             )
         conn.rollback()
+
+
+def test_same_changed_file_with_unrelated_bug_symptoms_is_not_a_lesson() -> None:
+    evidence = Evidence()
+    files = ["/src/PaymentService.cs"]
+    evidence.defect("801", files=files, title="Barcode print fails after payment retry")
+    evidence.defect("802", files=files, title="Card reader timeout causes authorization failure")
+    evidence.defect("803", files=files, title="Refund amount displayed incorrectly after cancellation")
+    run(_conninfo("INTELLIGENCE"))
+    assert evidence.lessons() == []
+
+
+def test_similar_bug_symptoms_form_one_unverified_lesson() -> None:
+    evidence = Evidence()
+    evidence.defect("811", title="Barcode printing fails after payment retry")
+    evidence.defect("812", title="Barcode print fails after payment retry")
+    evidence.defect("813", title="Payment retry causes barcode print failure")
+    run(_conninfo("INTELLIGENCE"))
+    assert evidence.lessons() == [(1, "candidate", "unverified", "CREATE_NEW", 3)]

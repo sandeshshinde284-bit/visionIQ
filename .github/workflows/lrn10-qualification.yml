@@ -1,0 +1,101 @@
+name: LRN-10 symptom qualification
+
+on:
+  pull_request:
+    paths:
+      - "src/VisionIQ.Intelligence/app/knowledge/lessons.py"
+      - "src/VisionIQ.Intelligence/app/knowledge/lesson_store.py"
+      - "tests/intelligence/test_lessons.py"
+      - "tests/intelligence/test_lessons_db.py"
+      - "tests/intelligence/test_lessons_indexed_db.py"
+      - ".github/workflows/lrn10-qualification.yml"
+  workflow_dispatch:
+
+jobs:
+  unit-and-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run LRN-10 evidence qualification unit tests
+        env:
+          PYTHONPATH: src/VisionIQ.Intelligence
+        run: python -m pytest -q tests/intelligence/test_lessons.py
+      - name: Lint new qualification code and isolated index test
+        run: >-
+          python -m ruff check
+          src/VisionIQ.Intelligence/app/knowledge/lessons.py
+          tests/intelligence/test_lessons.py
+          tests/intelligence/test_lessons_indexed_db.py
+      - name: Check for critical Python correctness errors in affected modules
+        run: >-
+          python -m ruff check --select E4,E7,E9,F
+          src/VisionIQ.Intelligence/app/knowledge/lesson_store.py
+          tests/intelligence/test_lessons_db.py
+          tests/intelligence/test_retrieval_db.py
+          tests/intelligence/test_kb_readiness_db.py
+          tests/intelligence/test_lrn13_db.py
+
+  isolated-postgres:
+    name: LRN-10 plus dependent disposable DB tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DB_TARGET: local
+      DB_HOST: "127.0.0.1"
+      DB_PORT: "5432"
+      DB_LOCAL_NAME: visioniq
+      DB_LOCAL_USER: visioniq
+      DB_LOCAL_PASSWORD: ci-lrn10-admin-local-only
+      DB_API_USER: visioniq_api
+      DB_API_PASSWORD: ci-lrn10-api-local-only
+      DB_INTELLIGENCE_USER: visioniq_intelligence
+      DB_INTELLIGENCE_PASSWORD: ci-lrn10-intelligence-local-only
+      DB_SSL_MODE: disable
+      PYTHONPATH: src/VisionIQ.Intelligence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install database test requirements
+        run: python -m pip install -r requirements.txt
+      - name: Start disposable local pgvector PostgreSQL
+        run: docker compose up --wait -d postgres
+      - name: Run each suite on its own freshly migrated disposable DB
+        run: >-
+          python scripts/learn_e2e_stages.py isolated-pytest
+          tests/intelligence/test_lessons_db.py
+          tests/intelligence/test_lessons_indexed_db.py
+          tests/intelligence/test_retrieval_db.py
+          tests/intelligence/test_kb_readiness_db.py
+          tests/intelligence/test_lrn13_db.py
+      - name: Show failed suite diagnostics without exposing secrets
+        if: failure()
+        run: |
+          for suite in test_lessons_db test_lessons_indexed_db test_retrieval_db test_kb_readiness_db test_lrn13_db; do
+            for log in artifacts/learn-e2e/isolated-pytest/*/"${suite}.log"; do
+              if [ -f "$log" ]; then
+                echo "::group::$suite"
+                tail -n 110 "$log"
+                echo "::endgroup::"
+              fi
+            done
+          done
+      - name: Upload isolated DB execution logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lrn10-isolated-postgres-results
+          path: artifacts/learn-e2e/isolated-pytest/
+          if-no-files-found: warn
+      - name: Destroy only CI-created PostgreSQL volumes
+        if: always()
+        run: docker compose down --volumes --remove-orphans

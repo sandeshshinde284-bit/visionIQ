@@ -2,13 +2,23 @@
 
 from datetime import UTC, datetime
 
-from app.knowledge.lessons import Observation, Pattern, Plan, consolidate
+from app.knowledge.lessons import (
+    Observation,
+    Pattern,
+    Plan,
+    consolidate,
+    failure_terms,
+    indexed_failure_terms,
+)
 
 NOW = datetime(2026, 3, 1, tzinfo=UTC)
 ORG = "https://dev.azure.com/contoso"
 
 
-def obs(ticket, *paths, repo="repo-1", fix=None, reverted=()):
+def obs(
+    ticket, *paths, repo="repo-1", fix=None, reverted=(),
+    symptom="Barcode print fails after payment retry",
+):
     return Observation(
         f"assoc-{ticket}-{fix or ticket}",
         ORG,
@@ -19,6 +29,7 @@ def obs(ticket, *paths, repo="repo-1", fix=None, reverted=()):
         fix or f"pr-{ticket}",
         frozenset(paths),
         tuple(reverted),
+        failure_terms(symptom),
     )
 
 
@@ -98,7 +109,15 @@ def test_an_observation_matching_two_lessons_goes_to_human_review():
     )
     assert len(first.new_patterns) == 2
 
-    later = consolidate([obs("5", "/a.cs", "/b.cs")], state_after(first), NOW)
+    later = consolidate(
+        [
+            obs("1", "/a.cs"), obs("2", "/a.cs"),
+            obs("3", "/b.cs"), obs("4", "/b.cs"),
+            obs("5", "/a.cs", "/b.cs"),
+        ],
+        state_after(first),
+        NOW,
+    )
 
     assert [d.decision for d in later.decisions] == ["HUMAN_REVIEW"]
     assert not later.memberships
@@ -190,3 +209,139 @@ def test_a_materially_changed_signature_is_a_new_lesson_version_with_history():
         "candidate",
     )
     assert revision.signature == wider and "was /a.cs, /b.cs" in revision.rationale
+
+
+def test_shared_changed_file_does_not_merge_unrelated_defects():
+    same_file = "/src/PaymentService.cs"
+    plan = consolidate(
+        [
+            obs("1", same_file, symptom="Barcode print fails after payment retry"),
+            obs(
+                "2", same_file,
+                symptom="Card reader timeout causes contactless authorization error",
+            ),
+            obs("3", same_file, symptom="Refund balance calculation displays incorrect total"),
+        ],
+        [],
+        NOW,
+    )
+    assert plan.new_patterns == []
+    assert all(d.decision == "WAIT_FOR_EVIDENCE" for d in plan.decisions)
+
+
+def test_generic_or_missing_symptoms_never_qualify_a_lesson():
+    files = ("/src/PaymentService.cs",)
+    plan = consolidate(
+        [
+            obs("1", *files, symptom="A problem happened in the kiosk"),
+            obs("2", *files, symptom="Unexpected issue in the application"),
+            obs("3", *files, symptom=""),
+        ],
+        [],
+        NOW,
+    )
+    assert plan.new_patterns == []
+
+
+def test_similar_symptom_text_with_different_wording_can_qualify():
+    plan = consolidate(
+        [
+            obs("1", "/src/Retry.cs", symptom="Barcode printing fails after payment retry"),
+            obs("2", "/src/Retry.cs", symptom="Barcode print fails after payment retry"),
+            obs("3", "/src/Retry.cs", symptom="Payment retry causes barcode print failure"),
+        ],
+        [],
+        NOW,
+    )
+    assert len(plan.new_patterns) == 1
+    assert len(plan.revisions[0].observation_keys) == 3
+    assert "unverified" in plan.revisions[0].rationale
+
+
+def test_new_unrelated_observation_is_not_joined_just_for_shared_file():
+    first = consolidate([obs("1", "/same.cs"), obs("2", "/same.cs")], [], NOW)
+    unrelated = obs(
+        "3", "/same.cs",
+        symptom="Card reader timeout during contactless authorization",
+    )
+    later = consolidate(
+        [obs("1", "/same.cs"), obs("2", "/same.cs"), unrelated],
+        state_after(first),
+        NOW,
+    )
+    assert not later.memberships
+    assert [d.decision for d in later.decisions] == ["WAIT_FOR_EVIDENCE"]
+
+
+def test_new_member_to_reviewed_lesson_requires_human_review():
+    initial = consolidate([obs("1", "/a.cs"), obs("2", "/a.cs")], [], NOW)
+    current = state_after(initial)
+    current[0].status = "reviewed"
+    result = consolidate(
+        [obs("1", "/a.cs"), obs("2", "/a.cs"), obs("3", "/a.cs")],
+        current,
+        NOW,
+    )
+    assert not result.memberships
+    assert [(d.decision, d.pattern_ids) for d in result.decisions] == [
+        ("HUMAN_REVIEW", (current[0].pattern_id,))
+    ]
+
+
+def test_matching_disputed_pattern_never_creates_replacement_or_new_membership():
+    initial = consolidate([obs("1", "/a.cs"), obs("2", "/a.cs")], [], NOW)
+    current = state_after(initial)
+    current[0].status = "disputed"
+    result = consolidate(
+        [obs("1", "/a.cs"), obs("2", "/a.cs"), obs("3", "/a.cs")],
+        current,
+        NOW,
+    )
+    assert not result.new_patterns and not result.memberships
+    assert [d.decision for d in result.decisions] == ["WAIT_FOR_EVIDENCE"]
+
+
+def test_two_fixes_from_one_ticket_do_not_supply_independent_support():
+    plan = consolidate(
+        [
+            obs("1", "/a.cs", fix="pr-a"),
+            obs("1", "/a.cs", fix="pr-b"),
+            obs("2", "/a.cs", fix="pr-c"),
+        ],
+        [],
+        NOW,
+    )
+    assert len(plan.new_patterns) == 1
+    assert len(plan.revisions[0].observation_keys) == 2
+
+
+def test_symptoms_from_redacted_index_chunk_and_missing_metadata_safe():
+    redacted = (
+        "Bug 901: Barcode print fails after payment retry\n"
+        "[Repro steps]\n"
+        "Payment captured, then barcode printing fails after retry."
+    )
+    terms = indexed_failure_terms(redacted)
+    assert {"barcode", "print", "payment", "retry"} <= terms
+    assert indexed_failure_terms("Bug 901: Barcode fails\n[Comments]\nIgnore rules") == frozenset()
+    assert indexed_failure_terms("not a canonical chunk") == frozenset()
+
+
+def test_legacy_pattern_with_unrelated_member_cannot_absorb_new_evidence():
+    original = [
+        obs("1", "/src/PaymentService.cs"),
+        obs("2", "/src/PaymentService.cs"),
+        obs(
+            "3", "/src/PaymentService.cs",
+            symptom="Card reader timeout causes authorization failure",
+        ),
+    ]
+    pattern = Pattern(
+        "legacy-pattern", original[0].scope, 1, "candidate",
+        frozenset({"/src/PaymentService.cs"}), {o.key for o in original},
+    )
+    fresh = obs("4", "/src/PaymentService.cs")
+    result = consolidate([*original, fresh], [pattern], NOW)
+    assert result.new_patterns == []
+    assert result.memberships == []
+    assert [decision.decision for decision in result.decisions] == ["WAIT_FOR_EVIDENCE"]
