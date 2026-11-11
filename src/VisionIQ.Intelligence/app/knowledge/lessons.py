@@ -104,6 +104,26 @@ def failure_terms(title: str, repro_steps: str = "") -> frozenset[str]:
     return terms
 
 
+def indexed_failure_terms(chunk_content: str) -> frozenset[str]:
+    """Read only redacted text from a current published search chunk.
+
+    The LRN-03 metadata contract intentionally does not store titles or bodies
+    in redacted_payload. LRN-08 chunks contain an already-redacted header
+    ("Bug <id>: <title>") and one labelled section. Do not mistake other
+    metadata or arbitrary document sections for failure evidence.
+    """
+    header, newline, remainder = chunk_content.partition("\n")
+    if not newline or not header.startswith("Bug "):
+        return frozenset()
+    _, separator, title = header.partition(": ")
+    if not separator or not title.strip():
+        return frozenset()
+    section, newline, text = remainder.partition("\n")
+    if not newline or section not in {"[Repro steps]", "[Description]"}:
+        return frozenset()
+    return failure_terms(title, text)
+
+
 def corroborated_failure(a: Observation, b: Observation) -> bool:
     """Both changed code and distinctive problem descriptions must agree."""
     if a.scope != b.scope or jaccard(a.paths, b.paths) < OVERLAP:
