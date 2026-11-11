@@ -102,6 +102,9 @@ def test_replay_a_fix_then_revert_the_lesson_moves_from_supported_to_disputed(tm
             "work_item_current",
             {"id": int(number), "workItemType": "Bug", "title": f"Barcode print fails after payment retry ({number})"},
         )
+    # LRN-03 metadata intentionally excludes titles and repro text; publish the
+    # redacted LRN-08 evidence before testing symptom-qualified lesson creation.
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     timeline = []
 
     corpus.fix("101", "201", FILES)
@@ -151,6 +154,7 @@ def test_lesson_history_lists_and_prints_a_timeline(capsys, monkeypatch) -> None
     for number in ("1", "2"):
         corpus.add("work_item_current", {"id": int(number), "workItemType": "Bug", "title": "Barcode print fails after payment retry"})
         corpus.fix(number, f"9{number}", FILES)
+    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     lessons_cli.run(conninfo("INTELLIGENCE"))
     with psycopg.connect(conninfo("API")) as conn:
         (pattern,) = conn.execute(
