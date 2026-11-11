@@ -3,7 +3,12 @@
 from datetime import UTC, datetime
 
 from app.knowledge.lessons import (
-    Observation, Pattern, Plan, consolidate, failure_terms, indexed_failure_terms,
+    Observation,
+    Pattern,
+    Plan,
+    consolidate,
+    failure_terms,
+    indexed_failure_terms,
 )
 
 NOW = datetime(2026, 3, 1, tzinfo=UTC)
