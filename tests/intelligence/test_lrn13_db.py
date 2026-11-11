@@ -100,7 +100,7 @@ def test_replay_a_fix_then_revert_the_lesson_moves_from_supported_to_disputed(tm
     for number in ("101", "102"):
         corpus.add(
             "work_item_current",
-            {"id": int(number), "workItemType": "Bug", "title": f"Barcode print fails ({number})"},
+            {"id": int(number), "workItemType": "Bug", "title": f"Barcode print fails after payment retry ({number})"},
         )
     timeline = []
 
@@ -149,7 +149,7 @@ def test_replay_a_fix_then_revert_the_lesson_moves_from_supported_to_disputed(tm
 def test_lesson_history_lists_and_prints_a_timeline(capsys, monkeypatch) -> None:
     corpus = Corpus()
     for number in ("1", "2"):
-        corpus.add("work_item_current", {"id": int(number), "workItemType": "Bug", "title": "t"})
+        corpus.add("work_item_current", {"id": int(number), "workItemType": "Bug", "title": "Barcode print fails after payment retry"})
         corpus.fix(number, f"9{number}", FILES)
     lessons_cli.run(conninfo("INTELLIGENCE"))
     with psycopg.connect(conninfo("API")) as conn:
