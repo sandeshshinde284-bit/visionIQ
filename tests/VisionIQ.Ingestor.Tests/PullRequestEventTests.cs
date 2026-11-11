@@ -4,6 +4,7 @@ using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Api.Features.TicketFixes;
 using VisionIQ.Ingestor.Ado;
 using VisionIQ.Ingestor.Cli;
+using VisionIQ.Ingestor.Sync;
 
 namespace VisionIQ.Ingestor.Tests;
 
@@ -115,8 +116,23 @@ public sealed class PullRequestEventTests
             return Task.FromResult(new EvidenceImportResult(evidence.ItemKey, evidence.Envelope.ProviderRevisionId, status));
         }
 
+        public Dictionary<string, PullRequestReviewRecord> Reviews { get; } = new(StringComparer.Ordinal);
+
         public int PullRequestRevisions => Revisions.Count(pair => pair.Key.Revision.StartsWith("active", StringComparison.Ordinal)
             || pair.Key.Revision.StartsWith("completed", StringComparison.Ordinal) || pair.Key.Revision.StartsWith("abandoned", StringComparison.Ordinal));
+    }
+
+    /// <summary>Observes real canonical writes without bypassing its projection behavior.</summary>
+    private sealed class RecordingEvidenceSink(ICanonicalEvidenceSink inner, Store store) : ICanonicalEvidenceSink
+    {
+        public async Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default)
+        {
+            await inner.WriteAsync(stream, key, record, cancellationToken);
+            if (stream == "pull-request-reviews" && record is PullRequestReviewRecord review)
+            {
+                store.Reviews[key] = review;
+            }
+        }
     }
 
     private sealed class Archive : IRawEvidenceArchive
@@ -162,7 +178,8 @@ public sealed class PullRequestEventTests
             new CanonicalEvidenceSink(new EvidenceIngestionService(new Archive(), store), options.OrganizationUrl, options.Tenant),
             claims, options.OrganizationUrl);
         var source = new AdoRepositorySource(DemoAdo.Client(ado.Handler()));
-        return (new AdoPullRequestChangeHandler(options, new AdoChangedPullRequestReader(source), evidence), store, claims);
+        return (new AdoPullRequestChangeHandler(
+            options, new AdoChangedPullRequestReader(source), new RecordingEvidenceSink(evidence, store)), store, claims);
     }
 
     private static SourceChangeNotification Change(string eventId = "evt-1") =>
@@ -231,6 +248,74 @@ public sealed class PullRequestEventTests
         Assert.All(claims.Upserted, claim => Assert.True(
             claim.Classification is TicketFixSourceClassification.Explicit or TicketFixSourceClassification.Inferred,
             "ingestion only records explicit or inferred claims; 'verified' exists only as a human review"));
+    }
+
+    [Fact]
+    public async Task Webhook_writes_separate_versioned_review_evidence_identical_to_sync()
+    {
+        var ado = new Ado
+        {
+            Reviewers = """[{"id":"reviewer-1","vote":10,"isRequired":true},{"id":"reviewer-2","vote":-5}]""",
+        };
+        var (handler, store, _) = Build(ado);
+        await handler.ApplyAsync(Change("created"));
+
+        Assert.Equal(2, store.Reviews.Count);
+        Assert.Equal(ReviewVoteStatus.Approved, store.Reviews.Values.Single(r => r.ReviewerId == "reviewer-1").Status);
+        Assert.Equal(ReviewVoteStatus.WaitingForAuthor, store.Reviews.Values.Single(r => r.ReviewerId == "reviewer-2").Status);
+
+        var record = Pr(reviewers: [R("reviewer-1", 10, required: true), R("reviewer-2", -5)]);
+        var syncSink = new InMemorySink();
+        await PullRequestReviewProjection.WriteAsync(syncSink, "contoso", record);
+        Assert.Equal(
+            store.Reviews.Keys.Order(StringComparer.Ordinal),
+            syncSink.Reviews.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            store.Reviews.Values.Select(r => (r.ReviewerId, r.Status, r.Vote)).OrderBy(x => x.ReviewerId),
+            syncSink.Reviews.Values.Select(r => (r.ReviewerId, r.Status, r.Vote)).OrderBy(x => x.ReviewerId));
+    }
+
+    private sealed class InMemorySink : IRecordSink
+    {
+        public Dictionary<string, PullRequestReviewRecord> Reviews { get; } = new(StringComparer.Ordinal);
+        public Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default)
+        {
+            if (stream == "pull-request-reviews" && record is PullRequestReviewRecord review)
+            {
+                Reviews[key] = review;
+            }
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task Webhook_review_vote_change_creates_a_new_review_revision_and_replay_is_stable()
+    {
+        var ado = new Ado { Reviewers = """[{"id":"reviewer-1","vote":0}]""" };
+        var (handler, store, _) = Build(ado);
+
+        await handler.ApplyAsync(Change("created"));
+        ado.Reviewers = """[{"id":"reviewer-1","vote":10}]""";
+        await handler.ApplyAsync(Change("review-updated"));
+        await handler.ApplyAsync(Change("review-updated"));
+
+        Assert.Equal(2, store.Reviews.Count);
+        Assert.Equal(2, store.Reviews.Keys.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(store.Reviews.Values, r => r.Vote == 0);
+        Assert.Contains(store.Reviews.Values, r => r.Vote == 10);
+        Assert.All(store.Reviews.Keys, key => Assert.Contains("/pull-request-review/42:reviewer-1@", key, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Webhook_replay_never_marks_review_evidence_as_verified_root_cause()
+    {
+        var ado = new Ado { Status = "completed", Reviewers = """[{"id":"reviewer-1","vote":10,"isRequired":true}]""" };
+        var (handler, store, claims) = Build(ado);
+        await handler.ApplyAsync(Change("merged"));
+        await handler.ApplyAsync(Change("created-late"));
+        Assert.Single(store.Reviews);
+        Assert.All(claims.Upserted, claim =>
+            Assert.True(claim.Classification is TicketFixSourceClassification.Explicit or TicketFixSourceClassification.Inferred));
     }
 
     [Fact]

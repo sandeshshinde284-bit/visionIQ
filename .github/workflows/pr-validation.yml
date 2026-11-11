@@ -49,6 +49,8 @@ jobs:
         run: docker build -f src/VisionIQ.Intelligence/Dockerfile -t visioniq-intelligence:ci .
       - name: Build migration image
         run: docker build -f db/Dockerfile -t visioniq-db-migrate:ci .
+      - name: Build ADO webhook host image (no network ingress deployed)
+        run: docker build -f src/VisionIQ.Ingestor.Cli/Dockerfile -t visioniq-ingestor-webhooks:ci .
 
   manual-deploy-scripts:
     name: Manual deployment PowerShell syntax and plan-only safety

@@ -40,6 +40,7 @@ $registry = "$($Region)-docker.pkg.dev/$Project/$Repository"
 $images = @(
     @{ Name = 'visioniq-api'; Dockerfile = 'src/VisionIQ.Api/Dockerfile' },
     @{ Name = 'visioniq-intelligence'; Dockerfile = 'src/VisionIQ.Intelligence/Dockerfile' },
+    @{ Name = 'visioniq-ingestor-webhooks'; Dockerfile = 'src/VisionIQ.Ingestor.Cli/Dockerfile' },
     @{ Name = 'visioniq-db-migrate'; Dockerfile = 'db/Dockerfile' }
 )
 
@@ -87,7 +88,7 @@ foreach ($image in $images) {
 }
 
 if ($Push) {
-    Write-Host 'All three image tags pushed. Capture their immutable digests from Artifact Registry.'
+    Write-Host 'All reviewed image tags pushed. Capture their immutable digests from Artifact Registry.'
     foreach ($image in $images) {
         & gcloud artifacts docker images list "$registry/$($image.Name)" --project=$Project --include-tags --format='table(package,version,tags)'
         if ($LASTEXITCODE -ne 0) { throw 'Could not verify pushed image metadata.' }
