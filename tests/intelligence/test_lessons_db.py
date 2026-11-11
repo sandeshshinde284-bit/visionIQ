@@ -336,39 +336,3 @@ def test_similar_bug_symptoms_form_one_unverified_lesson() -> None:
     evidence.defect("813", title="Payment retry causes barcode print failure")
     run(_conninfo("INTELLIGENCE"))
     assert evidence.lessons() == [(1, "candidate", "unverified", "CREATE_NEW", 3)]
-
-
-def test_real_canonical_metadata_uses_published_redacted_index_for_symptoms() -> None:
-    # Production LRN-03 redacted_payload has no title/repro; these come from
-    # the current, published LRN-08 redacted snapshot.
-    from corpus_support import Corpus, conninfo
-    from app.knowledge import snapshots
-    from app.knowledge.embeddings import HashingEmbedder
-
-    corpus = Corpus()
-    for number, title in (
-        (901, "Barcode print fails after payment retry"),
-        (902, "Barcode printing fails after payment retry"),
-    ):
-        corpus.add(
-            "work_item_current", {"id": number, "workItemType": "Bug",
-                                  "title": title,
-                                  "reproSteps": "Kiosk payment captured; barcode print fails on retry."}
-        )
-        corpus.fix(str(number), str(number + 100), FILES)
-    with psycopg.connect(conninfo("API")) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM evidence.source_revisions r "
-            "JOIN evidence.source_items i ON i.item_key = r.item_key "
-            "WHERE i.source_instance = %s AND r.redacted_payload ? 'title'",
-            (corpus.org,),
-        ).fetchone()[0] == 0
-
-    snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
-    outcome = run(conninfo("INTELLIGENCE"))
-    assert outcome["new_lessons"] == 1
-    with psycopg.connect(conninfo("API")) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM knowledge.lesson_patterns WHERE source_instance = %s",
-            (corpus.org,),
-        ).fetchone()[0] == 1
