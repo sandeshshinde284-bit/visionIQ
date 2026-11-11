@@ -1,23 +1,20 @@
-"""LRN-10: turn repeated failures into lessons (master design 6.10, 8.9, 6.20).
+"""LRN-10: consolidate repeated failure evidence without inventing common root causes.
 
-Pure and deterministic: the same evidence always gives the same decisions, so runs are
-repeatable and idempotent. No model is involved and no wording is compared (titles that look
-alike never merge lessons).
+Automatic lessons need two independent signals from at least two distinct defects:
+an explicit, undisputed ticket-to-fix link changing overlapping code files AND
+strong, independently observed failure-symptom overlap from current redacted ADO
+tickets. A shared file alone, generic titles or missing symptoms are insufficient.
+All automatically created lessons remain candidates with UNVERIFIED causes.
 
-Qualification rule (approved for LRN-10; thresholds are explicit constants):
-- An observation is a defect ticket with an EXPLICIT fix link (not disputed by review) plus
-  the files that fix CHANGED, ignoring build/lock/doc noise.
-- A lesson is created only when at least MIN_TICKETS distinct tickets have fixes whose changed
-  files overlap (Jaccard >= OVERLAP) in the same repository. One ticket stays an observation.
-- A new observation overlapping exactly one lesson joins it (LINK_EXISTING); overlapping
-  several goes to HUMAN_REVIEW; overlapping none and no peers waits for evidence.
-- The cause is always unverified: only a named human can verify it (the database enforces it).
-- A later revert of any supporting fix appends a DISPUTED revision; earlier ones are kept.
+Decisions are deterministic and conservative; this is lexical corroboration,
+not a semantic/root-cause equivalence proof. Ambiguity and reviewed patterns
+require a named engineer. Later reverts dispute lessons without erasing history.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
@@ -26,6 +23,8 @@ from fnmatch import fnmatch
 
 MIN_TICKETS = 2
 OVERLAP = 0.5
+SYMPTOM_OVERLAP = 0.67
+MIN_SHARED_SYMPTOM_TERMS = 3
 # LRN-13 (S12-12): a lesson gets a new version only when its file signature changes materially
 # (overlap with the previous signature below this) or it becomes disputed. A ticket joining,
 # recurrence counts and "last seen" are not material (master design 6.10).
@@ -49,6 +48,65 @@ NOISE = (
 )
 _NAMESPACE = uuid.UUID("6f7a3b2e-0d1c-4f5e-9a8b-7c6d5e4f3a21")
 
+# Common report boilerplate is not independent evidence of the same failure.
+# Keep domain-specific terms (barcode, retry, refund, timeout, receipt, etc.).
+STOPWORDS = frozenset(
+    """
+    a an and are as at be been before being by can cannot could did do does
+    during error errors expected actual failed failing fails failure for from had
+    has have in into is issue issues it its not of on or our should so system
+    the their there these this to unable unexpected user users was were when
+    where which while will with would work working works problem problems bug
+    bugs defect defects kiosk application app report reported reproduce step steps
+    """.split()
+)
+WORD_ALIASES = {
+    "printing": "print",
+    "printed": "print",
+    "prints": "print",
+    "retries": "retry",
+    "retrying": "retry",
+    "retried": "retry",
+    "duplicated": "duplicate",
+    "duplicates": "duplicate",
+    "timeouts": "timeout",
+    "missing": "missing",
+    "receipts": "receipt",
+}
+
+
+def failure_terms(title: str, repro_steps: str = "") -> frozenset[str]:
+    """Normalized diagnostic tokens from redacted source, not LLM-inferred claims.
+
+    Prefer the short problem title. Only use repro steps when the title has too
+    little diagnostic information; otherwise long generic steps can manufacture
+    apparent similarity. Raw source text is not persisted in lesson observations.
+    """
+    def tokens(text: str) -> frozenset[str]:
+        words = re.findall(r"[a-z][a-z0-9]{2,}", text[:800].lower())
+        return frozenset(
+            WORD_ALIASES.get(word, word)
+            for word in words
+            if word not in STOPWORDS and not word.startswith("http")
+        )
+
+    terms = tokens(title[:320])
+    if len(terms) < MIN_SHARED_SYMPTOM_TERMS:
+        terms |= tokens(repro_steps[:800])
+    return terms
+
+
+def corroborated_failure(a: "Observation", b: "Observation") -> bool:
+    """Both changed code and distinctive problem descriptions must agree."""
+    if a.scope != b.scope or jaccard(a.paths, b.paths) < OVERLAP:
+        return False
+    shared = a.symptoms & b.symptoms
+    return (
+        len(shared) >= MIN_SHARED_SYMPTOM_TERMS
+        and jaccard(a.symptoms, b.symptoms) >= SYMPTOM_OVERLAP
+    )
+
+
 
 def code_paths(paths: Iterable[str]) -> frozenset[str]:
     """Changed paths that can describe a failure mechanism (noise removed)."""
@@ -70,6 +128,7 @@ class Observation:
     fix_id: str
     paths: frozenset[str]
     reverted_by: tuple[str, ...] = ()
+    symptoms: frozenset[str] = frozenset()
 
     @property
     def key(self) -> str:
@@ -168,16 +227,38 @@ def consolidate(
     )
     by_key = {o.key: o for o in ordered}
 
+    def matching_members(observation: Observation, pattern: Pattern) -> bool:
+        """Require corroboration from two independently fixed defect tickets."""
+        support = {
+            by_key[key].ticket_id
+            for key in pattern.members
+            if key in by_key and corroborated_failure(observation, by_key[key])
+        }
+        return len(support) >= MIN_TICKETS
+
     for observation in ordered:
         if observation.key in member_of:
             continue
         matches = sorted(
             p.pattern_id
             for p in state.values()
-            if p.scope == observation.scope and jaccard(observation.paths, p.signature) >= OVERLAP
+            if p.status in {"candidate", "reviewed"}
+            and p.scope == observation.scope
+            and jaccard(observation.paths, p.signature) >= OVERLAP
+            and matching_members(observation, p)
         )
         if len(matches) == 1:
             pattern = state[matches[0]]
+            if pattern.status == "reviewed":
+                plan.decisions.append(
+                    Decision(
+                        observation.key,
+                        "HUMAN_REVIEW",
+                        (pattern.pattern_id,),
+                        "A new observation must be approved before joining a reviewed lesson.",
+                    )
+                )
+                continue
             pattern.members.add(observation.key)
             member_of[observation.key] = pattern.pattern_id
             plan.memberships.append((observation.key, pattern.pattern_id))
@@ -186,7 +267,8 @@ def consolidate(
                     observation.key,
                     "LINK_EXISTING",
                     (pattern.pattern_id,),
-                    f"Ticket {observation.ticket_id}'s fix overlaps this lesson's changed files.",
+                    "Changed files and independently observed failure symptoms corroborate "
+                    "this candidate lesson; the root cause remains unverified.",
                 )
             )
             continue
@@ -196,20 +278,37 @@ def consolidate(
                     observation.key,
                     "HUMAN_REVIEW",
                     tuple(matches),
-                    f"Ticket {observation.ticket_id}'s fix overlaps {len(matches)} lessons; "
-                    "an engineer must decide which one it supports.",
+                    "Several lessons have matching code changes and symptoms; "
+                    "a human must determine the correct membership.",
                 )
             )
             continue
-        peers = [
-            o
-            for o in ordered
-            if o.key != observation.key
-            and o.key not in member_of
-            and o.scope == observation.scope
-            and jaccard(o.paths, observation.paths) >= OVERLAP
-        ]
-        group = [observation, *peers]
+        blocked = any(
+            p.status in {"disputed", "retired"}
+            and p.scope == observation.scope
+            and jaccard(observation.paths, p.signature) >= OVERLAP
+            and matching_members(observation, p)
+            for p in state.values()
+        )
+        if blocked:
+            plan.decisions.append(
+                Decision(
+                    observation.key,
+                    "WAIT_FOR_EVIDENCE",
+                    (),
+                    "Matching history belongs to a disputed or retired lesson; "
+                    "automatic creation of a replacement is unsafe.",
+                )
+            )
+            continue
+        # Build a pairwise-corroborated group: a star-shaped chain of file
+        # overlaps must not connect unrelated failures through a common file.
+        group = [observation]
+        for peer in ordered:
+            if peer.key == observation.key or peer.key in member_of:
+                continue
+            if all(corroborated_failure(peer, member) for member in group):
+                group.append(peer)
         tickets = {o.ticket_id for o in group}
         if len(tickets) < MIN_TICKETS:
             plan.decisions.append(
@@ -217,8 +316,8 @@ def consolidate(
                     observation.key,
                     "WAIT_FOR_EVIDENCE",
                     (),
-                    "Not enough evidence for a lesson: no other ticket's fix changed "
-                    "overlapping code.",
+                    "No independent defect has both overlapping changed files and "
+                    "corroborating failure symptoms; missing symptoms never imply a match.",
                 )
             )
             continue
@@ -229,9 +328,10 @@ def consolidate(
         state[pattern_id] = pattern
         plan.new_patterns.append(pattern)
         rationale = (
-            f"{len(tickets)} tickets ({', '.join(sorted(tickets))}) had explicit fixes "
-            "changing overlapping "
-            f"files; the cause is unverified until an engineer reviews it."
+            f"{len(tickets)} distinct defect tickets ({', '.join(sorted(tickets))}) "
+            "have explicit, undisputed fixes changing overlapping files and "
+            "corroborating source-recorded failure symptoms; their shared root cause "
+            "is unverified until an engineer reviews it."
         )
         plan.revisions.append(
             Revision(
@@ -263,6 +363,9 @@ def consolidate(
             continue  # same lesson, more support: no new version
         previous = sorted(pattern.signature)
         pattern.signature = signature
+        # A material evidence change requires fresh verification; never insert a
+        # reviewed revision without an attributable human reviewer.
+        pattern.status = "candidate"
         pattern.latest_revision += 1
         plan.revisions.append(
             Revision(
@@ -274,7 +377,7 @@ def consolidate(
                 tuple(sorted(pattern.members)),
                 "REVISE_EXISTING",
                 f"Supporting fixes now change {', '.join(sorted(signature))} "
-                f"(was {', '.join(previous)}); cause still unverified."[:2000],
+                f"(was {', '.join(previous)}); prior verification must be reviewed again."[:2000],
             )
         )
 
