@@ -256,14 +256,22 @@ def consolidate(
     by_key = {o.key: o for o in ordered}
 
     def matching_members(observation: Observation, pattern: Pattern) -> bool:
-        """Require corroboration from two independently fixed defect tickets."""
-        support = {
-            by_key[key].ticket_id
-            for key in pattern.members
-            if key in by_key
-            and by_key[key].ticket_id != observation.ticket_id
-            and corroborated_failure(observation, by_key[key])
-        }
+        """Match every distinct historical supporter, not just an easy subset.
+
+        A legacy file-only pattern may already contain unrelated members. Never
+        silently extend it if any supporter is missing or contradicts the new
+        observation. The human reviewer can fork such a pattern safely.
+        """
+        support: set[str] = set()
+        for key in pattern.members:
+            member = by_key.get(key)
+            if member is None:
+                return False
+            if member.ticket_id == observation.ticket_id:
+                continue
+            if not corroborated_failure(observation, member):
+                return False
+            support.add(member.ticket_id)
         return len(support) >= MIN_TICKETS
 
     for observation in ordered:
