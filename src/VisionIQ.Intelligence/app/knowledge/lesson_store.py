@@ -21,6 +21,7 @@ from app.knowledge.lessons import (
     Plan,
     code_paths,
     failure_terms,
+    indexed_failure_terms,
     signature_for,
     title_for,
 )
@@ -42,7 +43,8 @@ SELECT l.association_key, l.source_instance, l.project_id, l.repository_id, l.ti
        cs.fix_kind, cs.fix_id, cs.paths, COALESCE(l.revert_commit_shas, '[]'::jsonb),
        COALESCE(r.redacted_payload->>'title', ''),
        COALESCE(r.redacted_payload->>'reproSteps', ''),
-       COALESCE(r.redacted_payload->>'description', '')
+       COALESCE(r.redacted_payload->>'description', ''),
+       ix.content
 FROM evidence.ticket_fix_links AS l
 JOIN evidence.fix_change_sets AS cs
   ON cs.source_instance = l.source_instance AND cs.project_id = l.project_id
@@ -56,6 +58,23 @@ JOIN evidence.source_items AS t
  AND t.external_id = l.ticket_id AND t.deleted_at IS NULL
 JOIN evidence.source_revisions AS r
   ON r.item_key = t.item_key AND r.provider_revision_id = t.latest_revision_id
+LEFT JOIN LATERAL (
+    -- Read only CURRENT, PUBLISHED, REDACTED indexed content with unchanged ACL.
+    -- LRN-03 redacted_payload intentionally contains metadata only, not titles.
+    SELECT c.content
+    FROM knowledge.snapshot_pointer AS sp
+    JOIN knowledge.snapshot_entries AS se
+      ON se.snapshot_id = sp.snapshot_id AND se.item_key = t.item_key
+    JOIN knowledge.index_entries AS e
+      ON e.entry_key = se.entry_key
+     AND e.provider_revision_id = r.provider_revision_id
+     AND e.acl_principals = r.acl_principals
+    JOIN knowledge.index_chunks AS c
+      ON c.entry_key = e.entry_key
+     AND c.section IN ('Repro steps', 'Description')
+    ORDER BY CASE WHEN c.section = 'Repro steps' THEN 0 ELSE 1 END, c.chunk_index
+    LIMIT 1
+) AS ix ON true
 WHERE l.source_classification = 'explicit'
   AND (l.review_status IS NULL OR l.review_status <> 'disputed')
   -- Review R4-02: a complete, authoritative later source revision no longer asserting this link
@@ -116,7 +135,11 @@ def load_observations(conn: psycopg.Connection, defect_types: Sequence[str] = DE
             fix_id=row[6],
             paths=code_paths(row[7]),
             reverted_by=tuple(sorted(row[8] if isinstance(row[8], list) else json.loads(row[8]))),
-            symptoms=failure_terms(row[9], row[10] or row[11]),
+            symptoms=(
+                indexed_failure_terms(row[12])
+                if row[12] is not None
+                else failure_terms(row[9], row[10] or row[11])
+            ),
         )
         for row in rows
     ]
