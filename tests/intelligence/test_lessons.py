@@ -102,7 +102,15 @@ def test_an_observation_matching_two_lessons_goes_to_human_review():
     )
     assert len(first.new_patterns) == 2
 
-    later = consolidate([obs("5", "/a.cs", "/b.cs")], state_after(first), NOW)
+    later = consolidate(
+        [
+            obs("1", "/a.cs"), obs("2", "/a.cs"),
+            obs("3", "/b.cs"), obs("4", "/b.cs"),
+            obs("5", "/a.cs", "/b.cs"),
+        ],
+        state_after(first),
+        NOW,
+    )
 
     assert [d.decision for d in later.decisions] == ["HUMAN_REVIEW"]
     assert not later.memberships
