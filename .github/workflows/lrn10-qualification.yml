@@ -28,8 +28,20 @@ jobs:
         env:
           PYTHONPATH: src/VisionIQ.Intelligence
         run: python -m pytest -q tests/intelligence/test_lessons.py
-      - name: Lint LRN-10 pure qualification code and tests
-        run: python -m ruff check src/VisionIQ.Intelligence/app/knowledge/lessons.py tests/intelligence/test_lessons.py
+      - name: Lint new qualification code and isolated index test
+        run: >-
+          python -m ruff check
+          src/VisionIQ.Intelligence/app/knowledge/lessons.py
+          tests/intelligence/test_lessons.py
+          tests/intelligence/test_lessons_indexed_db.py
+      - name: Check for critical Python correctness errors in affected modules
+        run: >-
+          python -m ruff check --select E4,E7,E9,F
+          src/VisionIQ.Intelligence/app/knowledge/lesson_store.py
+          tests/intelligence/test_lessons_db.py
+          tests/intelligence/test_retrieval_db.py
+          tests/intelligence/test_kb_readiness_db.py
+          tests/intelligence/test_lrn13_db.py
 
   isolated-postgres:
     name: LRN-10 plus dependent disposable DB tests
