@@ -22,6 +22,13 @@ public sealed class WebhookHttpTests
           "revision":{"id":1234,"rev":9,"fields":{"System.TeamProject":"VisionIQ Demo"}}}}
         """;
 
+    private const string PullRequestUpdated = """
+        {"id":"evt-pr-1","eventType":"git.pullrequest.updated","resource":{
+          "pullRequestId":42,"status":"active",
+          "url":"https://dev.azure.com/contoso/_apis/git/repositories/repo-1/pullRequests/42",
+          "repository":{"id":"repo-1","name":"shop","project":{"name":"VisionIQ Demo"}}}}
+        """;
+
     private sealed class Inbox : ISourceChangeInbox
     {
         public Task<ChangeClaim> TryClaimAsync(SourceChangeNotification change, CancellationToken cancellationToken = default) =>
@@ -45,7 +52,7 @@ public sealed class WebhookHttpTests
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
-    private static async Task<HttpStatusCode> PostOverHttp(bool fail, string secret)
+    private static async Task<HttpStatusCode> PostOverHttp(bool fail, string secret, bool pullRequest = false)
     {
         var port = FreePort();
         var builder = WebApplication.CreateSlimBuilder();
@@ -57,9 +64,9 @@ public sealed class WebhookHttpTests
         try
         {
             using var client = new HttpClient();
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}{AdoWebhookEndpoint.Route}")
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}{(pullRequest ? AdoWebhookEndpoint.PullRequestRoute : AdoWebhookEndpoint.Route)}")
             {
-                Content = new StringContent(Updated, Encoding.UTF8, "application/json"),
+                Content = new StringContent(pullRequest ? PullRequestUpdated : Updated, Encoding.UTF8, "application/json"),
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes("ado-hooks:" + secret)));
             using var response = await client.SendAsync(request);
@@ -78,6 +85,19 @@ public sealed class WebhookHttpTests
     [Fact]
     public async Task A_failed_attempt_is_500_over_http_so_ado_retries() =>
         Assert.Equal(HttpStatusCode.InternalServerError, await PostOverHttp(fail: true, Secret));
+
+    [Fact]
+    public async Task Pr_service_hook_route_acknowledges_processed_event_over_real_http() =>
+        Assert.Equal(HttpStatusCode.OK, await PostOverHttp(fail: false, Secret, pullRequest: true));
+
+    [Fact]
+    public async Task Pr_service_hook_route_retries_handler_failure_over_real_http() =>
+        Assert.Equal(HttpStatusCode.InternalServerError, await PostOverHttp(fail: true, Secret, pullRequest: true));
+
+    [Fact]
+    public async Task Pr_service_hook_route_rejects_wrong_credentials() =>
+        Assert.Equal(HttpStatusCode.Unauthorized, await PostOverHttp(fail: false,
+            "wrong-secret-wrong-secret-wrong-secret", pullRequest: true));
 
     [Fact]
     public async Task Wrong_credentials_are_401_over_http() =>
