@@ -4,6 +4,7 @@ using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Api.Features.TicketFixes;
 using VisionIQ.Ingestor.Ado;
 using VisionIQ.Ingestor.Cli;
+using VisionIQ.Ingestor.Sync;
 
 namespace VisionIQ.Ingestor.Tests;
 
