@@ -21,7 +21,7 @@ User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8b
 - PostgreSQL canonical evidence and checkpoints inspected; no duplicate item/revision key in tested sample.
 - Builds run `00c39f65-5491-4b63-b78b-6ff5176d1f49`: **86 stored; 149 links; 0 not stored/quarantined; 112 build-link graph assertions; exit 0**.
 - Recovery test run: **30 passed, 0 failed, 0 skipped, exit 0**.
-- Detailed chronology: [LRN-01 test report](../../LRN-01-Test-Report.md).
+- Detailed chronology: [LRN-01 test report](../../REVIEW-AND-AUDIT/2026-Q4/LRN-01-Test-Report.md).
 
 ## Remaining before signoff
 

@@ -1,43 +1,16 @@
-# Planned Features (Future Development)
+# VisionIQ — Detailed knowledge references and deferred scope
 
-**Status:** 🔮 **IN DEVELOPMENT OR PLANNED** — Not yet complete
+**Updated:** 11 November 2026.
 
-This folder contains documentation for features planned after the LEARN phase (LRN-01 through LRN-07).
+Despite this historical folder name, LRN-08–11 core development is **implemented** and described in the [current LRN-01–13 handbook](../LEARN-PHASE-COMPLETE/LEARN-HANDBOOK.md). These files are technical references, not proof that real-source/cloud acceptance passed.
 
----
+| Capability | Detailed reference | Actual scope |
+|---|---|---|
+| LRN-08 keyword/Vertex indexing | [Search index](LRN-08-HYBRID-RETRIEVAL/SEARCH-INDEX.md) | Implemented; real approved snapshot proof required |
+| LRN-09 evidence-aware retrieval | [Retrieval](LRN-08-HYBRID-RETRIEVAL/retrieval.md) | Implemented; full graph-neighbor/cross-project retrieval deferred |
+| LRN-10 evidence-backed lessons | [Lesson qualification](LRN-10-EVIDENCE-BACKED-LESSONS/lessons.md) | Implemented; causes unverified until reviewed |
+| LRN-11 KB readiness | [Knowledge readiness](../LEARN-PHASE-COMPLETE/LRN-11-KB-READINESS/README.md) | Focused tests pass; real-cloud safety gates open |
+| LRN-12 event evidence | [Webhook deployment](../OPERATIONS-AND-INFRASTRUCTURE/LRN12-WEBHOOK-CLOUD-DEPLOYMENT.md) | Webhook code implemented, live ADO ingress not deployed |
+| LRN-13 proof-based updates | [Manual learning runbook](../LEARN-PHASE-COMPLETE/LRN-13-MANUAL-LEARNING-ACCEPTANCE.md) | Manual replay implemented; automatic triggers/Pub/Sub deferred |
 
-## Features
-
-### LRN-08: Hybrid Retrieval
-[📂 LRN-08 Folder](LRN-08-HYBRID-RETRIEVAL/)
-
-Retrieves evidence using hybrid search (lexical + semantic):
-- Parallel lexical, vector, graph-neighbor, code-path searches
-- Reranking by relevance, version, proximity, linkage, outcome
-- Bounded result set with uncertainty and provenance
-
-**Status:** 🔮 Design phase | **Read:** [LRN-08 Architecture](LRN-08-HYBRID-RETRIEVAL/)
-
-### LRN-09: Search & Ranking
-Implements full-text + vector search against LEARN evidence.
-
-### LRN-10: Lesson Lifecycle
-Consolidates tickets into reusable lessons with versions and reviews.
-
-### FND-04: Deployment
-Manual deployment procedures (later: automated).
-
-### FND-05: Reliable Events
-Event delivery guarantees (Pub/Sub, dead-letter queues).
-
-### FND-06: Cloud Scheduling
-Cloud Run Jobs, Cloud Scheduler for periodic ingestion.
-
-### BRF Series (Brief & Defect Paths)
-Future AI features for intelligent recommendations.
-
----
-
-## Coming Soon
-
-See [Archive/Planned](../ARCHIVE/) for historical planning documents.
+**Deferred for the hackathon:** live Entra delegated user authorization, restricted Confluence page retrieval, full graph-neighbor/cross-project traversal, automated cloud scheduling/CI/CD, automatic PR-event-to-reindex orchestration, and Pub/Sub `knowledge.changed` publishing. Never describe a deferred feature as a deployed guarantee.

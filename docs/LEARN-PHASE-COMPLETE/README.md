@@ -1,227 +1,39 @@
-# LEARN Phase Documentation (LRN-01 through LRN-07)
+# VisionIQ LEARN — documentation index
 
-**Status:** ✅ **COMPLETE** — All features implemented, tested, and accepted  
-**Last Updated:** November 5, 2026
+**Updated:** 11 November 2026 · **Coverage:** LRN-01–13
 
----
+Start with the **[single living LEARN handbook](LEARN-HANDBOOK.md)**. It explains each story in the same six-section format (what it is, what it does, pending/not tested, how it fits, testing, and next story) and distinguishes current code from real cloud/data acceptance.
 
-## Overview
+**Current hackathon mode:** **manual** approved ingestion, repository scan, indexing, retrieval, lesson refresh and verification. No claim of automatic PR-triggered learning, Pub/Sub knowledge.changed delivery, live delegated Microsoft Entra authorization, restricted Confluence page handling or complete cross-project graph traversal. The detailed older technical guides below remain useful but may describe earlier designs or tests; defer to the handbook and current code when status differs.
 
-The LEARN phase is VisionIQ's foundation: reading approved engineering history, storing it immutably, and linking evidence to enable intelligent decision-making.
+## Find the detailed source documentation
 
-### What Each Feature Does
+| Feature | Detailed guide |
+|---|---|
+| LRN-01 ADO connectors | [History connectors](LRN-01-HISTORY-CONNECTORS/README.md) |
+| LRN-02 Confluence pages | [Confluence](LRN-02-CONFLUENCE/README.md) |
+| LRN-03 canonical evidence | [Versioned PostgreSQL/GCS evidence](LRN-03-VERSIONED-EVIDENCE/README.md) · [schema contract](LRN-03-VERSIONED-EVIDENCE/CONTRACTS.md) |
+| LRN-04 fixes and reverts | [Ticket-fix links](LRN-04-TICKET-FIX-LINKS/README.md) |
+| LRN-05 synchronization | [Backfill and sync](LRN-05-BACKFILL-AND-SYNC/BACKFILL-OVERVIEW.md) |
+| LRN-06 repository understanding | [Code intelligence](LRN-06-CODE-INTELLIGENCE/ARCHITECTURE.md) · [test verification](CODE-UNDERSTANDING-GUIDE.md) |
+| LRN-07 relationship graph | [Graph architecture](LRN-07-RELATIONSHIP-GRAPH/ARCHITECTURE.md) · [hackathon validation](LRN-07-RELATIONSHIP-GRAPH/lrn07-hackathon-graph-validation.md) |
+| LRN-08 indexing and embeddings | [Search index](../PLANNED-FEATURES/LRN-08-HYBRID-RETRIEVAL/SEARCH-INDEX.md) |
+| LRN-09 retrieval | [Retrieval details](../PLANNED-FEATURES/LRN-08-HYBRID-RETRIEVAL/retrieval.md) |
+| LRN-10 lesson patterns | [Qualification rules](../PLANNED-FEATURES/LRN-10-EVIDENCE-BACKED-LESSONS/lessons.md) |
+| LRN-11 trust/readiness | [Knowledge-base readiness](LRN-11-KB-READINESS/README.md) |
+| LRN-12 PR reviews/events | [Webhook cloud deployment and security](../OPERATIONS-AND-INFRASTRUCTURE/LRN12-WEBHOOK-CLOUD-DEPLOYMENT.md) |
+| LRN-13 manual learning | [Manual fix/revert acceptance](LRN-13-MANUAL-LEARNING-ACCEPTANCE.md) |
 
-| Feature | Purpose | Status |
-|---------|---------|--------|
-| **[LRN-01: History Connectors](LRN-01-HISTORY-CONNECTORS/)** | Read Azure DevOps history (work items, PRs, commits, builds) | ✅ Complete |
-| **[LRN-02: Confluence](LRN-02-CONFLUENCE/)** | Import design decisions with ACL enforcement | ✅ Complete |
-| **[LRN-03: Versioned Evidence](LRN-03-VERSIONED-EVIDENCE/)** | Store evidence immutably in PostgreSQL + Cloud Storage | ✅ Complete |
-| **[LRN-04: Ticket-Fix Links](LRN-04-TICKET-FIX-LINKS/)** | Link tickets to their fixes; track reverts | ✅ Complete |
-| **[LRN-05: Backfill & Sync](LRN-05-BACKFILL-AND-SYNC/)** | Full backfill + incremental sync + webhooks | ✅ Complete |
-| **[LRN-06: Code Intelligence](LRN-06-CODE-INTELLIGENCE/)** | Scan code for symbols, imports, dependencies | ✅ Complete |
-| **[LRN-07: Relationship Graph](LRN-07-RELATIONSHIP-GRAPH/)** | Build permission-aware graph: tickets→PRs→code→symbols | ✅ Complete |
+## Operational and evidence references
 
----
+- [LEARN command register](COMMAND-REGISTER.md) — historical commands and recorded outcomes; verify current branch/configuration before executing.
+- [One canonical testing/acceptance matrix](../QUALITY-ASSURANCE/ACCEPTANCE-MATRIX.md) — recorded requirements, not blanket real-data acceptance.
+- [Manual deployment and operations](../OPERATIONS-AND-INFRASTRUCTURE/README.md).
+- [Dated integration findings](../REVIEW-AND-AUDIT/2026-Q4/LRN-1-13-LIVE-REVIEW-2026-11-09.md) — retain as historical audit evidence rather than current claims.
+- [Source-of-truth master design](../Functional/VisionIQ_Master_Engineering_Design_v1_11_Final.pdf) — approved scope and design context.
 
-## Recommended Reading
+## Completion definition
 
-### For New Developers
-1. [Architecture Overview](../START-HERE/ARCHITECTURE-OVERVIEW.md) — System diagram
-2. [Integration Flow](INTEGRATION-FLOW.md) — Data flow across all features
-3. [Your favorite feature](LRN-01-HISTORY-CONNECTORS/README.md) — Pick one to deep dive
+Code merged plus focused unit tests ≠ complete source/cloud acceptance. For the manual hackathon, confirm one approved ticket→fix→code→published search→cited Brief and a genuine fix→revert→disputed lesson in the **same approved** environment. Keep results PASS/FAIL/SKIP/BLOCKED, with source IDs, commit hashes and snapshot IDs. Never run disposable DB fixture tests against a shared or published demo database.
 
-### For Operations/DevOps
-1. [Operations Guide](../OPERATIONS-AND-INFRASTRUCTURE/)
-2. Each feature's SETUP section (e.g., [LRN-03 Setup](LRN-03-VERSIONED-EVIDENCE/03-SETUP-COMMANDS-AND-TROUBLESHOOTING.md))
-
-### For Review/Understanding Decisions
-1. [Decision Log](../REVIEW-AND-AUDIT/DECISION-LOG.md) — All decisions with rationale
-2. Each feature's DECISIONS.md file
-
----
-
-## Feature Deep Dives
-
-### LRN-01: History Connectors
-[📂 LRN-01 Folder](LRN-01-HISTORY-CONNECTORS/)
-
-Reads approved Azure DevOps sources:
-- Work items + comments + revisions
-- Pull requests + commits + changes
-- CI builds and links
-
-**Key concepts:** Checkpoints (resumable sync), partial failures, source scope filtering
-
-**Read:** [LRN-01 README](LRN-01-HISTORY-CONNECTORS/README.md)
-
----
-
-### LRN-02: Confluence
-[📂 LRN-02 Folder](LRN-02-CONFLUENCE/)
-
-Imports design decisions with live ACL checking:
-- Pages + versions + ancestor restrictions
-- Re-checks permissions at retrieval time (fail-closed)
-- Detects incomplete/restricted pages
-
-**Key concepts:** ACL snapshots, fail-closed design, live permission re-check
-
-**Read:** [LRN-02 README](LRN-02-CONFLUENCE/README.md)
-
----
-
-### LRN-03: Versioned Evidence
-[📂 LRN-03 Folder](LRN-03-VERSIONED-EVIDENCE/)
-
-Single source of truth: immutable, versioned, deduplicating:
-- PostgreSQL: identity, revisions, access metadata
-- Cloud Storage: raw bytes archived by SHA-256
-- No overwrites; conflicts detected
-
-**Key concepts:** Content-hash revisions, archive-first, idempotent upsert
-
-**Read:** [LRN-03 README](LRN-03-VERSIONED-EVIDENCE/README.md)
-
----
-
-### LRN-04: Ticket-Fix Links
-[📂 LRN-04 Folder](LRN-04-TICKET-FIX-LINKS/)
-
-Determines which fixes closed which tickets:
-- Explicit links (ADO-declared)
-- Inferred (commit message mentions)
-- Revert tracking + retraction lifecycle
-- Candidate reverts (title-matched)
-
-**Key concepts:** Classification (explicit/inferred/verified), revert detection, lifecycle events
-
-**Read:** [LRN-04 README](LRN-04-TICKET-FIX-LINKS/README.md)
-
----
-
-### LRN-05: Backfill & Sync
-[📂 LRN-05 Folder](LRN-05-BACKFILL-AND-SYNC/)
-
-Keeps evidence current:
-- Full backfill for approved projects
-- Webhooks for near-real-time updates
-- Scheduled reconciliation to catch missed changes
-- Quarantine for failed records
-
-**Key concepts:** Checkpoints, webhooks, reconciliation, quarantine
-
-**Read:** [LRN-05 README](LRN-05-BACKFILL-AND-SYNC/README.md)
-
----
-
-### LRN-06: Code Intelligence
-[📂 LRN-06 Folder](LRN-06-CODE-INTELLIGENCE/)
-
-Scans code without executing it:
-- Symbols (functions, classes, imports)
-- Call graphs + dependencies
-- File metadata + change impact
-- Parser-failure recovery
-
-**Key concepts:** Structural parsing (no execution), multi-language support, fault tolerance
-
-**Read:** [LRN-06 README](LRN-06-CODE-INTELLIGENCE/README.md)
-
----
-
-### LRN-07: Relationship Graph
-[📂 LRN-07 Folder](LRN-07-RELATIONSHIP-GRAPH/)
-
-Permission-aware graph:
-- Nodes: tickets, PRs, commits, files, symbols
-- Edges: explicit/inferred/verified with proof
-- Bounded traversal (depth 1-3, max 100 nodes)
-- Access re-checked for every neighbor
-
-**Key concepts:** Proof strength, active/disputed/retracted edges, fail-closed access
-
-**Read:** [LRN-07 README](LRN-07-RELATIONSHIP-GRAPH/README.md)
-
----
-
-## Cross-Feature Documentation
-
-- [**Integration Flow**](INTEGRATION-FLOW.md) — How data flows LRN-01 → 02 → 03 → 04 → 05/06/07
-- [**State Machines**](STATE-MACHINES.md) — Lifecycle diagrams for each feature
-- [**Command Register**](COMMAND-REGISTER.md) — Testing and operations commands
-- [**Integration Test Matrix**](INTEGRATION-TEST-MATRIX.md) — Test status across all features
-
----
-
-## Acceptance Status
-
-| Feature | Code | Tests | Real Source | Cloud | Status |
-|---------|------|-------|------------|-------|--------|
-| LRN-01 | ✅ | ✅ | ✅ | 🔮 | ✅ Complete |
-| LRN-02 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Complete* |
-| LRN-03 | ✅ | ✅ | ✅ | 🔮 | ✅ Complete |
-| LRN-04 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Complete* |
-| LRN-05 | ✅ | ✅ | 🔮 | 🔮 | ✅ Code OK* |
-| LRN-06 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Code OK* |
-| LRN-07 | ✅ | ✅ | ⚠️ | 🔮 | ✅ Code OK* |
-
-✅ Complete | 🔮 Pending | ⚠️ Partial | * See feature README for specific status
-
----
-
-## Key Design Principles
-
-1. **No time-proximity inference** — Links come from explicit references or authoritative evidence only
-2. **Live ACL re-check** — Every read of controlled evidence re-verifies permissions
-3. **Content-hash identity** — Revisions identified by hash; changes create new revisions
-4. **Append-only audit** — No overwrites; lifecycle events are immutable
-5. **Fail-closed** — When in doubt (permissions, ACL), deny access
-6. **Weak evidence → partial result** — Never invent certainty
-
----
-
-## Documentation Quality
-
-Each LRN feature folder follows a consistent structure:
-
-```
-LRN-XX-NAME/
-├── README.md ........................... Overview & status
-├── 01-ARCHITECTURE.md .................. Design & concepts
-├── 02-SETUP-COMMANDS.md ................ How to set up locally
-├── 03-ACCEPTANCE.md .................... Acceptance criteria & results
-├── DECISIONS.md ........................ Why we made each choice
-├── images/ ............................ Diagrams and visuals
-└── (Feature-specific docs)
-```
-
----
-
-## Review & Audit Trail
-
-See [Review & Audit](../REVIEW-AND-AUDIT/) for:
-- [Decision Log](../REVIEW-AND-AUDIT/DECISION-LOG.md) — All decisions with rationale
-- [Integration Review](../REVIEW-AND-AUDIT/2026-Q4/INTEGRATION-REVIEW.md) — Latest findings
-- [Blocker Fixes](../REVIEW-AND-AUDIT/2026-Q4/BLOCKER-FIXES-B01-B17.md) — Critical findings resolved
-
----
-
-## Next Steps
-
-**New to LEARN?**
-→ Start with [START-HERE](../START-HERE/) and [Architecture Overview](../START-HERE/ARCHITECTURE-OVERVIEW.md)
-
-**Want to set up?**
-→ Go to [Operations Guide](../OPERATIONS-AND-INFRASTRUCTURE/)
-
-**Want to contribute?**
-→ Read [Developer Guides](../DEVELOPER-GUIDES/)
-
-**Want to understand decisions?**
-→ Check [Decision Log](../REVIEW-AND-AUDIT/DECISION-LOG.md)
-
----
-
-**Status Summary:**  
-✅ All LRN-01–07 features implemented and verified  
-🔮 Cloud deployment (FND-06) and real-source acceptance still pending
+Avoid creating additional LRN-01–13 summary documents. Update [LEARN-HANDBOOK.md](LEARN-HANDBOOK.md); keep distinctive feature runbooks, architecture diagrams, schema contracts, dated evidence and troubleshooting material in place.

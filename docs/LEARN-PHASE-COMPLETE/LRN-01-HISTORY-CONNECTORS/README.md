@@ -2,7 +2,7 @@
 
 > **In one sentence:** VisionIQ reads approved engineering history from Azure DevOps and makes that evidence available to downstream LEARN features.
 
-**Story:** [LRN-01 on Trello](https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources) · **Status:** All original LRN-01 functional acceptance criteria have supporting evidence, including 8/8 changed-file fidelity and 402/402 final regression. Formal story signoff and review of 66 build warnings remain; PR #14 stays Draft. **Do not merge PR #14 yet.**
+**Story:** [LRN-01 on Trello](https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources) · **Status:** All original LRN-01 functional acceptance criteria have supporting evidence, including 8/8 changed-file fidelity and 402/402 final regression. Formal real-source acceptance and warnings must be assessed against current evidence; this historical report does not determine the current status of an older PR.
 
 ![Visual overview: how LRN-01 connects history to evidence](images/lrn01-pipeline.svg)
 
@@ -44,7 +44,7 @@ flowchart TD
 
 Against the approved **WLMTS / Genoa Kiosk** scope: historical work items, comments, PRs, commits and now **86 CI builds with 149 links** were read. Canonical evidence was written to PostgreSQL/GCS, sampled GCS hashes matched, and test failures/retries were exercised in automated tests. The comments sample was **9/9, 2/2, 0/0**. These results demonstrate the tested connector pipeline, not complete downstream AI quality.
 
-See [acceptance.md](acceptance.md) and the [detailed dated test report](../../LRN-01-Test-Report.md).
+See [acceptance.md](acceptance.md) and the [detailed dated test report](../../REVIEW-AND-AUDIT/2026-Q4/LRN-01-Test-Report.md).
 
 ## Start here
 
@@ -59,4 +59,4 @@ See [acceptance.md](acceptance.md) and the [detailed dated test report](../../LR
 
 ## Commands: what to run and what not to repeat
 
-See the [LRN-01 and LRN-02 command register](../LEARN-01-02-Command-Register.md) for routine commands, recorded test runs, expected outcomes, write-side safety checks, and operations that should **not** be repeated as everyday steps.
+See the [LRN-01 and LRN-02 command register](../COMMAND-REGISTER.md) for routine commands, recorded test runs, expected outcomes, write-side safety checks, and operations that should **not** be repeated as everyday steps.
