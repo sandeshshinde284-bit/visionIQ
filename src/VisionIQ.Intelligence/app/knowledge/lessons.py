@@ -232,7 +232,9 @@ def consolidate(
         support = {
             by_key[key].ticket_id
             for key in pattern.members
-            if key in by_key and corroborated_failure(observation, by_key[key])
+            if key in by_key
+            and by_key[key].ticket_id != observation.ticket_id
+            and corroborated_failure(observation, by_key[key])
         }
         return len(support) >= MIN_TICKETS
 
