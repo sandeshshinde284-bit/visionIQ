@@ -65,7 +65,7 @@ jobs:
       - name: Show failed suite diagnostics without exposing secrets
         if: failure()
         run: |
-          for suite in test_retrieval_db test_kb_readiness_db test_lrn13_db; do
+          for suite in test_lessons_db test_retrieval_db test_kb_readiness_db test_lrn13_db; do
             for log in artifacts/learn-e2e/isolated-pytest/*/"${suite}.log"; do
               if [ -f "$log" ]; then
                 echo "::group::$suite"
