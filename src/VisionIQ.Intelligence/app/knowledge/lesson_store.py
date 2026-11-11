@@ -8,6 +8,7 @@ advisory lock, so concurrent runs cannot create duplicate lessons.
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -457,3 +458,70 @@ def fork(
         {"pattern_id": new_pattern_id, "forked_from": pattern_id, "verified_by": verified_by},
     )
     return new_pattern_id
+
+
+def resolve_ambiguous(
+    conn: psycopg.Connection,
+    observation_key: str,
+    pattern_id: str,
+    verified_by: str,
+    now: datetime,
+    rationale: str,
+) -> str:
+    """Explicit operator decision for a pending HUMAN_REVIEW association.
+
+    Caller owns a transaction and holds the consolidation advisory lock. The chosen
+    lesson must have been offered by the last HUMAN_REVIEW decision; silently
+    overwriting an existing membership or inventing a new pattern is prohibited.
+    """
+    if not verified_by or not verified_by.strip():
+        raise ValueError("verified_by is required for an ambiguous lesson decision.")
+    if not rationale or not rationale.strip():
+        raise ValueError("A human rationale is required for ambiguous lesson resolution.")
+    if len(rationale) > 2000:
+        raise ValueError("rationale must not exceed 2000 characters.")
+
+    decision = conn.execute(
+        "SELECT decision, pattern_ids::text[] FROM knowledge.lesson_decisions "
+        "WHERE observation_key = %s ORDER BY decision_id DESC LIMIT 1",
+        (observation_key,),
+    ).fetchone()
+    if decision is None or decision[0] != "HUMAN_REVIEW":
+        raise ValueError("Observation does not have a pending HUMAN_REVIEW decision.")
+    if pattern_id not in decision[1]:
+        raise ValueError("Selected pattern was not a candidate in the HUMAN_REVIEW decision.")
+    if conn.execute(
+        "SELECT 1 FROM knowledge.lesson_memberships WHERE observation_key = %s",
+        (observation_key,),
+    ).fetchone():
+        raise ValueError("Observation already belongs to a lesson.")
+
+    source = conn.execute(
+        "SELECT source_instance, project_id, repository_id "
+        "FROM knowledge.lesson_observations WHERE observation_key = %s",
+        (observation_key,),
+    ).fetchone()
+    target = conn.execute(
+        "SELECT source_instance, project_id, repository_id FROM knowledge.lesson_patterns "
+        "WHERE pattern_id = %s",
+        (pattern_id,),
+    ).fetchone()
+    if source is None or target is None or source != target:
+        raise ValueError("Observation and selected pattern must have identical source scope.")
+
+    conn.execute(
+        "INSERT INTO knowledge.lesson_memberships (observation_key, pattern_id, joined_at) "
+        "VALUES (%s, %s, %s)",
+        (observation_key, pattern_id, now),
+    )
+    conn.execute(
+        "INSERT INTO knowledge.lesson_decisions "
+        "(observation_key, decision, pattern_ids, rationale, decided_at) "
+        "VALUES (%s, 'LINK_EXISTING', %s, %s, %s)",
+        (observation_key, [pattern_id], f"Human {verified_by}: {rationale}"[:2000], now),
+    )
+    _change_event(
+        conn, "lesson.observation_resolved", pattern_id,
+        {"pattern_id": pattern_id, "observation_key": observation_key, "verified_by": verified_by},
+    )
+    return pattern_id

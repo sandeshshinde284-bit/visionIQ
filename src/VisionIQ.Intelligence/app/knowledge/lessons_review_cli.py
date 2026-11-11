@@ -37,15 +37,15 @@ def _env(name: str) -> str:
 
 
 def _conninfo() -> str:
-    # Reviews are a privileged human action, not the unattended intelligence job -- use the API
-    # role (matches how other human-review writes, e.g. ticket-fix link review, are authenticated).
+    # Trusted offline operator uses the knowledge-writer role; DB_API is SELECT-only.
+    # This is not a user-authenticated HTTP endpoint.
     return make_conninfo(
         "",
         host=_env("DB_HOST"),
         port=int(os.environ.get("DB_PORT", "5432")),
         dbname=_env("DB_NAME"),
-        user=_env("DB_API_USER"),
-        password=_env("DB_API_PASSWORD"),
+        user=_env("DB_INTELLIGENCE_USER"),
+        password=_env("DB_INTELLIGENCE_PASSWORD"),
         sslmode=os.environ.get("DB_SSL_MODE", "prefer"),
     )
 
@@ -81,6 +81,17 @@ def run_fork(args: argparse.Namespace) -> dict[str, object]:
     return {"original_pattern_id": args.pattern_id, "new_pattern_id": new_pattern_id}
 
 
+def run_resolve(args: argparse.Namespace) -> dict[str, object]:
+    now = datetime.now(UTC)
+    with psycopg.connect(_conninfo()) as conn, conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (CONSOLIDATION_LOCK,))
+        pattern_id = lesson_store.resolve_ambiguous(
+            conn, args.observation_key, args.pattern_id, args.verified_by,
+            now, args.rationale,
+        )
+    return {"observation_key": args.observation_key, "pattern_id": pattern_id}
+
+
 def main() -> int:
     configure_from_environment()
     log = structlog.get_logger("visioniq.lessons_review")
@@ -104,9 +115,16 @@ def main() -> int:
     )
     fork_parser.add_argument("--rationale", default=None)
 
+    resolve_parser = sub.add_parser("resolve", help="Assign a HUMAN_REVIEW observation to one candidate lesson.")
+    resolve_parser.add_argument("--observation-key", required=True)
+    resolve_parser.add_argument("--pattern-id", required=True)
+    resolve_parser.add_argument("--verified-by", required=True)
+    resolve_parser.add_argument("--rationale", required=True)
+
     args = parser.parse_args()
     try:
-        result = run_review(args) if args.action == "review" else run_fork(args)
+        actions = {"review": run_review, "fork": run_fork, "resolve": run_resolve}
+        result = actions[args.action](args)
     except (ValueError, psycopg.Error) as error:
         log.error("lessons_review.failed", action=args.action, error=str(error))
         print(f"FAILED: {error}", file=sys.stderr)
