@@ -89,6 +89,10 @@ public sealed class AdoPullRequestChangeHandler : ISourceChangeHandler
         await evidence.WriteAsync("pull-requests",
             prefix + "pull-request/" + pullRequest.Id.ToString(CultureInfo.InvariantCulture) + "@" + version,
             pullRequest, cancellationToken).ConfigureAwait(false);
+        // Match SyncRunner exactly: reviewer votes are independent, versioned source facts.
+        // Persist these before completing the event inbox; a failed write is retried.
+        await PullRequestReviewProjection.WriteAsync(evidence, options.Tenant, pullRequest, cancellationToken)
+            .ConfigureAwait(false);
         foreach (var link in LinkExtractor.FromPullRequest(pullRequest))
         {
             await evidence.WriteAsync("links", prefix + "link/" + link.Key, link, cancellationToken).ConfigureAwait(false);
