@@ -307,6 +307,8 @@ def consolidate(
         for peer in ordered:
             if peer.key == observation.key or peer.key in member_of:
                 continue
+            if any(peer.ticket_id == member.ticket_id for member in group):
+                continue  # two fixes of one ticket are not independent failures
             if all(corroborated_failure(peer, member) for member in group):
                 group.append(peer)
         tickets = {o.ticket_id for o in group}
