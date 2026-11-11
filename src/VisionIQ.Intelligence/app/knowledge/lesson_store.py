@@ -20,6 +20,7 @@ from app.knowledge.lessons import (
     Pattern,
     Plan,
     code_paths,
+    failure_terms,
     signature_for,
     title_for,
 )
@@ -38,7 +39,10 @@ MIN_PATTERN_MEMBERS = 2  # mirrors lesson_revisions' own CHECK (cardinality(obse
 # files each fix changed.
 QUALIFYING_SQL = """
 SELECT l.association_key, l.source_instance, l.project_id, l.repository_id, l.ticket_id,
-       cs.fix_kind, cs.fix_id, cs.paths, COALESCE(l.revert_commit_shas, '[]'::jsonb)
+       cs.fix_kind, cs.fix_id, cs.paths, COALESCE(l.revert_commit_shas, '[]'::jsonb),
+       COALESCE(r.redacted_payload->>'title', ''),
+       COALESCE(r.redacted_payload->>'reproSteps', ''),
+       COALESCE(r.redacted_payload->>'description', '')
 FROM evidence.ticket_fix_links AS l
 JOIN evidence.fix_change_sets AS cs
   ON cs.source_instance = l.source_instance AND cs.project_id = l.project_id
@@ -59,6 +63,7 @@ WHERE l.source_classification = 'explicit'
   -- evidence.ticket_fix_links with its review history for investigation, never erased here).
   AND l.retracted_at IS NULL
   AND l.repository_id IS NOT NULL
+  AND r.acl_verified = true
   AND r.redacted_payload->>'workItemType' = ANY(%(defect_types)s)
 """
 
@@ -111,6 +116,7 @@ def load_observations(conn: psycopg.Connection, defect_types: Sequence[str] = DE
             fix_id=row[6],
             paths=code_paths(row[7]),
             reverted_by=tuple(sorted(row[8] if isinstance(row[8], list) else json.loads(row[8]))),
+            symptoms=failure_terms(row[9], row[10] or row[11]),
         )
         for row in rows
     ]
