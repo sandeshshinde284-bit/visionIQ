@@ -6,6 +6,8 @@ on:
       - "src/VisionIQ.Intelligence/app/knowledge/lessons.py"
       - "src/VisionIQ.Intelligence/app/knowledge/lesson_store.py"
       - "tests/intelligence/test_lessons.py"
+      - "tests/intelligence/test_lessons_db.py"
+      - "tests/intelligence/test_lessons_indexed_db.py"
       - ".github/workflows/lrn10-qualification.yml"
   workflow_dispatch:
 
@@ -59,13 +61,14 @@ jobs:
         run: >-
           python scripts/learn_e2e_stages.py isolated-pytest
           tests/intelligence/test_lessons_db.py
+          tests/intelligence/test_lessons_indexed_db.py
           tests/intelligence/test_retrieval_db.py
           tests/intelligence/test_kb_readiness_db.py
           tests/intelligence/test_lrn13_db.py
       - name: Show failed suite diagnostics without exposing secrets
         if: failure()
         run: |
-          for suite in test_lessons_db test_retrieval_db test_kb_readiness_db test_lrn13_db; do
+          for suite in test_lessons_db test_lessons_indexed_db test_retrieval_db test_kb_readiness_db test_lrn13_db; do
             for log in artifacts/learn-e2e/isolated-pytest/*/"${suite}.log"; do
               if [ -f "$log" ]; then
                 echo "::group::$suite"
