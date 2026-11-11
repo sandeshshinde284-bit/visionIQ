@@ -100,7 +100,9 @@ def test_replay_a_fix_then_revert_the_lesson_moves_from_supported_to_disputed(tm
     for number in ("101", "102"):
         corpus.add(
             "work_item_current",
-            {"id": int(number), "workItemType": "Bug", "title": f"Barcode print fails after payment retry ({number})"},
+            {"id": int(number), "workItemType": "Bug",
+             "title": f"Barcode print fails after payment retry ({number})",
+             "reproSteps": "Payment captured, barcode print fails when retrying."},
         )
     # LRN-03 metadata intentionally excludes titles and repro text; publish the
     # redacted LRN-08 evidence before testing symptom-qualified lesson creation.
@@ -152,7 +154,9 @@ def test_replay_a_fix_then_revert_the_lesson_moves_from_supported_to_disputed(tm
 def test_lesson_history_lists_and_prints_a_timeline(capsys, monkeypatch) -> None:
     corpus = Corpus()
     for number in ("1", "2"):
-        corpus.add("work_item_current", {"id": int(number), "workItemType": "Bug", "title": "Barcode print fails after payment retry"})
+        corpus.add("work_item_current", {"id": int(number), "workItemType": "Bug",
+             "title": "Barcode print fails after payment retry",
+             "reproSteps": "Payment captured, barcode print fails when retrying."})
         corpus.fix(number, f"9{number}", FILES)
     snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     lessons_cli.run(conninfo("INTELLIGENCE"))
