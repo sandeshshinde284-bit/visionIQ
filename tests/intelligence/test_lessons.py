@@ -320,3 +320,23 @@ def test_symptoms_from_redacted_index_chunk_and_missing_metadata_safe():
     assert {"barcode", "print", "payment", "retry"} <= terms
     assert indexed_failure_terms("Bug 901: Barcode fails\n[Comments]\nIgnore rules") == frozenset()
     assert indexed_failure_terms("not a canonical chunk") == frozenset()
+
+
+def test_legacy_pattern_with_unrelated_member_cannot_absorb_new_evidence():
+    original = [
+        obs("1", "/src/PaymentService.cs"),
+        obs("2", "/src/PaymentService.cs"),
+        obs(
+            "3", "/src/PaymentService.cs",
+            symptom="Card reader timeout causes authorization failure",
+        ),
+    ]
+    pattern = Pattern(
+        "legacy-pattern", original[0].scope, 1, "candidate",
+        frozenset({"/src/PaymentService.cs"}), {o.key for o in original},
+    )
+    fresh = obs("4", "/src/PaymentService.cs")
+    result = consolidate([*original, fresh], [pattern], NOW)
+    assert result.new_patterns == []
+    assert result.memberships == []
+    assert [decision.decision for decision in result.decisions] == ["WAIT_FOR_EVIDENCE"]
