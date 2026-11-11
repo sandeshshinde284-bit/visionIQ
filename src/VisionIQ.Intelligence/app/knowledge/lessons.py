@@ -51,14 +51,22 @@ _NAMESPACE = uuid.UUID("6f7a3b2e-0d1c-4f5e-9a8b-7c6d5e4f3a21")
 # Common report boilerplate is not independent evidence of the same failure.
 # Keep domain-specific terms (barcode, retry, refund, timeout, receipt, etc.).
 STOPWORDS = frozenset(
-    """
-    a an and are as at be been before being by can cannot could did do does
-    during error errors expected actual failed failing fails failure for from had
-    has have in into is issue issues it its not of on or our should so system
-    the their there these this to unable unexpected user users was were when
-    where which while will with would work working works problem problems bug
-    bugs defect defects kiosk application app report reported reproduce step steps
-    """.split()
+    {
+        "a", "an", "and", "are", "as", "at",
+        "be", "been", "before", "being", "by", "can",
+        "cannot", "could", "did", "do", "does", "during",
+        "error", "errors", "expected", "actual", "failed", "failing",
+        "fails", "failure", "for", "from", "had", "has",
+        "have", "in", "into", "is", "issue", "issues",
+        "it", "its", "not", "of", "on", "or",
+        "our", "should", "so", "system", "the", "their",
+        "there", "these", "this", "to", "unable", "unexpected",
+        "user", "users", "was", "were", "when", "where",
+        "which", "while", "will", "with", "would", "work",
+        "working", "works", "problem", "problems", "bug", "bugs",
+        "defect", "defects", "kiosk", "application", "app", "report",
+        "reported", "reproduce", "step", "steps",
+    }
 )
 WORD_ALIASES = {
     "printing": "print",
@@ -96,7 +104,7 @@ def failure_terms(title: str, repro_steps: str = "") -> frozenset[str]:
     return terms
 
 
-def corroborated_failure(a: "Observation", b: "Observation") -> bool:
+def corroborated_failure(a: Observation, b: Observation) -> bool:
     """Both changed code and distinctive problem descriptions must agree."""
     if a.scope != b.scope or jaccard(a.paths, b.paths) < OVERLAP:
         return False
