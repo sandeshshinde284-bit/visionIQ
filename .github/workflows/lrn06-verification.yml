@@ -1,0 +1,33 @@
+name: LRN-06 code intelligence verification
+on:
+  pull_request:
+    paths:
+      - "src/VisionIQ.Intelligence/app/code_intelligence/**"
+      - "tests/intelligence/test_lrn06_verify_cli.py"
+      - ".github/workflows/lrn06-verification.yml"
+  workflow_dispatch:
+jobs:
+  focused-code-intelligence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - name: Focused scanner, parser, resolution, impact and failure tests
+        env:
+          PYTHONPATH: src/VisionIQ.Intelligence
+        run: >-
+          python -m pytest -q
+          tests/intelligence/test_code_scanner.py
+          tests/intelligence/test_code_intelligence_integration.py
+          tests/intelligence/test_import_resolution_paths.py
+          tests/intelligence/test_csharp_parser_structure.py
+          tests/intelligence/test_lrn06_verify_cli.py
+      - name: Lint new acceptance entry point and tests
+        run: >-
+          python -m ruff check
+          src/VisionIQ.Intelligence/app/code_intelligence/verify_cli.py
+          tests/intelligence/test_lrn06_verify_cli.py
