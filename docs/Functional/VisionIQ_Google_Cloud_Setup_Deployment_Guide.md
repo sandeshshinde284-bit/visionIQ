@@ -1,19 +1,23 @@
 # VisionIQ - Google Cloud Setup & Deployment Guide
 
-**Living guide | Cloud infrastructure and deployment | Revision 1.1: 29 October 2026**
+**Living guide | Cloud infrastructure and deployment | Revision 1.2: 12 November 2026**
 **Cloud SQL instance:** `visioniqdev`  |  **Project:** `gbr-mts-wgh-hkt-dev`  |  **Region:** `europe-west3`
 
-> **Status:** Cloud SQL configuration confirmed against four team-provided Google Cloud Console screenshots dated 29 October 2026. Cloud database readiness via API, network connectivity, cloud migrations and application deployment remain **unverified**. Do not store passwords, tokens or personal ownership labels in this document.
+> **Status (12 November 2026):** The 29 October Cloud SQL screenshot snapshot is historical evidence. An initial FND-03 Cloud Run migration job and FND-04 API/Intelligence deployments were subsequently reported as successful; these are **historical execution reports, not fresh Google Cloud verification**. Inventory the existing project before creating, migrating or redeploying resources. Never store passwords, tokens, credential values or individual ownership labels here.
 
-This is the dedicated, living cloud operations guide for VisionIQ. It records the Cloud SQL configuration supplied on 29 October 2026 and separates configured settings from verified connectivity, migrations, application deployments, and future changes.
+This is the **single living cloud operations guide** for VisionIQ. Its canonical repository path is `docs/Functional/VisionIQ_Google_Cloud_Setup_Deployment_Guide.md`. Preserve the 29 October Cloud SQL baseline as historical evidence; append actual verified configurations, revision/image digests, sanitized command results, acceptance findings and rollback evidence here. Feature-specific references remain linked rather than copied into multiple competing cloud documents.
+
+**Delivery boundary:** Cloud-only build, migration, execution and validation. Use approved cloud-hosted build runners, Cloud Shell and Cloud Run services/jobs; do not require local Docker or a laptop PostgreSQL instance. `.env.example` is the shared configuration-key contract, **not** the cloud deployment values: Cloud Run service/job environment variables and Secret Manager supply those values.
 
 ## Current state
 
 | Area | Status / evidence |
 | --- | --- |
 | Console screenshots reviewed | Four provided screenshots show the Cloud SQL Configurations page for `visioniqdev`, including network/security, backups, maintenance and Query Insights. This is visual verification of the displayed settings, not a live API or connectivity test. |
-| Local development verified | PostgreSQL and both local APIs were healthy; the local Alembic one-shot container completed with Exited (0). |
-| Cloud readiness not yet verified | A green status indicator is visible in the screenshots, but API-reported `RUNNABLE` state, the logical VisionIQ database, migrations, IAM access, private connectivity and Cloud Run deployment have not been independently tested. |
+| Historical local development | Local PostgreSQL and API verification were reported previously; local status does **not** establish cloud deployment acceptance. |
+| FND-03 migration (31 Oct; historical) | `visioniq-db-migrate` Cloud Run Job reportedly executed successfully. Reverify the current job, image, last execution, Cloud SQL Alembic head and grants. |
+| FND-04 application deployment (31 Oct; historical) | `visioniq-api` and `visioniq-intelligence` were reportedly deployed privately. Verify currently ready revisions, images, secrets, network, `/ready` and DB access live. |
+| Cloud release readiness | **Pending fresh read-only inventory and cloud-only acceptance.** Do not treat previous deployment reports or screenshot green indicators as verification. |
 
 ## Configuration snapshot - as provided
 
@@ -107,17 +111,20 @@ This is the dedicated, living cloud operations guide for VisionIQ. It records th
 ## Working architecture and environment boundaries
 
 ```text
-Developer workstation (Windows + Zscaler) -> private route NOT verified
-
-Future VisionIQ Cloud Run (.NET 10 API / Python 3.12 Intelligence)
-                |
-        Approved VPC connectivity
-                |
-Cloud SQL: visioniqdev / PostgreSQL 16.15
-        Private IP: 10.102.16.8  |  PSA
+Approved Azure DevOps + Confluence
+  ├── controlled Cloud Run ingestion/indexing jobs ──> Cloud SQL + private GCS
+  └── ADO Service Hooks ──> approved HTTPS webhook ingress ──┐
+                                                              ├──> Ingestor webhook Cloud Run (canonical LRN-05/LRN-12)
+                                                              └──> API pickup webhook route (BRIEF/feedback)
+Private Cloud Run API <──authenticated Pub/Sub push──> Private Cloud Run Intelligence
+                  └── authenticated VPC access ──> Cloud SQL: visioniqdev
+Cloud Run Jobs: migrations, source sync, indexing, lesson consolidation and acceptance
+Vertex AI: Gemini embeddings and BRIEF; Claude integration deferred for this release
 ```
 
-The working local Docker stack uses its own PostgreSQL container. Cloud SQL uses a separate private database in the recorded Google Cloud project. Do not assume that a laptop, Zscaler, or the Cloud SQL Auth Proxy alone provides the required private network route.
+**Existing environment (to reverify, not recreate):** project `gbr-mts-wgh-hkt-dev`, region `europe-west3`, Artifact Registry `team-visioniq-docker-dev`, VPC connector `vpc-con`, private PostgreSQL instance `visioniqdev` at `10.102.16.8:5432`, migration job `visioniq-db-migrate`, and private services `visioniq-api` / `visioniq-intelligence`. The application database name `visioniq_dev` is in deployment scripts but must be verified live.
+
+The API and Intelligence applications must remain private/IAM-authenticated. **Azure DevOps hooks originate outside GCP**: configure an explicitly approved HTTPS ingress/gateway boundary instead of silently making both internal services public. Pub/Sub push authentication and ADO HTTP Basic webhook authentication are distinct mechanisms.
 
 ### Proposed schema and runtime responsibility (decision D07 is not yet signed off)
 
@@ -148,16 +155,94 @@ gcloud sql instances describe visioniqdev --project=gbr-mts-wgh-hkt-dev --format
 gcloud sql databases list --instance=visioniqdev --project=gbr-mts-wgh-hkt-dev
 ```
 
-## Implementation and validation checklist
+### Live cloud inventory — first action, read-only
 
-- [ ] **C01. Confirm instance is ready** - Configurations visually reviewed from screenshots (29 October 2026); still run `gcloud sql instances describe` to confirm `RUNNABLE` and capture the result.
-- [ ] **C02. Confirm billing and authorized access** - Review ongoing cost of 2 vCPUs, 4 GB RAM, 10 GB SSD, backups and PITR. Validate required IAM permissions for managing Cloud SQL and any chosen migration execution environment.
-- [ ] **C03. Create or verify the logical application database** - Choose and record the actual application database name. Proposed only: visioniq_dev. No name has been confirmed as created yet. Use separate cloud credentials; never reuse local passwords.
-- [ ] **C04. Prepare cloud migration execution** - Current db/manage.py intentionally refuses DB_TARGET=cloud. Implement a reviewed, explicit cloud migration runner; do not point local Docker Compose migrations at this instance.
-- [ ] **C05. Run schema migrations** - From an authorized execution environment with private VPC reachability, enable/verify pgvector, migrate workflow/evidence/knowledge, verify PostgreSQL full-text search, and record Alembic head.
-- [ ] **C06. Enforce cloud roles and isolation** - Provision distinct cloud admin/migration and restricted .NET/Python runtime roles. Validate authorized reads/writes and denial of cross-schema writes.
-- [ ] **C07. Connect Cloud Run to Cloud SQL** - Deploy .NET 10 and Python 3.12 services when FND-04 is ready; configure approved private VPC egress to the PSA-backed Cloud SQL instance and use managed secrets. Validate connectivity; do not treat HTTP health alone as database readiness.
-- [ ] **C08. Record acceptance evidence** - Save sanitized command output: instance state, migration version, pgvector and full-text checks, runtime-role denial test, Cloud Run-to-Cloud SQL connectivity, and application smoke results.
+Use **Google Cloud Shell Bash** (commands inspect metadata only; do not disclose secret values):
+
+```bash
+PROJECT='gbr-mts-wgh-hkt-dev'
+REGION='europe-west3'
+gcloud run services list --project="$PROJECT" --region="$REGION"
+gcloud run jobs list --project="$PROJECT" --region="$REGION"
+gcloud artifacts repositories list --project="$PROJECT" --location="$REGION"
+gcloud sql instances describe visioniqdev --project="$PROJECT" \
+  --format='yaml(name,state,region,databaseVersion,connectionName)'
+gcloud sql databases list --instance=visioniqdev --project="$PROJECT"
+gcloud pubsub topics list --project="$PROJECT"
+gcloud pubsub subscriptions list --project="$PROJECT"
+gcloud secrets list --project="$PROJECT" --format='value(name)'
+gcloud iam service-accounts list --project="$PROJECT" --format='value(email)'
+for service in visioniq-api visioniq-intelligence; do
+  gcloud run services describe "$service" --project="$PROJECT" --region="$REGION" \
+    --format='yaml(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url)'
+done
+```
+
+Capture sanitized results and exact collection date below; do **not** print secret versions' payloads, API tokens, private password values, or environment dumps containing plaintext credentials. Metadata existence is not acceptance evidence for database connectivity or feature operation.
+
+## Deployment readiness and cloud-only acceptance gates
+
+**Work in order and record actual outcomes in this guide.** No project mutation has been performed as part of this documentation revision.
+
+| Gate | Cloud work | Acceptance evidence |
+| --- | --- | --- |
+| G01 | Inventory existing FND-03/FND-04 resources; do not duplicate | Cloud Run revisions, service accounts, jobs, Artifact Registry, VPC, Cloud SQL and secret names |
+| G02 | Approved cloud-hosted build of reviewed `main` commit | Source SHA, green build/tests, pinned Artifact Registry image digests; no local Docker |
+| G03 | Backup, Cloud SQL migration and restricted roles | Recoverable backup/PITR, exactly one Alembic head `20261112_0026`, expected tables/constraints, pgvector, role-grant/denial checks |
+| G04 | Runtime config and Secret Manager | Per-service/job variable maps, least-privilege IAM, numeric secret version references, private network/TLS |
+| G05 | Private API/Intelligence deployment | Authenticated `/health` + `/ready`, direct DB connection evidence, revision digest, rollback procedure |
+| G06 | Pub/Sub provisioning | Topology-derived topics/subscriptions/DLQs, authenticated push, publisher/subscriber IAM, deduplication, retries |
+| G07 | LEARN cloud execution | Approved ADO/Confluence canonical ingestion to DB/GCS, Vertex embeddings, published snapshot, cited retrieval, lessons |
+| G08 | Ingestor webhook deployment and approved ingress | Auth failures return 401, approved event deliveries update canonical evidence once, secure retries and source re-fetch |
+| G09 | BRIEF pickup and cloud E2E | Scoped approved pickup policy, pilot ticket allowlist, Gemini brief, Pub/Sub round trip, `record`-only publication |
+| G10 | DEFECT infrastructure staged safely | DEFECT schemas/code deployed while `DEFECT_PIPELINE_ENABLED=false`; Claude and sandbox deferred |
+| G11 | Scheduling/operations | Approved worker CPU or job/scheduler plan, alerts, dead-letter monitoring, costs, backups, rollback |
+
+### Two independent Azure DevOps webhook authentication contracts
+
+**Do not merge these variables or reuse one secret for both receivers.** These are two different implementations with different HTTP paths and Basic authentication rules.
+
+| Variable | Current code consumer | Meaning / cloud action |
+| --- | --- | --- |
+| `ADO_WEBHOOK_USERNAME` | `src/VisionIQ.Ingestor.Cli/WebhookHost.cs` / `WebhookCredentials` | Ingestor webhook HTTP Basic username (required; must not contain a colon) |
+| `ADO_WEBHOOK_SECRET` | Ingestor webhook service | **Separate Secret Manager secret**, at least **32 characters**, username+password validated |
+| `PICKUP_POLICY_FILE` | `src/VisionIQ.Api/Features/Pickup/PickupOptions.cs` | File path in the **running API container**, *not* a Secret Manager credential |
+| `PICKUP_WEBHOOK_SECRET` | API `PickupWebhookEndpoints.cs` | **Different Secret Manager secret**, at least **24 characters**; code currently validates the Basic password, **not** its username |
+| `PICKUP_ALLOWED_WORK_ITEM_IDS` | API pickup policy | Strict first-pilot item allowlist; unset means **no ID restriction**, not deny-all |
+| `ADO_READ_PAT` | Outbound source readers | Read-only PAT for API/Ingester ADO fetch calls; **not** either webhook Basic secret |
+
+**Ingestor LRN-05 / LRN-12:**
+- The dedicated Ingestor image/service implements `POST /webhooks/ado/work-items` and `POST /webhooks/ado/pull-requests`. It reads approved source item IDs/PR events, re-fetches authoritative data from ADO and updates canonical PostgreSQL/GCS evidence.
+- The existing `scripts/manual-deploy/02-deploy-services.ps1` does **not** deploy this third webhook image. Implement a separately approved service deployment and ingress.
+- Required runtime dependencies include `INGESTION_OUTPUT_MODE=canonical`, `CHECKPOINT_STORE=postgres`, scoped ADO organization/projects, `ADO_READ_PAT`, private Cloud SQL and GCS archive.
+
+**API BRIEF pickup / feedback:**
+- The API handles `POST /webhooks/ado` when a valid pickup policy is configured. It processes approved ticket transitions, feedback and relevant PR callbacks according to feature controls.
+- **The policy template already exists in the repository:** `config/pickup-policy.example.json`. It contains **example placeholders** (`https://dev.azure.com/your-org/`, `VisionIQ-Demo`, `demo-repo`, sample SHA), so its presence in GitHub does not mean a valid operational policy exists.
+- The **current `src/VisionIQ.Api/Dockerfile` does not copy `config/`** to `/app/config`. A Cloud Run service cannot read the repository's GitHub file directly via `PICKUP_POLICY_FILE`. Before activation, create/approve a real scoped policy derived from that template, package it in the image or use an approved mounted configuration file, set the actual container path, and verify the file is readable.
+- `PICKUP_POLICY_FILE` blank disables pickup. A nonblank path without a readable valid policy or a strong `PICKUP_WEBHOOK_SECRET` can prevent startup. Never enable the template policy against real ADO tickets.
+- Set `PICKUP_SWEEP_INTERVAL_MINUTES=0` for controlled initial operation and specify pilot `PICKUP_ALLOWED_WORK_ITEM_IDS`.
+
+**External ingress and ADO permissions:**
+1. Keep `visioniq-api` and `visioniq-intelligence` private. ADO Service Hooks cannot directly produce Google IAM invocation tokens. Select a reviewed HTTPS ingress, filtering, abuse-protection and forwarding architecture.
+2. Use independently authenticated ADO service hook subscriptions for canonical work-item/PR changes versus pickup/feedback. Check duplicate delivery behavior and role access.
+3. Store Ingestor and Pickup webhook passwords under **distinct Secret Manager entries**, grant only the corresponding service account `secretAccessor`, and rotate any previously exposed production-like values.
+4. ADO webhook subscription creation is a **write** to external Azure DevOps. Require explicit organizational approval before registration. Until then, test with permitted cloud-hosted synthetic events to the approved ingress.
+5. ADO PR updates and BRIEF pickup are separate event sources; avoid treating a Pub/Sub delivery as if it were an externally received ADO Service Hook.
+6. Feature details: `docs/OPERATIONS-AND-INFRASTRUCTURE/LRN12-WEBHOOK-CLOUD-DEPLOYMENT.md` and `docs/features/BRF-01-ticket-pickup/README.md`.
+
+### Cloud Run, Pub/Sub, Vertex and feature activation
+
+- **Pub/Sub:** source topics, push subscriptions, dead-letter topics and routing come from `contracts/events/topology.json`. The `PUBSUB_TOPIC_*` placeholders in `.env.example` are *not* runtime overrides today. Run the existing `scripts/pubsub/provision-pubsub.ps1` via an approved **cloud-side** execution route, only after previewing planned commands and service identities. Set `PUBSUB_PROJECT_ID=gbr-mts-wgh-hkt-dev`; leave `PUBSUB_EMULATOR_HOST` unset in GCP.
+- **Cloud Run workers:** minimum instances 0 and request-based CPU do **not** imply continuous in-process polling. Use an explicitly reviewed instance-based CPU/min-instances policy or dedicated Jobs/Scheduler for finite work; verify event processing, delays, scaling and cost before enabling dispatch.
+- **Secrets/config:** never upload populated `.env` to Cloud Run. Use immutable per-service configuration and pinned Secret Manager references. Audit `--set-env-vars` / `--set-secrets` in existing deployment scripts: set operations can replace existing variable/secret mappings; plan idempotent updates and preserve unrelated configuration.
+- **LEARN:** schedule/run canonical ingestion, indexing, published snapshots and lesson consolidation using cloud-executed workloads. Confirm GCS archive IAM and Vertex model/region/embedding dimension, and use only approved evidence scopes.
+- **BRIEF:** `LLM_MODE=live` with Gemini on Vertex AI; initial `BRIEF_PUBLISH_MODE=record` avoids real ADO comments. Enable only after cloud event/DB acceptance and approved pickup.
+- **DEFECT:** deployment of source, migrations and inactive endpoints is not live AI fixing. Code currently routes `REPRODUCTION_TEST` and `CODE_FIX` exclusively to Claude; `CLAUDE_ROUTE=off` and `DEFECT_PIPELINE_ENABLED=false` for this release. Cloud sandbox and live-Claude integration are separate gates.
+- **Graph HTTP:** `GraphApiOptions.FromConfiguration()` currently disables the Graph endpoint. `VISIONIQ_AUTH_TENANT_ID`, `VISIONIQ_AUTH_AUDIENCES`, `VISIONIQ_AUTH_ALLOWED_CALLERS` and `VISIONIQ_AUTH_SCOPE` are not required for that disabled endpoint; do not mistake them for Cloud Run IAM.
+- **Cloud SQL:** Existing cloud migration tooling `db/cloud_manage.py` and migration job must be inspected before re-execution. Do not combine all Alembic files or auto-migrate during API startup. Verify actual roles, `workflow`/`evidence`/`knowledge` schemas and pgvector after a guarded cloud migration.
+
+**Proposed safe first cloud phase:** inspect resources → validate cloud builds/database → deploy private services and Pub/Sub → run LEARN and Gemini BRIEF acceptance with **record-only** ADO output. Defer DEFECT live runner, Claude model calls and any unapproved ADO writes. Mark a gate verified only with sanitized, dated live cloud evidence.
 
 ## Operational cautions and decisions to verify
 
@@ -177,4 +262,4 @@ gcloud sql databases list --instance=visioniqdev --project=gbr-mts-wgh-hkt-dev
 
 ## Document ownership and update rule
 
-Update this single guide after **every** material Google Cloud change (Cloud SQL, VPC, IAM, secrets, Cloud Run, database migrations, monitoring and deployment). For each change, record the date, resource, actual configuration, reason, command or Console path, evidence, **tested/pending** status and any rollback considerations. Never claim a change is verified based only on configuration screenshots. Keep one-time laptop setup and daily local Docker instructions in their separate guides.
+Update this single guide **on the documentation branch/draft PR until reviewed and merged** after every material Google Cloud change (Cloud SQL, VPC, IAM, secrets, Cloud Run, Pub/Sub, database migrations, ingress/webhooks, monitoring and deployment). For each change, record the date, resource, actual configuration, reason, command or Console path, evidence, **tested/pending** status and any rollback considerations. Never claim a change is verified based only on configuration screenshots. Keep one-time laptop setup and daily local Docker instructions in their separate guides.
