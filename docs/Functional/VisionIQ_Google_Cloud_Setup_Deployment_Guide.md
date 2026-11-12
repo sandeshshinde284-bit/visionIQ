@@ -15,9 +15,9 @@ This is the **single living cloud operations guide** for VisionIQ. Its canonical
 | --- | --- |
 | Console screenshots reviewed | Four provided screenshots show the Cloud SQL Configurations page for `visioniqdev`, including network/security, backups, maintenance and Query Insights. This is visual verification of the displayed settings, not a live API or connectivity test. |
 | Historical local development | Local PostgreSQL and API verification were reported previously; local status does **not** establish cloud deployment acceptance. |
-| FND-03 migration (31 Oct; historical) | `visioniq-db-migrate` Cloud Run Job reportedly executed successfully. Reverify the current job, image, last execution, Cloud SQL Alembic head and grants. |
-| FND-04 application deployment (31 Oct; historical) | `visioniq-api` and `visioniq-intelligence` were reportedly deployed privately. Verify currently ready revisions, images, secrets, network, `/ready` and DB access live. |
-| Cloud release readiness | **Pending fresh read-only inventory and cloud-only acceptance.** Do not treat previous deployment reports or screenshot green indicators as verification. |
+| FND-03 migration (historical, now inventoried) | Cloud Run Job `visioniq-db-migrate` exists, last run 30 Oct 2026 at 02:57:27 UTC. Its success, current image, Alembic head and grants remain unverified. |
+| FND-04 application deployment (historical, now inventoried) | API/Intelligence services both exist; latest created/ready revisions match `visioniq-api-00001-9gm` and `visioniq-intelligence-00001-zfn`. Images, ingress, authenticated `/ready`, DB access and new code are unverified. |
+| Cloud release readiness | **G01.1–G01.11 inventory confirmed from Cloud Shell output (12 Nov 2026). Scheduler G01.12 pending; current image release, migrations, Pub/Sub, webhook auth and feature E2E still pending.** |
 
 ## Configuration snapshot - as provided
 
@@ -146,7 +146,7 @@ A distinct migration identity should own schema DDL. The role design is proposed
 - **Statuses:** `PREPARED` = documented but not run; `EXECUTED — PASS` = actual successful result supplied; `EXECUTED — FAIL` = failed result supplied; `BLOCKED` = prerequisites or authorization missing; `SKIPPED` = deliberately not executed and reason recorded.
 - **Evidence:** record date/time, GCP project and resource, reviewed Git SHA/image digest (for deploy commands), sanitized stdout/stderr summary, Cloud Run revision or job execution IDs (when applicable), and checks actually performed. No inferred success.
 
-### G01 — Recheck existing infrastructure (PREPARED; not executed)
+### G01 — Recheck existing infrastructure (G01.1–G01.11 verified inventory; Scheduler pending)
 
 **Purpose:** Reconcile the historic FND-03/FND-04 deployment with the **actual** cloud state before creating any resource or running migrations.
 
@@ -197,13 +197,49 @@ echo "===== G01.11 Runtime service-account emails (redact if needed) ====="
 gcloud iam service-accounts list --project="$PROJECT" --format="value(email)"
 ```
 
-**Evidence log (fill after real execution):**
+**G01 execution evidence — supplied Cloud Shell output, 12 November 2026.** Exact command execution time (UTC) was not included in the transcript. These are successful read-only **inventory** checks, not feature acceptance tests.
 
-| Executed UTC | Substep | Result | Sanitized evidence / finding | Follow-up |
-| --- | --- | --- | --- | --- |
-| Not executed | G01.1–G01.11 | PREPARED | Await actual Cloud Shell results; do not claim live inventory from historical screenshots | Compare actual resources against FND-03/FND-04 baseline |
+| Substep | Status | Observed result in Cloud Shell | Outstanding validation |
+| --- | --- | --- | --- |
+| G01.1 | EXECUTED — PASS | Correct project: `gbr-mts-wgh-hkt-dev` | Current operator permissions are not proven |
+| G01.2 | EXECUTED — PASS | `visioniq-api`, `visioniq-intelligence` services exist in `europe-west3`, originally deployed 2026-10-31 | New `main` commit not yet deployed |
+| G01.3 | EXECUTED — PASS | API latest created/ready `visioniq-api-00001-9gm`; Intelligence latest created/ready `visioniq-intelligence-00001-zfn` | Ready revision is not DB or endpoint E2E health |
+| G01.4 | EXECUTED — PASS | Job `visioniq-db-migrate` exists; last run `2026-10-30 02:57:27 UTC` | Verify last execution result and Alembic head; latest migrations are not proven applied |
+| G01.5 | EXECUTED — PASS | Artifact Registry `team-visioniq-docker-dev` exists; last repository update 2026-10-31 | Inspect exact image digests and reviewed-build path |
+| G01.6 | EXECUTED — PASS | Cloud SQL `visioniqdev` in `europe-west3`, `POSTGRES_16`, state `RUNNABLE` | Tables, roles, pgvector and SQL read tests remain pending |
+| G01.7 | EXECUTED — PASS | Application DB `visioniq_dev` exists, alongside `postgres` | Schema and current migration head pending |
+| G01.8 | EXECUTED — PASS (RESOURCE GAP) | Pub/Sub topics exist for unrelated workloads; **no VisionIQ application topic** in output | Provision topology-defined VisionIQ topics only after review |
+| G01.9 | EXECUTED — PASS (RESOURCE GAP) | Pub/Sub subscriptions exist for unrelated workloads; **no VisionIQ subscription** in output | Need authenticated VisionIQ push subscriptions and dead-letter handling |
+| G01.10 | EXECUTED — PASS (CREDENTIAL GAP) | `visioniq-db-admin-password`, `visioniq-db-api-password`, `visioniq-db-intelligence-password`, `visioniq-build-token-dev` found; other ADO/Confluence token secret names also present. No distinctly named `ADO_WEBHOOK_SECRET` or `PICKUP_WEBHOOK_SECRET` identified | Do not access payloads; verify versions/IAM/ownership and create approved distinct webhook secrets later |
+| G01.11 | EXECUTED — PASS | Service accounts `visioniq-runtime` and `visioniq-db-migrate` exist | Actual service bindings and IAM grants pending |
+| G01.12 | PREPARED | Cloud Scheduler omitted from the initial commands; not yet checked | Run the read-only commands immediately below |
 
-**Review after output:** Confirm the SQL instance is `RUNNABLE`; identify the real application database name, deployed service revisions and ingress, migration job, Artifact Registry repository, existing Pub/Sub topics/subscriptions, expected service accounts and Secret Manager secret *names*. This inventory does **not** prove SQL table existence, migration head, secret contents, service health, IAM grants or E2E feature success. Record those under subsequent dedicated gates.
+**Two resolved shell-entry errors:** The first variable assignment misspelled `PROJECT` as `ROJECT`, causing an empty-project error for the first G01.2 attempt. After setting `PROJECT` correctly, G01.2 succeeded. One `echo` heading for G01.6 was entered incorrectly, yielding a shell syntax error; the actual Cloud SQL describe command was rerun successfully. Neither remains a GCP failure.
+
+**Evidence boundaries:** The provided output verifies live resource **metadata** as of the run, not successful database migration, secret accessibility, IAM authorization, application readiness, Pub/Sub message processing or Cloud Scheduler state. Do not include other teams' resource details or personal identities in the shared deployment record.
+
+### G01.12 — Cloud Scheduler inventory (PREPARED; not executed)
+
+**Purpose:** Check whether Cloud Scheduler jobs already exist before creating schedules for ingestion, indexing, lesson consolidation or service recovery. This read-only check must not alter other teams' jobs.
+
+**Google Cloud Shell Bash — exact commands:**
+
+```bash
+PROJECT="gbr-mts-wgh-hkt-dev"
+REGION="europe-west3"
+
+echo "===== G01.12a Scheduler jobs in europe-west3 ====="
+gcloud scheduler jobs list --project="$PROJECT" --location="$REGION" \
+  --format="table(name,schedule,timeZone,state)"
+
+echo "===== G01.12b Scheduler jobs in the project (all regions) ====="
+gcloud scheduler jobs list --project="$PROJECT" \
+  --format="table(name,schedule,timeZone,state)"
+```
+
+**Execution result:** PREPARED. If the API is not enabled or IAM denies access, record `BLOCKED` and obtain the required approval; do not automatically enable APIs, grant roles, or create schedules. If no VisionIQ jobs exist, inventory PASS still means VisionIQ schedules are **pending**. Cloud Scheduler list syntax follows the official Google Cloud CLI reference.
+
+**G01 review:** G01.1–G01.11 results are recorded above; G01.12 Cloud Scheduler remains pending. SQL table existence, migration head, secret contents, service health, ingress, IAM grants and E2E feature success require separate G02–G11 verification.
 
 **Next journal sections (add exact commands immediately before executing each stage):** G02 cloud-hosted build; G03 Cloud SQL backup/migrations/schema+role verification; G04 Secret Manager and service-specific variables; G05 API/Intelligence revisions; G06 Pub/Sub; G07 LEARN jobs; G08 secure ADO webhook ingress; G09 BRIEF; G10 inactive DEFECT staging; G11 monitoring/rollback.
 
@@ -284,6 +320,7 @@ gcloud iam service-accounts list --project="$PROJECT" --format="value(email)"
 
 | Date | Change | Evidence / validation |
 | --- | --- | --- |
+| 12 Nov 2026 | Recorded G01.1–G01.11 Cloud Shell infrastructure evidence; found original services/DB/jobs/registry/roles, identified missing VisionIQ Pub/Sub resources; added G01.12 Cloud Scheduler inventory | User-supplied Cloud Shell transcript, summarized without other team/personal identifiers; no cloud changes |
 | 29 Oct 2026 | Initial Cloud SQL configuration captured from supplied settings | Team-provided configuration |
 | 29 Oct 2026 | Confirmed configuration against four Console screenshots; documented two resource labels without personal identifiers; confirmed manual provisioning, no Terraform | Screenshot visual review; no API connectivity or migration claimed |
 
