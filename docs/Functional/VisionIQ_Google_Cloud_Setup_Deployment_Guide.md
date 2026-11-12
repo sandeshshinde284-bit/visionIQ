@@ -266,36 +266,26 @@ gcloud scheduler jobs list --project="$PROJECT" --location="$REGION" \
 
 **G01.12 outcome:** `EXECUTED — PASS` for VisionIQ-scoped inventory; **dedicated VisionIQ Scheduler creation remains PENDING** until approved Cloud Run tasks are ready. No GCP resources were changed.
 
-### Earlier cloud access email — permission follow-up decision (not sent)
-
-The previously sent access request asked about Scheduler Admin, permission to continue using the VPC/`vpc-con`, service-account IAM bindings and Cloud IAM management. G01 now proves that the Scheduler API is usable for reading in `europe-west3`, the existing VisionIQ runtime and migration service accounts exist, and the original private Cloud Run services exist. **None of these facts proves permission to create Scheduler jobs, edit IAM bindings, impersonate service accounts, or deploy new revisions.**
-
-**Do not resend the unchanged broad request yet.** In particular, `roles/resourcemanager.projectIamAdmin` and `roles/iam.serviceAccountAdmin` are broader than simply deploying the reviewed VisionIQ services. Confirm the status of the earlier ticket/email and obtain a narrowly scoped approval for the **specific blocked deployment action(s)**, which may include `cloudscheduler.jobs.create`, `iam.serviceAccounts.actAs` on a dedicated service account, and approved IAM bindings on the corresponding resources. Do not make a sacrificial cloud write solely to test authorization, and do not request `cloudscheduler.admin` just because G01.12b failed.
-
-**Permission status:** `cloudscheduler.jobs.list` observed working; create/update, service-account policy editing, VPC deployment rights and secret-access grants remain **UNVERIFIED**. Record any future `PERMISSION_DENIED` error with its attempted command (redacted) before requesting elevated permissions.
-
 **G01 review:** G01.1–G01.12 VisionIQ-scoped inventory checks are **complete for the target region**. Inventory success is not deployment readiness: SQL tables, migration head, secret versions/IAM, HTTP readiness, secure ingress, Pub/Sub and E2E operation require separate G02–G11 validation.
 
 **Next journal sections (add exact commands immediately before executing each stage):** G02 cloud-hosted build; G03 Cloud SQL backup/migrations/schema+role verification; G04 Secret Manager and service-specific variables; G05 API/Intelligence revisions; G06 Pub/Sub; G07 LEARN jobs; G08 secure ADO webhook ingress; G09 BRIEF; G10 inactive DEFECT staging; G11 monitoring/rollback.
 
 ### G02 — Cloud-hosted build readiness and source verification (PREPARED; not executed)
 
-**Objective:** Determine whether this project's approved Cloud Build path can build and publish **four** reviewed VisionIQ images from the exact `main` commit, with **no workstation Docker build**. G02.1–G02.6 are **read-only inventory/preflight**, not a build or deployment. Cloud Build and Artifact Registry are *shared-project* resources: limit documented findings to VisionIQ.
+**Purpose:** Check Cloud Build API/access, repository connection, and existing VisionIQ image artifacts before any build. **G02.1–G02.6 are read-only**. Run on Google Cloud Shell (Bash), not a local laptop. Do not deploy, publish, edit IAM or create triggers in this stage.
 
-**Source verified through GitHub (12 November 2026):** `main` currently resolves to `dd23869f8d976a2c88aadf6dabaa0c232a7ea2cb`. Recheck immediately before a future build; only build the approved, passing source commit. The current GitHub `.github/workflows/pr-validation.yml` does **not** run on pushes to `main`, and previous CI failures do not prove acceptance of this newer SHA. Required validation includes .NET, Python lint/tests and isolated PostgreSQL migration/integration tests **on cloud-hosted runners**, with no shared-Cloud-SQL destructive tests.
+**Source and image targets:** At planning time, GitHub `main` is `dd23869f8d976a2c88aadf6dabaa0c232a7ea2cb`. Verify it again before creating a build. Four existing Dockerfiles, with repo root as Docker build context:
 
-**Existing four Dockerfile targets (do not create duplicates):**
-
-| Image name in `team-visioniq-docker-dev` | Dockerfile |
+| VisionIQ image | Source Dockerfile |
 | --- | --- |
 | `visioniq-api` | `src/VisionIQ.Api/Dockerfile` |
 | `visioniq-intelligence` | `src/VisionIQ.Intelligence/Dockerfile` |
 | `visioniq-ingestor-webhooks` | `src/VisionIQ.Ingestor.Cli/Dockerfile` |
 | `visioniq-db-migrate` | `db/Dockerfile` |
 
-**Do not use `scripts/manual-deploy/01-build-push.ps1` for this cloud-only release**: it explicitly calls `docker build` on the machine running the script. A permitted Cloud Build job or another approved cloud-hosted builder must use the repository-root build context and immutable `linux/amd64` image output. Only after readiness, test and IAM review will we prepare exact **write** commands for image builds and pushes.
+The current `scripts/manual-deploy/01-build-push.ps1` requires local Docker and is **not** suitable for this cloud-only release. A reviewed Cloud Build or other authorized cloud-hosted builder must run tests and publish images using immutable digests. The existing `.github/workflows/pr-validation.yml` does not automatically validate `main` pushes; this release needs a passing validation against the exact reviewed source.
 
-**Exact G02.1–G02.6 commands: Google Cloud Shell Bash, read-only.**
+**Exact copy/paste commands — G02.1 through G02.6, Google Cloud Shell Bash:**
 
 ```bash
 PROJECT="gbr-mts-wgh-hkt-dev"
@@ -303,130 +293,48 @@ REGION="europe-west3"
 REPOSITORY="team-visioniq-docker-dev"
 REGISTRY="$REGION-docker.pkg.dev/$PROJECT/$REPOSITORY"
 
-echo "===== G02.1 Check enabled Cloud Build and Artifact Registry APIs ====="
+echo "===== G02.1 Enabled Cloud Build and Artifact Registry APIs ====="
 gcloud services list --enabled --project="$PROJECT" \
-  --format="value(config.name)" | grep -E '^(cloudbuild.googleapis.com|artifactregistry.googleapis.com)
+  --format="value(config.name)" | grep -E '^(cloudbuild.googleapis.com|artifactregistry.googleapis.com)$' || true
 
-**Work in order and record actual outcomes in this guide.** No project mutation has been performed as part of this documentation revision.
-
-| Gate | Cloud work | Acceptance evidence |
-| --- | --- | --- |
-| G01 | Inventory existing FND-03/FND-04 resources; do not duplicate | Cloud Run revisions, service accounts, jobs, Artifact Registry, VPC, Cloud SQL and secret names |
-| G02 | Approved cloud-hosted build of reviewed `main` commit | Source SHA, green build/tests, pinned Artifact Registry image digests; no local Docker |
-| G03 | Backup, Cloud SQL migration and restricted roles | Recoverable backup/PITR, exactly one Alembic head `20261112_0026`, expected tables/constraints, pgvector, role-grant/denial checks |
-| G04 | Runtime config and Secret Manager | Per-service/job variable maps, least-privilege IAM, numeric secret version references, private network/TLS |
-| G05 | Private API/Intelligence deployment | Authenticated `/health` + `/ready`, direct DB connection evidence, revision digest, rollback procedure |
-| G06 | Pub/Sub provisioning | Topology-derived topics/subscriptions/DLQs, authenticated push, publisher/subscriber IAM, deduplication, retries |
-| G07 | LEARN cloud execution | Approved ADO/Confluence canonical ingestion to DB/GCS, Vertex embeddings, published snapshot, cited retrieval, lessons |
-| G08 | Ingestor webhook deployment and approved ingress | Auth failures return 401, approved event deliveries update canonical evidence once, secure retries and source re-fetch |
-| G09 | BRIEF pickup and cloud E2E | Scoped approved pickup policy, pilot ticket allowlist, Gemini brief, Pub/Sub round trip, `record`-only publication |
-| G10 | DEFECT infrastructure staged safely | DEFECT schemas/code deployed while `DEFECT_PIPELINE_ENABLED=false`; Claude and sandbox deferred |
-| G11 | Scheduling/operations | Approved worker CPU or job/scheduler plan, alerts, dead-letter monitoring, costs, backups, rollback |
-
-### Two independent Azure DevOps webhook authentication contracts
-
-**Do not merge these variables or reuse one secret for both receivers.** These are two different implementations with different HTTP paths and Basic authentication rules.
-
-| Variable | Current code consumer | Meaning / cloud action |
-| --- | --- | --- |
-| `ADO_WEBHOOK_USERNAME` | `src/VisionIQ.Ingestor.Cli/WebhookHost.cs` / `WebhookCredentials` | Ingestor webhook HTTP Basic username (required; must not contain a colon) |
-| `ADO_WEBHOOK_SECRET` | Ingestor webhook service | **Separate Secret Manager secret**, at least **32 characters**, username+password validated |
-| `PICKUP_POLICY_FILE` | `src/VisionIQ.Api/Features/Pickup/PickupOptions.cs` | File path in the **running API container**, *not* a Secret Manager credential |
-| `PICKUP_WEBHOOK_SECRET` | API `PickupWebhookEndpoints.cs` | **Different Secret Manager secret**, at least **24 characters**; code currently validates the Basic password, **not** its username |
-| `PICKUP_ALLOWED_WORK_ITEM_IDS` | API pickup policy | Strict first-pilot item allowlist; unset means **no ID restriction**, not deny-all |
-| `ADO_READ_PAT` | Outbound source readers | Read-only PAT for API/Ingester ADO fetch calls; **not** either webhook Basic secret |
-
-**Ingestor LRN-05 / LRN-12:**
-- The dedicated Ingestor image/service implements `POST /webhooks/ado/work-items` and `POST /webhooks/ado/pull-requests`. It reads approved source item IDs/PR events, re-fetches authoritative data from ADO and updates canonical PostgreSQL/GCS evidence.
-- The existing `scripts/manual-deploy/02-deploy-services.ps1` does **not** deploy this third webhook image. Implement a separately approved service deployment and ingress.
-- Required runtime dependencies include `INGESTION_OUTPUT_MODE=canonical`, `CHECKPOINT_STORE=postgres`, scoped ADO organization/projects, `ADO_READ_PAT`, private Cloud SQL and GCS archive.
-
-**API BRIEF pickup / feedback:**
-- The API handles `POST /webhooks/ado` when a valid pickup policy is configured. It processes approved ticket transitions, feedback and relevant PR callbacks according to feature controls.
-- **The policy template already exists in the repository:** `config/pickup-policy.example.json`. It contains **example placeholders** (`https://dev.azure.com/your-org/`, `VisionIQ-Demo`, `demo-repo`, sample SHA), so its presence in GitHub does not mean a valid operational policy exists.
-- The **current `src/VisionIQ.Api/Dockerfile` does not copy `config/`** to `/app/config`. A Cloud Run service cannot read the repository's GitHub file directly via `PICKUP_POLICY_FILE`. Before activation, create/approve a real scoped policy derived from that template, package it in the image or use an approved mounted configuration file, set the actual container path, and verify the file is readable.
-- `PICKUP_POLICY_FILE` blank disables pickup. A nonblank path without a readable valid policy or a strong `PICKUP_WEBHOOK_SECRET` can prevent startup. Never enable the template policy against real ADO tickets.
-- Set `PICKUP_SWEEP_INTERVAL_MINUTES=0` for controlled initial operation and specify pilot `PICKUP_ALLOWED_WORK_ITEM_IDS`.
-
-**External ingress and ADO permissions:**
-1. Keep `visioniq-api` and `visioniq-intelligence` private. ADO Service Hooks cannot directly produce Google IAM invocation tokens. Select a reviewed HTTPS ingress, filtering, abuse-protection and forwarding architecture.
-2. Use independently authenticated ADO service hook subscriptions for canonical work-item/PR changes versus pickup/feedback. Check duplicate delivery behavior and role access.
-3. Store Ingestor and Pickup webhook passwords under **distinct Secret Manager entries**, grant only the corresponding service account `secretAccessor`, and rotate any previously exposed production-like values.
-4. ADO webhook subscription creation is a **write** to external Azure DevOps. Require explicit organizational approval before registration. Until then, test with permitted cloud-hosted synthetic events to the approved ingress.
-5. ADO PR updates and BRIEF pickup are separate event sources; avoid treating a Pub/Sub delivery as if it were an externally received ADO Service Hook.
-6. Feature details: `docs/OPERATIONS-AND-INFRASTRUCTURE/LRN12-WEBHOOK-CLOUD-DEPLOYMENT.md` and `docs/features/BRF-01-ticket-pickup/README.md`.
-
-### Cloud Run, Pub/Sub, Vertex and feature activation
-
-- **Pub/Sub:** source topics, push subscriptions, dead-letter topics and routing come from `contracts/events/topology.json`. The `PUBSUB_TOPIC_*` placeholders in `.env.example` are *not* runtime overrides today. Run the existing `scripts/pubsub/provision-pubsub.ps1` via an approved **cloud-side** execution route, only after previewing planned commands and service identities. Set `PUBSUB_PROJECT_ID=gbr-mts-wgh-hkt-dev`; leave `PUBSUB_EMULATOR_HOST` unset in GCP.
-- **Cloud Run workers:** minimum instances 0 and request-based CPU do **not** imply continuous in-process polling. Use an explicitly reviewed instance-based CPU/min-instances policy or dedicated Jobs/Scheduler for finite work; verify event processing, delays, scaling and cost before enabling dispatch.
-- **Secrets/config:** never upload populated `.env` to Cloud Run. Use immutable per-service configuration and pinned Secret Manager references. Audit `--set-env-vars` / `--set-secrets` in existing deployment scripts: set operations can replace existing variable/secret mappings; plan idempotent updates and preserve unrelated configuration.
-- **LEARN:** schedule/run canonical ingestion, indexing, published snapshots and lesson consolidation using cloud-executed workloads. Confirm GCS archive IAM and Vertex model/region/embedding dimension, and use only approved evidence scopes.
-- **BRIEF:** `LLM_MODE=live` with Gemini on Vertex AI; initial `BRIEF_PUBLISH_MODE=record` avoids real ADO comments. Enable only after cloud event/DB acceptance and approved pickup.
-- **DEFECT:** deployment of source, migrations and inactive endpoints is not live AI fixing. Code currently routes `REPRODUCTION_TEST` and `CODE_FIX` exclusively to Claude; `CLAUDE_ROUTE=off` and `DEFECT_PIPELINE_ENABLED=false` for this release. Cloud sandbox and live-Claude integration are separate gates.
-- **Graph HTTP:** `GraphApiOptions.FromConfiguration()` currently disables the Graph endpoint. `VISIONIQ_AUTH_TENANT_ID`, `VISIONIQ_AUTH_AUDIENCES`, `VISIONIQ_AUTH_ALLOWED_CALLERS` and `VISIONIQ_AUTH_SCOPE` are not required for that disabled endpoint; do not mistake them for Cloud Run IAM.
-- **Cloud SQL:** Existing cloud migration tooling `db/cloud_manage.py` and migration job must be inspected before re-execution. Do not combine all Alembic files or auto-migrate during API startup. Verify actual roles, `workflow`/`evidence`/`knowledge` schemas and pgvector after a guarded cloud migration.
-
-**Proposed safe first cloud phase:** inspect resources → validate cloud builds/database → deploy private services and Pub/Sub → run LEARN and Gemini BRIEF acceptance with **record-only** ADO output. Defer DEFECT live runner, Claude model calls and any unapproved ADO writes. Mark a gate verified only with sanitized, dated live cloud evidence.
-
-## Operational cautions and decisions to verify
-
-- **Private networking:** Public IP is disabled. A developer connected through Zscaler is not automatically able to reach VPC private address 10.102.16.8. Verify an approved private route, or run migrations and smoke tests from an authorized Google Cloud workload.
-- **Cloud configuration separation:** Do not change the working local PostgreSQL data volume or use docker compose down -v. Keep Cloud SQL migrations explicit and separate from normal docker compose up.
-- **TLS and credentials:** SSL-only access is enabled and IAM database authentication is on, but neither confirms how each app will authenticate. Choose the runtime authentication design and secret delivery before deployment.
-- **Certificate rotation:** Automatic server certificate rotation is reported disabled; add an operational review well before 29 Oct 2027 and confirm rotation policy with the cloud administrator.
-- **Region and data handling:** Cloud SQL is in Frankfurt (europe-west3), with backups in EU multi-region. Confirm this placement is authorized for any engineering tickets, code and documentation ingested later.
-- **Feature toggles:** Vertex AI integration and Knowledge Catalog integration being enabled on Cloud SQL do not prove VisionIQ application integration is implemented or working.
-
-## Change log
-
-| Date | Change | Evidence / validation |
-| --- | --- | --- |
-| 12 Nov 2026 | Prepared G02.1–G02.6 Cloud Shell read-only Cloud Build/API/trigger/connection/Artifact Registry/source checks; recorded four image targets and Scheduler UI permissions report | GitHub `main` source review; **not executed**, no cloud changes |
-| 12 Nov 2026 | Added G01.12a Scheduler command to the master command list; recorded only VisionIQ-specific Scheduler outcome; retained attempted G01.12b command and CLI errors; documented access follow-up | User-provided Cloud Shell output; no GCP changes |
-| 12 Nov 2026 | Recorded G01.1–G01.11 Cloud Shell infrastructure evidence; found original services/DB/jobs/registry/roles, identified missing VisionIQ Pub/Sub resources; added G01.12 Cloud Scheduler inventory | User-supplied Cloud Shell transcript, summarized without other team/personal identifiers; no cloud changes |
-| 29 Oct 2026 | Initial Cloud SQL configuration captured from supplied settings | Team-provided configuration |
-| 29 Oct 2026 | Confirmed configuration against four Console screenshots; documented two resource labels without personal identifiers; confirmed manual provisioning, no Terraform | Screenshot visual review; no API connectivity or migration claimed |
-
-## Document ownership and update rule
-
-Update this single guide **on the documentation branch/draft PR until reviewed and merged** after every material Google Cloud change (Cloud SQL, VPC, IAM, secrets, Cloud Run, Pub/Sub, database migrations, ingress/webhooks, monitoring and deployment). For each change, record the date, resource, actual configuration, reason, command or Console path, evidence, **tested/pending** status and any rollback considerations. Never claim a change is verified based only on configuration screenshots. Keep one-time laptop setup and daily local Docker instructions in their separate guides.
- || true
-
-echo "===== G02.2 Recent Cloud Build runs (regional metadata) ====="
+echo "===== G02.2 Recent regional Cloud Build runs ====="
 gcloud builds list --project="$PROJECT" --region="$REGION" --limit=15 \
   --format="table(id,status,createTime)"
 
-echo "===== G02.3 Existing Cloud Build triggers (regional names only) ====="
+echo "===== G02.3 Existing regional Cloud Build triggers ====="
 gcloud builds triggers list --project="$PROJECT" --region="$REGION" \
   --format="table(name,disabled)"
 
-echo "===== G02.4 Existing Cloud Build source connections (regional names only) ====="
+echo "===== G02.4 Existing regional Cloud Build source connections ====="
 gcloud builds connections list --project="$PROJECT" --region="$REGION" \
   --format="value(name)"
 
-echo "===== G02.5 Existing VisionIQ Artifact Registry image versions ====="
+echo "===== G02.5 Existing VisionIQ images in Artifact Registry ====="
 for IMAGE in visioniq-api visioniq-intelligence visioniq-ingestor-webhooks visioniq-db-migrate; do
   echo "--- $IMAGE ---"
   gcloud artifacts docker images list "$REGISTRY/$IMAGE" --project="$PROJECT" \
     --include-tags --limit=15 --format="table(package,version,tags)"
 done
 
-echo "===== G02.6 Read-only GitHub main source-ref connectivity ====="
+echo "===== G02.6 Remote GitHub main revision ====="
 git ls-remote --heads https://github.com/sandeshshinde284-bit/visionIQ.git main
 ```
 
-**How to interpret outcomes:**
-- An API appearing in G02.1 only proves it is enabled, **not** that the caller has permission to submit builds.
-- Empty G02.2/3/4 listings are **not** the same as a permission error. An explicit `PERMISSION_DENIED` is a documented access blocker.
-- G02.2–G02.4 inspect the `europe-west3` regional scope only; if we later find a legacy global Cloud Build integration, inspect it separately after approval. Do not infer a global inventory from the regional result.
-- G02.5 should identify current registry images/tags/digests, not change them. `NOT_FOUND` on an individual image means this specific package is not present; do not confuse it with an absent shared registry.
-- G02.6 is a *remote reference lookup* executed inside Cloud Shell, not a local source checkout or build. Confirm the SHA against the reviewed GitHub `main` at build time.
-- Some commands can return other teams' metadata because GCP project access is shared. **Only record VisionIQ-specific image names, connection/trigger status, relevant errors and source SHA.** Redact other resource names before sharing.
+**Verification rules:** API enabled != build-submit permission. Missing image != missing registry. Empty results != permission denied. The listing is scoped to `europe-west3` and may display shared-project data: record **only** VisionIQ findings, relevant error codes and the source SHA. Do not share secret values, credentials, or unrelated workloads. G02.6 reads a remote Git ref from Cloud Shell; it does not build locally.
 
-**G02 acceptance and next action:** G02 **remains PREPARED** until real command output is reviewed. If Cloud Build API/IAM/source access is blocked, record the exact error and request approved least-privilege enablement/connection. Do **not** create triggers, grant IAM, run `gcloud builds submit`, push images, or redeploy Cloud Run during this read-only stage. Once allowed, separately record the cloud-hosted build command/configuration, test results, resulting digest, reproducibility and signed-off rollback before execution.
+**Execution log — fill in after observing actual command results:**
 
-**Adjacent known permission issue (G01 UI report):** The user reports the Cloud Scheduler **Create job** control as disabled. Treat Scheduler creation as an **access blocker reported in the UI**, not a proven API permission denial. Add it to the eventual consolidated access follow-up together with any actual G02 Cloud Build blockers; do not request broad Project IAM Admin unless the resource administrator determines it is essential.
+| Substep | Status | VisionIQ finding | Follow-up |
+| --- | --- | --- | --- |
+| G02.1 | PREPARED | Not run | Verify APIs are enabled |
+| G02.2 | PREPARED | Not run | Determine prior regional build availability |
+| G02.3 | PREPARED | Not run | Identify any approved source trigger |
+| G02.4 | PREPARED | Not run | Confirm source connection status/access |
+| G02.5 | PREPARED | Not run | Identify existing image versions/digests |
+| G02.6 | PREPARED | Not run | Match remote source SHA to reviewed commit |
+
+**G02 exit criterion:** Review G02.1–G02.6 outputs; choose an approved cloud-hosted build method; verify IAM and source access; then document the exact *write* commands, testing gates, image tags/digests and rollback **before** executing the build. No cloud changes are authorized merely by completing the inventory.
+
 
 ## Deployment readiness and cloud-only acceptance gates
 
@@ -505,7 +413,7 @@ git ls-remote --heads https://github.com/sandeshshinde284-bit/visionIQ.git main
 
 | Date | Change | Evidence / validation |
 | --- | --- | --- |
-| 12 Nov 2026 | Added G01.12a Scheduler command to the master command list; recorded only VisionIQ-specific Scheduler outcome; retained attempted G01.12b command and CLI errors; documented access follow-up | User-provided Cloud Shell output; no GCP changes |
+| 12 Nov 2026 | Added G01.12a Scheduler command to the master command list; recorded only VisionIQ-specific Scheduler outcome; retained attempted G01.12b command and CLI errors | User-provided Cloud Shell output; no GCP changes |
 | 12 Nov 2026 | Recorded G01.1–G01.11 Cloud Shell infrastructure evidence; found original services/DB/jobs/registry/roles, identified missing VisionIQ Pub/Sub resources; added G01.12 Cloud Scheduler inventory | User-supplied Cloud Shell transcript, summarized without other team/personal identifiers; no cloud changes |
 | 29 Oct 2026 | Initial Cloud SQL configuration captured from supplied settings | Team-provided configuration |
 | 29 Oct 2026 | Confirmed configuration against four Console screenshots; documented two resource labels without personal identifiers; confirmed manual provisioning, no Terraform | Screenshot visual review; no API connectivity or migration claimed |
