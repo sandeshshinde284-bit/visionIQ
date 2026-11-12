@@ -1,9 +1,9 @@
 # VisionIQ — Google Cloud Setup and Deployment Runbook
 
-**Living team runbook · Revision 1.4 · 12 November 2026**  
+**Living team runbook · Revision 1.5 · 12 November 2026**  
 **Repository path:** `docs/Functional/VisionIQ_Google_Cloud_Setup_Deployment_Guide.md`
 
-This is a **reusable, end-to-end deployment procedure** for any authorized VisionIQ engineer. It covers both **automated CI/CD** and **manual cloud-side deployment**, using the **same code, image build definition, infrastructure, configuration and acceptance gates**. It is not an account-access discussion or a transcript of troubleshooting conversations.
+This is a **reusable, end-to-end deployment procedure** for any authorized VisionIQ engineer. It covers both **automated CI/CD** and **manual cloud-side deployment** plus **approved local Docker deployment (§14)**, with shared acceptance gates. It is not an account-access discussion or a transcript of troubleshooting conversations.
 
 ## 1. Deployment environment and prerequisites
 
@@ -20,7 +20,7 @@ This is a **reusable, end-to-end deployment procedure** for any authorized Visio
 | Migration Cloud Run Job | `visioniq-db-migrate` |
 | Existing runtime identities | `visioniq-runtime`, `visioniq-db-migrate` |
 | Source branch | Reviewed `main` commit, pinned by SHA |
-| Cloud execution | Cloud Build / approved hosted runner + Google Cloud Shell; **no laptop Docker or local PostgreSQL required** |
+| Cloud execution | Cloud Build / approved hosted runner + Google Cloud Shell; **local Docker is another permitted route when approved (§14)** |
 
 These are the currently known development resource names, not evidence that every service or feature is working. Never recreate an existing shared-project resource without checking its identity and ownership. Verify corporate approvals for network, source-data scope, deployment IAM and outbound API access.
 
@@ -335,7 +335,128 @@ The same feature gate applies to automated and manual deployments. Enable live D
 - Verify Cloud Logging/Monitoring, DLQ alerting, Cloud SQL backup/PITR, secret rotation, cost limits, idempotent event replay and documented rollback.
 - Automated path uses approved scheduling/deployment gates; manual path runs equivalent jobs and checks explicitly. If Scheduler create permission is unavailable, leave schedules PENDING, use approved on-demand job execution where suitable, and do not silently skip required recurring functionality.
 
-## 14. Operational release record
+## 14. G02-C — Windows Docker to Artifact Registry to Cloud Run (executed on 12 November 2026)
+
+**Deployment route actually used:** local Windows PowerShell + Docker Desktop to build/push migration, API and Intelligence images, followed by updates to the existing Cloud Run job and services. Neither Cloud Build nor GitHub-to-GCP integration was used. This is an **additional manual route when authorized by corporate policy**; the cloud-hosted methods in `4 remain available. No local Docker build should be treated as proof of production readiness without the same required tests.
+
+### 14.1 Reusable build and push commands (Windows PowerShell; repository root)
+
+```powershell
+$Project = "gbr-mts-wgh-hkt-dev"
+$Region = "europe-west3"
+$Repo = "team-visioniq-docker-dev"
+$Registry = $Region + "-docker.pkg.dev/" + $Project + "/" + $Repo
+docker info --format '{{.ServerVersion}}'
+gcloud auth list --filter="status:ACTIVE"
+$Commit = (git rev-parse HEAD).Trim()
+git branch --show-current
+git status --short
+gcloud auth configure-docker ($Region + "-docker.pkg.dev")
+if ($LASTEXITCODE -ne 0) { throw "Docker registry authentication failed" }
+
+# NEW future approved releases: use a clean and reviewed company-source commit.
+if (git status --porcelain) { throw "Uncommitted changes: review and commit before a reproducible release" }
+$Tag = $Commit
+$Builds = @(
+    @{ Name="visioniq-db-migrate"; Dockerfile="db/Dockerfile" },
+    @{ Name="visioniq-intelligence"; Dockerfile="src/VisionIQ.Intelligence/Dockerfile" },
+    @{ Name="visioniq-api"; Dockerfile="src/VisionIQ.Api/Dockerfile" },
+    @{ Name="visioniq-ingestor-webhooks"; Dockerfile="src/VisionIQ.Ingestor.Cli/Dockerfile" }
+)
+foreach ($Item in $Builds) {
+    $Image = $Registry + "/" + $Item.Name + ":" + $Tag
+    docker build --platform linux/amd64 -f $Item.Dockerfile -t $Image .
+    if ($LASTEXITCODE -ne 0) { throw "Build failed for " + $Item.Name }
+    docker push $Image
+    if ($LASTEXITCODE -ne 0) { throw "Push failed for " + $Item.Name }
+    Write-Host "Published image:" $Image
+}
+```
+
+The above is the **four-image reusable procedure**, **not evidence that four images were built**. On 12 November, the following three images were successfully pushed:
+
+| Image | Published tag | Registry manifest-list digest |
+| --- | --- | --- |
+| Migration | `49982a7-cloudsqlfix1` | `sha256:03de0fd1a80f546e375af8eb7be7c45ac03660276a2376538be06b64061a0529` |
+| API | `49982a7-app1` | `sha256:5859ed4eaccb410c78c0ccf8d43d62b4f69518e5b5295d7ed20c3265cdf5eb1c` |
+| Intelligence | `49982a7-app1` | `sha256:bcc19533946ba1f815a2db5ad96dcc44c9eb1c5525bf8cc4080b51f7bf4a7bce` |
+| Ingestor | **Not built/deployed** | — |
+
+The local source was the company `dev` checkout at `49982a715dd3eb0bbebf194b8eddf5a16ac1e398`. The later Cloud SQL bootstrap fix was locally applied without a new commit; the fix needs an approved company-code commit and reproducible release build. Do not reuse mutable tags or insert credentials into Git remotes. If the Docker credential helper cannot refresh, use `gcloud auth login` and retry only the push.
+
+### 14.2 Deploy/verify the guarded database migration job (only after approval)
+
+```powershell
+# Reuse the approved $Project $Region $Registry and $Tag variables.
+$DbImage = $Registry + "/visioniq-db-migrate:" + $Tag
+docker run --rm --entrypoint python $DbImage -m alembic -c db/alembic.ini heads
+if ($LASTEXITCODE -ne 0) { throw "Migration image validation failed" }
+gcloud sql backups list --instance=visioniqdev --project=$Project --limit=5
+# Review current SQL revision and permissions before the first write.
+# The next two commands are mutations; do not rerun an already successful job.
+gcloud run jobs update visioniq-db-migrate --project=$Project --region=$Region --image=$DbImage
+if ($LASTEXITCODE -ne 0) { throw "Migration job update failed" }
+gcloud run jobs execute visioniq-db-migrate --project=$Project --region=$Region --wait
+if ($LASTEXITCODE -ne 0) { throw "Failed: inspect logs and current DB state before any retry" }
+```
+
+In SQL Studio, connect to `visioniq_dev` and verify:
+
+```sql
+SELECT version_num FROM public.alembic_version;
+SELECT n.nspname AS schema_name, count(*) AS table_count
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname IN ('workflow','evidence','knowledge') AND c.relkind IN ('r','p')
+GROUP BY n.nspname ORDER BY n.nspname;
+```
+
+**Observed result:** Alembic `20261112_0026`; `evidence` 19, `knowledge` 22, `workflow` 8 (49 application tables); pgvector 0.8.5. Migration job execution `visioniq-db-migrate-vb4x8` completed 1/1. The 12 Nov automated Cloud SQL backup was successful. The first job execution previously failed during role bootstrap: `db/manage.py` used `ALTER ROLE ... NOSUPERUSER ... NOREPLICATION ...`, which Cloud SQL rejected. The corrected statement removed both restricted attributes, resulting in the separately tagged `cloudsqlfix1` image. **Positive/negative runtime SQL permissions and recovery test remain pending.**
+
+### 14.3 Deploy/update the existing API and Intelligence services
+
+```powershell
+$IntelImage = $Registry + "/visioniq-intelligence:" + $Tag
+$ApiImage = $Registry + "/visioniq-api:" + $Tag
+
+gcloud run services update visioniq-intelligence --project=$Project --region=$Region --image=$IntelImage --no-traffic
+if ($LASTEXITCODE -ne 0) { throw "Intelligence deployment failed" }
+gcloud run services update visioniq-api --project=$Project --region=$Region --image=$ApiImage --no-traffic
+if ($LASTEXITCODE -ne 0) { throw "API deployment failed" }
+
+foreach ($Service in @("visioniq-intelligence", "visioniq-api")) {
+    gcloud run services describe $Service --project=$Project --region=$Region --format="yaml(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.traffic)"
+}
+```
+
+After verifying the exact newly created revisions, move traffic deliberately. The next commands use **the actual 12 Nov revision names** only; substitute verified new revision names for any later release.
+
+```powershell
+gcloud run services update-traffic visioniq-intelligence --project=$Project --region=$Region --to-revisions="visioniq-intelligence-00002-4h9=100"
+gcloud run services update-traffic visioniq-api --project=$Project --region=$Region --to-revisions="visioniq-api-00002-9mp=100"
+```
+
+**Observed 12 Nov:** both new revisions reported `Ready=True`, `Active=True` and 100% of traffic. API port 5100; Intelligence port 8000 with successful Uvicorn startup. Both use runtime identity `visioniq-runtime`, VPC connector `vpc-con` and `private-ranges-only` egress. This **does not establish real DB connectivity, API-to-Intelligence authentication, or LEARN/BRIEF/DEFECT functionality**.
+
+### 14.4 Runtime configuration and unsatisfied dependencies
+
+- **Verified as configured:** API keys `ASPNETCORE_ENVIRONMENT`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_API_USER`, `DB_SSL_MODE` and secret-backed `DB_API_PASSWORD`; Intelligence keys `APP_ENV`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_INTELLIGENCE_USER`, `DB_SSL_MODE` and secret-backed `DB_INTELLIGENCE_PASSWORD`. Existence of a key is not a successful runtime integration test.
+- **Outstanding:** classify and map the full `.env.example` key contract to the actual **company source code**; add approved per-service non-secret keys and Secret Manager bindings for ADO/Confluence/webhooks and any model keys; confirm Vertex embeddings/Gemini, authenticated API/Intelligence calls, GCS evidence bucket, SQL privileges and background worker execution model. **Never upload a populated local `.env` file to Cloud Run.**
+- **Not created:** VisionIQ Pub/Sub topics, subscriptions, dead-letter topics and hold subscriptions; Cloud Scheduler jobs. Reference `contracts/events/topology.json` and the plan-only `scripts/pubsub/provision-pubsub.ps1`. Verify OIDC and **internal-ingress reachability** of push endpoints before provisioning; a configured subscription does not automatically prove delivery to private Cloud Run.
+- **Not deployed:** Ingestor webhook Cloud Run host and scheduled sync/indexing jobs. External ADO service hooks require an approved protected HTTPS ingress route.
+- **Not tested end-to-end:** LEARN 01–13, BRIEF pickup→Gemini→publication, DEFECT→isolated tests→human-approved draft PR. Apply feature gates and approved test allowlists before any external write.
+
+### 14.5 Functional acceptance, recovery and CSV tracker
+
+Use an approved authenticated **in-network** caller to verify `/health`, DB-backed `/ready`, actual SQL read/write grants and denied cross-schema access, API→Intelligence auth, ADO/Confluence/GCS, Vertex embeddings and inference, Pub/Sub delivery/retries/DLQ, Scheduler triggers and complete feature E2E. A direct Cloud Shell request to internal-only Cloud Run can return 404 at the ingress boundary without proving an app error.
+
+For an approved rollback, record both previous compatible revisions and current schema **before** traffic changes. To restore traffic, use `gcloud run services update-traffic SERVICE --project=PROJECT --region=REGION --to-revisions="VERIFIED_OLD_REVISION=100"`. This does not roll back Cloud SQL; do not assume old app revisions are schema-compatible or an arbitrary Alembic downgrade is safe.
+
+The complete work-to-green task list is [VisionIQ_Cloud_Deployment_Completion_Tracker.csv](./VisionIQ_Cloud_Deployment_Completion_Tracker.csv), added to **this same draft PR**. It has task status, technology, dependencies, acceptance criteria, test/evidence fields and **104 individually audited reference configuration key names**. Config keys must be confirmed as consumed by company code or explicitly marked not applicable. `Done` means backed by observed evidence; `Configured` means metadata only; `Not created` is a confirmed gap; `Deferred` is separate from the core acceptance scope. Do not equate container readiness with 100% working cloud functionality.
+
+---
+
+## 15. Operational release record
 
 Update this concise, **VisionIQ-only** table after each meaningful action. Keep verbose logs in an approved restricted archive; do not paste unrelated shared-project inventory or personal support history.
 
@@ -346,18 +467,19 @@ Update this concise, **VisionIQ-only** table after each meaningful action. Keep 
 | — | G02.2–G02.6 | Read-only build path checks | PENDING | Not yet supplied | Select automated or manual path |
 | — | G03–G11 | Cloud migration, release and integrations | PENDING | Acceptance not performed | Follow phase ordering and approvals |
 
-## 15. Source references and change history
+## 16. Source references and change history
 
 - `docs/OPERATIONS-AND-INFRASTRUCTURE/fnd04-manual-deployment.md` — historical manual deployment; local Docker image build is not required by this runbook's **cloud-side manual** route.
 - `docs/OPERATIONS-AND-INFRASTRUCTURE/LRN12-WEBHOOK-CLOUD-DEPLOYMENT.md` — canonical webhook host and security boundary.
 - `contracts/events/topology.json`, `scripts/pubsub/provision-pubsub.ps1` — event topology and provisioning reference.
 - `db/cloud_manage.py`, `db/migrations/` — guarded Cloud SQL migration and schema.
 - `config/pickup-policy.example.json` — policy template to be reviewed, **not** an active production policy.
-- `.env.example` — canonical safe configuration key contract; secrets are sourced from Secret Manager.
+- `.env.example` — safe key-name reference, not deployed credentials; verify consumed keys against company source code.
+- [`VisionIQ_Cloud_Deployment_Completion_Tracker.csv`](./VisionIQ_Cloud_Deployment_Completion_Tracker.csv) — atomic cloud completion and environment-key audit.
 
 **Google documentation:** [Cloud Build source triggers](https://docs.cloud.google.com/build/docs/automating-builds/create-manage-triggers) · [Manual Cloud Build submissions](https://docs.cloud.google.com/build/docs/manually-build-code-source-repos) · [Cloud Build to Cloud Run](https://docs.cloud.google.com/build/docs/deploying-builds/deploy-cloud-run).
 
-**Documentation rule:** retain this **one** living runbook in the documentation draft PR until review/merge. Append exact commands, verified resource changes, sanitized results and rollback guidance as each stage is approved and executed. Add new sections for generally reusable procedures; avoid conversation-specific or unrelated-resource notes.
+**Documentation rule:** retain this **one** living runbook and companion CSV in the **same draft PR** until review/merge. Append exact commands, verified resource changes, sanitized results and rollback guidance as each stage is approved and executed. Add new sections for generally reusable procedures; avoid conversation-specific or unrelated-resource notes.
 
 ---
 
