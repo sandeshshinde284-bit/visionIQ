@@ -136,49 +136,76 @@ The API and Intelligence applications must remain private/IAM-authenticated. **A
 
 A distinct migration identity should own schema DDL. The role design is proposed and must be confirmed before cloud grants are applied.
 
-## Read-only commands for inventory (after gcloud authentication)
+## Deployment execution journal — exact commands and evidence
 
-Run only in the approved GCP context. These commands inspect metadata; they do not create resources.
+**Rule for this draft PR:** This file records every **planned and actually executed** cloud deployment or verification step **as we perform it**. Before asking anyone to run a command, write its exact copy/paste form in this guide and commit that update to this same draft PR. When a command is executed, append its UTC timestamp, operator-confirmed result, sanitized output reference, pass/fail/blocked state and follow-up in the same section. **Do not mark a command executed, successful or verified before seeing its result.** Never replace an existing executed entry with a new plan; add a dated correction if needed. When a command modifies cloud infrastructure, record a pre-change state and rollback/restore approach first.
 
-**Inspect selected GCP project**
-```powershell
-gcloud config get-value project
-```
+- **Execution location:** Google Cloud Shell **Bash** or another approved GCP-hosted execution environment. No local Docker, workstation PostgreSQL or local image build.
+- **Scope:** project `gbr-mts-wgh-hkt-dev`, region `europe-west3`; review any command that targets something else. Prefer explicit `--project` and `--region` instead of changing the user's default `gcloud` configuration.
+- **Data protection:** redact all credentials, tokens, secret payloads, auth headers, user names and personal/private identifiers. Do not paste `gcloud run services describe --format=json` or an unfiltered `env` dump, which can expose runtime values. Secret Manager inventory means **names and metadata only**, never `versions access`.
+- **Statuses:** `PREPARED` = documented but not run; `EXECUTED — PASS` = actual successful result supplied; `EXECUTED — FAIL` = failed result supplied; `BLOCKED` = prerequisites or authorization missing; `SKIPPED` = deliberately not executed and reason recorded.
+- **Evidence:** record date/time, GCP project and resource, reviewed Git SHA/image digest (for deploy commands), sanitized stdout/stderr summary, Cloud Run revision or job execution IDs (when applicable), and checks actually performed. No inferred success.
 
-**Describe instance (read-only)**
-```powershell
-gcloud sql instances describe visioniqdev --project=gbr-mts-wgh-hkt-dev --format="yaml(name,state,region,databaseVersion,connectionName)"
-```
+### G01 — Recheck existing infrastructure (PREPARED; not executed)
 
-**List logical databases (read-only)**
-```powershell
-gcloud sql databases list --instance=visioniqdev --project=gbr-mts-wgh-hkt-dev
-```
+**Purpose:** Reconcile the historic FND-03/FND-04 deployment with the **actual** cloud state before creating any resource or running migrations.
 
-### Live cloud inventory — first action, read-only
+**Risk / rollback:** Read-only inspection; no resource changes, therefore no rollback. If authorization is denied, record `BLOCKED` rather than granting IAM without review.
 
-Use **Google Cloud Shell Bash** (commands inspect metadata only; do not disclose secret values):
+**Execute in Google Cloud Shell (Bash).** Run the entire block; it prints section labels to keep command/output pairs traceable:
 
 ```bash
-PROJECT='gbr-mts-wgh-hkt-dev'
-REGION='europe-west3'
+PROJECT="gbr-mts-wgh-hkt-dev"
+REGION="europe-west3"
+
+echo "===== G01.1 Active gcloud account/project (account identity may be redacted) ====="
+gcloud config get-value project
+
+echo "===== G01.2 Cloud Run services ====="
 gcloud run services list --project="$PROJECT" --region="$REGION"
-gcloud run jobs list --project="$PROJECT" --region="$REGION"
-gcloud artifacts repositories list --project="$PROJECT" --location="$REGION"
-gcloud sql instances describe visioniqdev --project="$PROJECT" \
-  --format='yaml(name,state,region,databaseVersion,connectionName)'
-gcloud sql databases list --instance=visioniqdev --project="$PROJECT"
-gcloud pubsub topics list --project="$PROJECT"
-gcloud pubsub subscriptions list --project="$PROJECT"
-gcloud secrets list --project="$PROJECT" --format='value(name)'
-gcloud iam service-accounts list --project="$PROJECT" --format='value(email)'
-for service in visioniq-api visioniq-intelligence; do
-  gcloud run services describe "$service" --project="$PROJECT" --region="$REGION" \
-    --format='yaml(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url)'
+
+echo "===== G01.3 Existing service revisions (no environment or secrets dump) ====="
+for SERVICE in visioniq-api visioniq-intelligence; do
+  echo "--- $SERVICE ---"
+  gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" \
+    --format="yaml(metadata.name,status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url)"
 done
+
+echo "===== G01.4 Cloud Run jobs ====="
+gcloud run jobs list --project="$PROJECT" --region="$REGION"
+
+echo "===== G01.5 Artifact Registry repositories ====="
+gcloud artifacts repositories list --project="$PROJECT" --location="$REGION"
+
+echo "===== G01.6 Cloud SQL instance ====="
+gcloud sql instances describe visioniqdev --project="$PROJECT" \
+  --format="yaml(name,state,region,databaseVersion,connectionName)"
+
+echo "===== G01.7 Logical PostgreSQL databases ====="
+gcloud sql databases list --instance=visioniqdev --project="$PROJECT"
+
+echo "===== G01.8 Pub/Sub topics ====="
+gcloud pubsub topics list --project="$PROJECT"
+
+echo "===== G01.9 Pub/Sub subscriptions ====="
+gcloud pubsub subscriptions list --project="$PROJECT"
+
+echo "===== G01.10 Secret Manager SECRET NAMES only ====="
+gcloud secrets list --project="$PROJECT" --format="value(name)"
+
+echo "===== G01.11 Runtime service-account emails (redact if needed) ====="
+gcloud iam service-accounts list --project="$PROJECT" --format="value(email)"
 ```
 
-Capture sanitized results and exact collection date below; do **not** print secret versions' payloads, API tokens, private password values, or environment dumps containing plaintext credentials. Metadata existence is not acceptance evidence for database connectivity or feature operation.
+**Evidence log (fill after real execution):**
+
+| Executed UTC | Substep | Result | Sanitized evidence / finding | Follow-up |
+| --- | --- | --- | --- | --- |
+| Not executed | G01.1–G01.11 | PREPARED | Await actual Cloud Shell results; do not claim live inventory from historical screenshots | Compare actual resources against FND-03/FND-04 baseline |
+
+**Review after output:** Confirm the SQL instance is `RUNNABLE`; identify the real application database name, deployed service revisions and ingress, migration job, Artifact Registry repository, existing Pub/Sub topics/subscriptions, expected service accounts and Secret Manager secret *names*. This inventory does **not** prove SQL table existence, migration head, secret contents, service health, IAM grants or E2E feature success. Record those under subsequent dedicated gates.
+
+**Next journal sections (add exact commands immediately before executing each stage):** G02 cloud-hosted build; G03 Cloud SQL backup/migrations/schema+role verification; G04 Secret Manager and service-specific variables; G05 API/Intelligence revisions; G06 Pub/Sub; G07 LEARN jobs; G08 secure ADO webhook ingress; G09 BRIEF; G10 inactive DEFECT staging; G11 monitoring/rollback.
 
 ## Deployment readiness and cloud-only acceptance gates
 
