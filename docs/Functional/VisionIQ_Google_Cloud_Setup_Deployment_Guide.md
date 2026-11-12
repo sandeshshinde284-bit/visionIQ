@@ -218,17 +218,17 @@ gcloud scheduler jobs list --project="$PROJECT" --location="$REGION" \
 | G01.9 | EXECUTED — PASS (RESOURCE GAP) | Pub/Sub subscriptions exist for unrelated workloads; **no VisionIQ subscription** in output | Need authenticated VisionIQ push subscriptions and dead-letter handling |
 | G01.10 | EXECUTED — PASS (CREDENTIAL GAP) | `visioniq-db-admin-password`, `visioniq-db-api-password`, `visioniq-db-intelligence-password`, `visioniq-build-token-dev` found; other ADO/Confluence token secret names also present. No distinctly named `ADO_WEBHOOK_SECRET` or `PICKUP_WEBHOOK_SECRET` identified | Do not access payloads; verify versions/IAM/ownership and create approved distinct webhook secrets later |
 | G01.11 | EXECUTED — PASS | Service accounts `visioniq-runtime` and `visioniq-db-migrate` exist | Actual service bindings and IAM grants pending |
-| G01.12 | EXECUTED — PASS (no VisionIQ scheduler in target region) | Cloud Scheduler list in `europe-west3` returned one enabled job, `vision-confluence-sync-scheduler`. The user confirmed this is **another project's job**, not VisionIQ. | Leave that job unchanged; VisionIQ Scheduler provisioning is pending. A project-wide request without `--location` failed because gcloud requires a location; it does not imply missing permissions. |
+| G01.12 | EXECUTED — PASS (VisionIQ-scoped inventory) | No VisionIQ Cloud Scheduler jobs found in `europe-west3`. | VisionIQ scheduling remains to be configured. The no-location command failed because `--location` is required, not because of an IAM denial. |
 
 **Two resolved shell-entry errors:** The first variable assignment misspelled `PROJECT` as `ROJECT`, causing an empty-project error for the first G01.2 attempt. After setting `PROJECT` correctly, G01.2 succeeded. One `echo` heading for G01.6 was entered incorrectly, yielding a shell syntax error; the actual Cloud SQL describe command was rerun successfully. Neither remains a GCP failure.
 
 **Evidence boundaries:** The provided output verifies live resource **metadata** as of the run, not successful database migration, secret accessibility, IAM authorization, application readiness, Pub/Sub message processing or Cloud Scheduler state. Do not include other teams' resource details or personal identities in the shared deployment record.
 
-### G01.12 — Cloud Scheduler inventory (EXECUTED — PASS for VisionIQ target region)
+### G01.12 — VisionIQ Cloud Scheduler inventory (EXECUTED — PASS)
 
-The following is the **exact command and relevant CLI output** provided on **12 November 2026**, with the Cloud Shell username/prompt omitted. Both G01.12a and the unsuccessful G01.12b attempts are retained for traceability. These commands did not modify GCP resources.
+**Scope:** Only VisionIQ-owned resources and VisionIQ-specific results belong in this deployment guide. Shared-project workloads outside VisionIQ are omitted.
 
-**G01.12a — command that was executed successfully:**
+**G01.12a — command executed successfully in Cloud Shell (12 November 2026):**
 
 ```bash
 echo "===== G01.12a Scheduler jobs in europe-west3 ====="
@@ -236,19 +236,9 @@ gcloud scheduler jobs list --project="$PROJECT" --location="$REGION" \
   --format="table(name,schedule,timeZone,state)"
 ```
 
-**G01.12a — actual output:**
+**VisionIQ result:** No VisionIQ-specific Cloud Scheduler job was found in `europe-west3`. Therefore, **VisionIQ scheduling is not yet configured in the target region**. Listing succeeded and demonstrates read access, but does not prove permission to create or modify jobs.
 
-```text
-===== G01.12a Scheduler jobs in europe-west3 =====
-ID: vision-confluence-sync-scheduler
-SCHEDULE: 0 */3 * * *
-TIME_ZONE: Europe/Paris
-STATE: ENABLED
-```
-
-**Ownership clarification from the user:** `vision-confluence-sync-scheduler` is **another project's** resource, not a VisionIQ job. **Do not change, pause, run, reuse or delete it.** No VisionIQ-specific Scheduler job appeared in the `europe-west3` output. `0 */3 * * *` means every three hours at minute zero in the configured Paris time zone.
-
-**G01.12b — original attempted command (executed twice; retain as failed history, DO NOT reuse):**
+**G01.12b — command actually attempted twice; failed (historical audit record; do not reuse):**
 
 ```bash
 echo "===== G01.12b Scheduler jobs across the project ====="
@@ -256,17 +246,16 @@ gcloud scheduler jobs list --project="$PROJECT" \
   --format="table(name,schedule,timeZone,state)"
 ```
 
-**G01.12b — actual output (same error on two attempts):**
+**G01.12b — actual error returned on both attempts:**
 
 ```text
-===== G01.12b Scheduler jobs across the project =====
 ERROR: (gcloud.scheduler.jobs.list) Please use the location flag to manually specify a location.
 ERROR: (gcloud.scheduler.jobs.list) Please use the location flag to manually specify a location.
 ```
 
-**Interpretation:** The omitted `--location` caused a CLI location-resolution error. It does **not** indicate a missing Cloud Scheduler API, denied IAM permissions or an empty job list across other regions. We have only inventoried the intended VisionIQ deployment region, `europe-west3`.
+**Cause:** The command omitted the required `--location` argument. This does **not** indicate a missing API or an IAM denial. Only the intended VisionIQ deployment region `europe-west3` was inspected.
 
-**Correct reusable read-only command (also shown in the G01 master command list):**
+**Correct reusable read-only command (also added to the G01 master command list):**
 
 ```bash
 PROJECT="gbr-mts-wgh-hkt-dev"
@@ -275,7 +264,7 @@ gcloud scheduler jobs list --project="$PROJECT" --location="$REGION" \
   --format="table(name,schedule,timeZone,state)"
 ```
 
-**G01.12 result:** `EXECUTED — PASS` for region-scoped inventory. **VisionIQ Scheduler creation and scheduling are PENDING.** The other project's enabled job must remain untouched.
+**G01.12 outcome:** `EXECUTED — PASS` for VisionIQ-scoped inventory; **dedicated VisionIQ Scheduler creation remains PENDING** until approved Cloud Run tasks are ready. No GCP resources were changed.
 
 ### Earlier cloud access email — permission follow-up decision (not sent)
 
@@ -285,7 +274,7 @@ The previously sent access request asked about Scheduler Admin, permission to co
 
 **Permission status:** `cloudscheduler.jobs.list` observed working; create/update, service-account policy editing, VPC deployment rights and secret-access grants remain **UNVERIFIED**. Record any future `PERMISSION_DENIED` error with its attempted command (redacted) before requesting elevated permissions.
 
-**G01 review:** G01.1–G01.12 inventory checks are now **complete for the target region** (including correctly recording that the one listed Scheduler job belongs to a different project). Inventory success is not deployment readiness: SQL tables, migration head, secret versions/IAM, HTTP readiness, secure ingress, Pub/Sub and E2E operation require separate G02–G11 validation.
+**G01 review:** G01.1–G01.12 VisionIQ-scoped inventory checks are **complete for the target region**. Inventory success is not deployment readiness: SQL tables, migration head, secret versions/IAM, HTTP readiness, secure ingress, Pub/Sub and E2E operation require separate G02–G11 validation.
 
 **Next journal sections (add exact commands immediately before executing each stage):** G02 cloud-hosted build; G03 Cloud SQL backup/migrations/schema+role verification; G04 Secret Manager and service-specific variables; G05 API/Intelligence revisions; G06 Pub/Sub; G07 LEARN jobs; G08 secure ADO webhook ingress; G09 BRIEF; G10 inactive DEFECT staging; G11 monitoring/rollback.
 
@@ -366,7 +355,7 @@ The previously sent access request asked about Scheduler Admin, permission to co
 
 | Date | Change | Evidence / validation |
 | --- | --- | --- |
-| 12 Nov 2026 | Added exact G01.12a Scheduler command to master G01 list; preserved G01.12a real output and G01.12b failed command/error (twice) in historical execution log; captured access-email follow-up decision | User-provided Cloud Shell output and ownership clarification; no GCP changes |
+| 12 Nov 2026 | Added G01.12a Scheduler command to the master command list; recorded only VisionIQ-specific Scheduler outcome; retained attempted G01.12b command and CLI errors; documented access follow-up | User-provided Cloud Shell output; no GCP changes |
 | 12 Nov 2026 | Recorded G01.1–G01.11 Cloud Shell infrastructure evidence; found original services/DB/jobs/registry/roles, identified missing VisionIQ Pub/Sub resources; added G01.12 Cloud Scheduler inventory | User-supplied Cloud Shell transcript, summarized without other team/personal identifiers; no cloud changes |
 | 29 Oct 2026 | Initial Cloud SQL configuration captured from supplied settings | Team-provided configuration |
 | 29 Oct 2026 | Confirmed configuration against four Console screenshots; documented two resource labels without personal identifiers; confirmed manual provisioning, no Terraform | Screenshot visual review; no API connectivity or migration claimed |
