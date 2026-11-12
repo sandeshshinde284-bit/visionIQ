@@ -115,13 +115,13 @@ gcloud scheduler jobs list --project="$PROJECT" --location="$REGION" \
 
 | Item | Verified metadata | Follow-up |
 | --- | --- | --- |
-| API / Intelligence | `visioniq-api-00001-9gm`, `visioniq-intelligence-00001-zfn` latest ready | New source and SQL readiness not verified |
-| Cloud SQL | `visioniqdev` RUNNABLE; `visioniq_dev` exists | Check migrations, tables, role grants and connections |
-| Migration job | `visioniq-db-migrate` exists, last listed run 30 Oct 2026 | Newer migrations pending verification |
-| Artifact Registry | `team-visioniq-docker-dev` exists | Check image digests |
-| Pub/Sub | No VisionIQ application topics or subscriptions listed | Provision at G06 |
-| Service accounts / secrets | VisionIQ runtime/migration accounts and DB secret names exist | Check versions, policy and least-privilege IAM |
-| Scheduler | No VisionIQ job identified in target region | Configure dedicated VisionIQ schedules at G11 |
+| API / Intelligence | `visioniq-api-00002-9mp` and `visioniq-intelligence-00002-4h9` are Ready/Active; **100% traffic** each | Database-backed readiness and feature integrations still untested |
+| Cloud SQL | `visioniq_dev` migrated to `20261112_0026`; **49 application tables**; pgvector 0.8.5 | Verify runtime role access and least privilege |
+| Migration job | Corrected image deployed; execution `visioniq-db-migrate-vb4x8` succeeded 1/1 | Commit fix to approved company source and verify grants |
+| Artifact Registry | Migration, API and Intelligence images successfully pushed; digests in §14 | Build/push Ingestor, review release provenance |
+| Pub/Sub | **Not created** as confirmed by operator, 12 Nov 2026 | Provision at G06 after push endpoint reachability/identity review |
+| Service accounts / secrets | API, Intelligence and migration DB secret references present | Other integration credentials and effective IAM remain untested |
+| Scheduler | **Not created** as confirmed by operator, 12 Nov 2026 | Define approved job targets before provisioning |
 
 ## 4. G02 — Source validation, Cloud Build and Artifact Registry
 
@@ -241,7 +241,7 @@ gcloud run jobs executions list --job=visioniq-db-migrate \
   --project="$PROJECT" --region="$REGION" --limit=10
 ```
 
-**G03 exit:** successful reviewed migration and verified SQL schema/grants, not merely a zero-exit job. **Rollback:** restore/roll forward using a compatible backup plan; do not assume arbitrary Alembic downgrade is safe.
+**G03 exit:** verified SQL schema **and** role-grant tests, not merely zero-exit job. On 12 Nov the revision/tables and migration job passed, while scoped runtime SQL grants remain unverified. **Rollback:** restore/roll forward using a compatible backup plan; do not assume arbitrary Alembic downgrade is safe.
 
 ## 6. G04 — Per-service Cloud Run configuration and Secret Manager
 
@@ -273,7 +273,7 @@ The template `config/pickup-policy.example.json` **already exists**, but contain
 4. Verify latest ready revisions, authenticated `/health` and **database-backed** `/ready`, role-scoped SQL access, permitted service-to-service calls and logs.
 5. On failure, restore traffic to the previous compatible revision and follow the documented DB-compatible recovery plan.
 
-**Exact commands for the mutation must be recorded once approved image digests and final per-service configuration are known.** A generic `gcloud run deploy` command with guessed secrets is not a safe repeatable release command.
+**The observed 12 Nov image update/traffic commands are recorded in §14.** Do not turn this into a fully accepted release without final per-service configuration and functional tests.
 
 ## 8. G06 — Pub/Sub topics, authenticated subscriptions, retries and DLQ
 
@@ -462,10 +462,11 @@ Update this concise, **VisionIQ-only** table after each meaningful action. Keep 
 
 | UTC date | Release SHA / gate | Action / command | Status | Validation evidence | Rollback or next step |
 | --- | --- | --- | --- | --- | --- |
-| 2026-11-12 | G01 | Read-only infrastructure inventory | PASS — metadata only | Original VisionIQ Run services/job, SQL instance/database, registry, identities identified | Application/DB acceptance still pending |
+| 2026-11-12 | G01 | Infrastructure inventory | PASS — metadata | Original Run resources, SQL, registry and service identities | App dependencies and integration acceptance still pending |
 | 2026-11-12 | G02.1 | Enabled Cloud Build and Artifact Registry APIs | PASS | Both APIs listed enabled | G02.2–G02.6, source access and build-submit IAM pending |
 | — | G02.2–G02.6 | Read-only build path checks | PENDING | Not yet supplied | Select automated or manual path |
-| — | G03–G11 | Cloud migration, release and integrations | PENDING | Acceptance not performed | Follow phase ordering and approvals |
+| 2026-11-12 | G03/G05 | Migration and API/Intelligence rollout | PASS — migration and active revisions | Job `visioniq-db-migrate-vb4x8` 1/1, Alembic `20261112_0026`, 49 tables, new revisions at 100% | Integration tests, Ingestor, Pub/Sub, Scheduler and final acceptance pending |
+| 2026-11-12 | G02-C | Three image builds via local Docker | PASS — registry publication | Migration `49982a7-cloudsqlfix1`, API/Intelligence `49982a7-app1` | Company fix commit, reproducibility, fourth Ingestor image and tests pending |
 
 ## 16. Source references and change history
 
