@@ -38,4 +38,10 @@ internal static partial class PickupLog
 
     [LoggerMessage(EventId = 610, Level = LogLevel.Warning, Message = "Pickup sweep is off (no ADO_ORG_URL/ADO_READ_PAT, or PICKUP_SWEEP_INTERVAL_MINUTES is 0): missed webhooks are not recovered")]
     public static partial void SweepOff(ILogger logger);
+
+    [LoggerMessage(EventId = 611, Level = LogLevel.Information, Message = "Ticket pickup is limited to {Count} work items (PICKUP_ALLOWED_WORK_ITEM_IDS): {WorkItemIds}")]
+    public static partial void Restricted(ILogger logger, int count, string workItemIds);
+
+    [LoggerMessage(EventId = 612, Level = LogLevel.Warning, Message = "Ticket pickup is not limited to chosen work items: every eligible item of the configured projects starts a run")]
+    public static partial void Unrestricted(ILogger logger);
 }

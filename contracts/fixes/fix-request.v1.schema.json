@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "TicketRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "project": {
+          "title": "Project",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "system": {
+          "const": "ado",
+          "default": "ado",
+          "title": "System",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "id",
+        "revision"
+      ],
+      "title": "TicketRef",
+      "type": "object"
+    }
+  },
+  "$id": "https://visioniq.internal/schemas/fixes/fix-request.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What a fix run is asked to do. The baseline is a full commit SHA, never a branch name.",
+  "properties": {
+    "base_commit_sha": {
+      "title": "Base Commit Sha",
+      "type": "string"
+    },
+    "repository_id": {
+      "pattern": "^[A-Za-z0-9_.:/-]{1,256}$",
+      "title": "Repository Id",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "security_scope_id": {
+      "title": "Security Scope Id",
+      "type": "string"
+    },
+    "ticket": {
+      "$ref": "#/$defs/TicketRef"
+    }
+  },
+  "required": [
+    "run_id",
+    "ticket",
+    "repository_id",
+    "base_commit_sha",
+    "security_scope_id"
+  ],
+  "title": "Fix request v1 (S11-01)",
+  "type": "object"
+}

@@ -1,4 +1,4 @@
-# VisionIQ LEARN — Testing Kickoff Prompt (hand this to a fresh Claude session)
+# VisionIQ LEARN and BRIEF — Testing Kickoff Prompt (hand this to a fresh Claude session)
 
 > **How to use this file:** After cloning the `dev` branch, open Claude Code in the repo root and say:
 > *"Read docs/TESTING-KICKOFF-TODAY.md and follow it."*
@@ -26,7 +26,19 @@ Before every command that talks to ADO or Confluence, ask yourself: *does this o
 | **Confluence** | Create, edit, delete, restore, move or publish a page · add or edit comments, labels or attachments · change page **restrictions** or space permissions (including granting or revoking a user's access) |
 | **Both** | Send an HTTP `POST` / `PUT` / `PATCH` / `DELETE` to ADO or Confluence yourself (`curl`, `Invoke-RestMethod`, scripts) · use any MCP or connector tool that can create or update pages or work items · use a credential that has write access |
 
-If VisionIQ ever gains a feature that publishes back to tickets or pages (for example a brief publisher), test it only against fake or local endpoints, never against the real ADO or Confluence.
+**VisionIQ now has one feature that writes to a ticket: the BRIEF publisher (BRF-05).** With `BRIEF_PUBLISH_MODE=ado` it adds a comment to a work item, using its own token `ADO_COMMENT_PAT`. Under this Hard Rule:
+
+- **Never set `BRIEF_PUBLISH_MODE=ado`** and never set or use `ADO_COMMENT_PAT` against the real organization. Test delivery with `BRIEF_PUBLISH_MODE=record`, which renders the comment and keeps it in the local database without calling ADO.
+- **Never create the "work item commented" or "work item updated" service hooks** that BRF-01 and BRF-06 describe. Post the sample event files to `http://127.0.0.1:5100/webhooks/ado` instead.
+- Leave `BRIEF_PUBLISH_MODE` at `off` or `record` in every `.env` you touch. If you find it set to `ado`, stop and tell the user.
+
+**The DEFECT phase adds a second feature that writes: the draft pull request (DEF-05).** With `FIX_PR_MODE=ado` it pushes a branch, opens a pull request and posts statuses, using its own token `ADO_PR_PAT`. Under this Hard Rule:
+
+- **Never set `FIX_PR_MODE=ado`** and never set or use `ADO_PR_PAT` against the real organization. Test delivery with `FIX_PR_MODE=record`, which keeps what would be sent in the local database.
+- **Never create the "pull request updated" service hook** that DEF-06 describes. Post a sample body to `http://127.0.0.1:5100/webhooks/ado` instead.
+- **Never point `DEFECT_POLICY_FILE` at a real repository's URL.** The fix pipeline clones the repository and runs code from it. Use the demo repository from `scripts/defect-demo/make_demo_repo.py`.
+
+The same applies to any later feature that publishes to tickets or pages: fake or local endpoints only.
 
 ### Allowed (read-only)
 
@@ -63,6 +75,8 @@ Today you are testing **all seven LEARN features (LRN-01 through LRN-07)** of th
 - **Cloud testing** — only the parts that don't require FND-06 infrastructure (see "Cloud Testing Scope" below; most of LEARN can be verified locally, cloud end-to-end is a separate, smaller checklist)
 
 You are not exploring or redesigning anything. The code is implemented and documented. Your job is to **run it, verify it behaves as documented, and report pass/fail per feature** with evidence (command output, row counts, exit codes).
+
+The **BRIEF features (BRF-01 through BRF-08)** are also testable, locally only: see [Step 2B](#step-2b-brief-phase-brf-01-to-brf-08-local-only). They live on branch `feature/BRF-02-08-brief-pipeline` until that branch is merged into `dev`.
 
 ---
 
@@ -248,6 +262,219 @@ Check `docs/LEARN-PHASE-COMPLETE/LRN-07-RELATIONSHIP-GRAPH/ARCHITECTURE.md`. Ver
 
 ---
 
+## Step 2B: BRIEF phase (BRF-01 to BRF-08), local only
+
+**Read first:** [docs/features/BRIEF-ARCHITECTURE.md](features/BRIEF-ARCHITECTURE.md) (the whole flow, states, tables, settings), then the story's own doc under `docs/features/BRF-0x-…/README.md`.
+
+**What the flow does:** a ticket moved to In Progress → pickup → run → Intelligence builds a brief (history search, scope, risk band, advice checked against its sources) → the API posts the brief as one comment on the ticket → the engineer rates advice by replying → a hotspot sweep flags risky areas for later briefs.
+
+**How it is tested here:** with Docker only. The models are replaced by an offline stand-in (`LLM_MODE=offline`), the history is synthetic (`scripts/brief-demo/seed_demo_history.py`), and the comment is kept in the local database (`BRIEF_PUBLISH_MODE=record`). **Nothing is read from or written to Azure DevOps, Confluence or Google Cloud.**
+
+### 2B.1 Automated tests
+
+```powershell
+git branch --show-current     # expect: feature/BRF-02-08-brief-pipeline (or dev once it is merged)
+dotnet build .\VisionIQ.sln --configuration Release
+dotnet test .\VisionIQ.sln --configuration Release
+python -m pytest tests/intelligence
+python -m ruff check . ; python -m ruff format --check .
+python -m alembic -c db/alembic.ini heads      # expect one head: 20261110_0023
+```
+
+Expected on the branch (10 Nov 2026): .NET **659 passed, 20 skipped** (Ingestor 300 + 2, API 359 + 18); Python **364 passed, 90 skipped**; lint clean. The skips are opt-in database tests.
+
+Per story:
+
+```powershell
+# BRF-01 (95 passed, 1 skipped)
+dotnet test tests/VisionIQ.Api.Tests --configuration Release --filter "FullyQualifiedName~Pickup|FullyQualifiedName~AdoServiceHook"
+# BRF-02 (77 passed)
+python -m pytest tests/intelligence/test_llm_gateway.py tests/intelligence/test_llm_providers.py tests/intelligence/test_llm_injection.py tests/intelligence/test_llm_evaluation.py
+# BRF-03 (50 passed)
+python -m pytest tests/intelligence/test_brief_pipeline.py tests/intelligence/test_brief_risk.py tests/intelligence/test_brief_worker.py
+# BRF-04 (12 passed)
+python -m pytest tests/intelligence/test_brief_validate.py
+# BRF-05 (41 passed)
+dotnet test tests/VisionIQ.Api.Tests --configuration Release --filter "FullyQualifiedName~BriefCommentRendererTests|FullyQualifiedName~BriefPublisherTests"
+# BRF-06 (32 passed)
+dotnet test tests/VisionIQ.Api.Tests --configuration Release --filter FullyQualifiedName~AdviceFeedbackTests
+# BRF-07 (10 passed)
+python -m pytest tests/intelligence/test_brief_latency.py
+# BRF-08 (13 passed)
+python -m pytest tests/intelligence/test_hotspots.py
+```
+
+### 2B.2 Database tests (opt-in, isolated database only)
+
+Run these only against a disposable database (for example the isolated container on port 55433, after `python -m db.manage all`), never the everyday development database:
+
+```powershell
+$env:VISIONIQ_DB_INTEGRATION = '1'
+python -m pytest tests/intelligence/test_brief_pipeline_db.py          # 4 passed
+$env:VISIONIQ_BRIEF_DB_INTEGRATION = '1'; $env:VISIONIQ_PICKUP_DB_INTEGRATION = '1'
+dotnet test tests/VisionIQ.Api.Tests --filter "FullyQualifiedName~BriefDeliveryDatabaseIntegrationTests|FullyQualifiedName~PickupDatabaseIntegrationTests"   # 3 passed
+```
+
+They need `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_API_USER`, `DB_API_PASSWORD`, `DB_INTELLIGENCE_USER` and `DB_INTELLIGENCE_PASSWORD` for that database.
+
+### 2B.3 The whole flow, end to end
+
+Follow **"How to test the whole flow locally"** in [BRIEF-ARCHITECTURE.md](features/BRIEF-ARCHITECTURE.md#how-to-test-the-whole-flow-locally). In short:
+
+1. `.env`: `PICKUP_POLICY_FILE=/app/config/pickup-policy.example.json`, `PICKUP_WEBHOOK_SECRET=<24+ random characters>`, `PICKUP_SWEEP_INTERVAL_MINUTES=0`, `BRIEF_PIPELINE_ENABLED=true`, `LLM_MODE=offline`, `EMBEDDING_PROVIDER=test`, `BRIEF_PUBLISH_MODE=record`. Leave `ADO_ORG_URL`, `ADO_READ_PAT` and `ADO_COMMENT_PAT` empty for this test.
+2. `docker compose up --build -d`, then `python scripts/brief-demo/seed_demo_history.py` (synthetic data; it refuses anything but a local database).
+3. Post `docs/features/BRF-01-ticket-pickup/sample-workitem-updated.json` to `http://127.0.0.1:5100/webhooks/ado` with the Basic-auth secret.
+4. Check the run, the stored brief and the recorded comment; post `docs/features/BRF-06-advice-ratings/sample-workitem-commented.json`; run `python -m app.hotspots.cli` and `python -m app.brief.latency` in the `intelligence` container.
+
+**Pass criteria** (each is a completion-evidence item of its story):
+
+| Check | Expected |
+| --- | --- |
+| First post / same post again | `queued` / `duplicate`; exactly one row in `workflow.analysis_runs` |
+| `workflow.analysis_results` | `PUBLISHED`, no reason codes, advice ids `ADV-001`… |
+| `knowledge.briefs` | Risk band `MODERATE`; factors show 2 fixes, 1 reverted, each with ticket and PR ids |
+| `workflow.brief_publications` | `published`, mode `record`, `time_to_brief_ms` set, one row per run |
+| The recorded comment (`comment_body`) | Run id and status, advice with ids and `Source:` links, a "Don't" for the reverted fix |
+| `knowledge.llm_calls` | One row per model call with provider `offline`, model, prompt version `brief.defect@v1`, tokens |
+| Rating comment / same again | `recorded` (ADV-001, ADV-002, ADV-003) / `duplicate`; rows in `workflow.advice_feedback` with reviewer and time; still one run |
+| Hotspot sweep | `src/Payments` is `HOT`; `web/site` (most changes, no fixes) is `NORMAL` |
+| A second pickup after the sweep (new `"id"`, revision 13) | Band `HIGH`, with `src/Payments` listed under "Areas flagged by the latest hotspot sweep" |
+| Without the seed (fresh database) | `BLOCKED` / `ticket_not_readable`, and the comment says why |
+
+**Pilot switch.** `PICKUP_ALLOWED_WORK_ITEM_IDS` (comma-separated work-item ids) limits pickup, briefs, comments and ratings to the listed items. To check it locally, set it to `4711` and repeat step 3 (expect `queued`); then set it to `9001`, restart the API (`docker compose up -d api`) and post a sample with a new `"id"` (expect `ignored` / `work_item_not_allowlisted`, and no new row in `workflow.analysis_runs`). If the user asks for a run against real ADO, this setting must name only the work items they gave you; it does not lift the Hard Rule.
+
+### 2B.4 What you must not do for BRIEF
+
+- Do not set `BRIEF_PUBLISH_MODE=ado` or `ADO_COMMENT_PAT` (Hard Rule above).
+- Do not create ADO service hooks. Mark "brief on two live tickets" (BRF-05), "one rating given in ADO" (BRF-06) and "ticket moved in real ADO" (BRF-01) as **BLOCKED (read-only rule)**; report the local equivalents instead.
+- Do not set `LLM_MODE=live` with real tickets unless the user says the data may go to the model provider. With `live` and the synthetic demo history, Gemini on Vertex AI may be tested if the user provides Google Cloud credentials; Claude stays off until decision D04 is made (`CLAUDE_ROUTE=off`).
+- Do not run `seed_demo_history.py` against anything but your local or isolated test database.
+
+---
+
+## Step 2C: DEFECT phase (DEF-01 to DEF-06), local only
+
+**Read first:** [docs/features/DEFECT-ARCHITECTURE.md](features/DEFECT-ARCHITECTURE.md) (the whole flow, states, tables, settings, what is not done), then the story's own doc under `docs/features/DEF-0x-…/README.md`.
+
+**What the flow does:** a defect ticket has its brief → a second run (mode `deep`) → Intelligence writes one test that fails on the baseline for the reported reason → proposes a small fix → runs the same test, the area's old tests, the suite and a benchmark on the fix → stores the result → the API prepares a draft pull request with one check per result.
+
+**How it is tested here:** with a synthetic Git repository that has a real bug (`scripts/defect-demo/make_demo_repo.py`), prepared model answers (`--offline-script`), the local runner and `FIX_PR_MODE=record`. **Nothing is read from or written to Azure DevOps or a model provider.** The tests and the benchmark are really run.
+
+### 2C.1 Automated tests
+
+```powershell
+git branch --show-current     # expect: defect-stories_1to6 (or dev once it is merged)
+dotnet build .\VisionIQ.sln --configuration Release
+dotnet test .\VisionIQ.sln --configuration Release
+python -m pytest tests/intelligence
+python -m ruff check . ; python -m ruff format --check .
+python -m alembic -c db/alembic.ini heads      # expect one head: 20261111_0025
+```
+
+Expected (11 Nov 2026): .NET **750 passed, 23 skipped**; Python **622 passed, 97 skipped**; lint clean. The skips are opt-in database tests.
+
+Per story:
+
+```powershell
+# DEF-01 reproduction, sandbox, contracts
+python -m pytest tests/intelligence/test_defect_sandbox.py tests/intelligence/test_defect_results.py tests/intelligence/test_defect_worker.py
+# DEF-02 bounded fix
+python -m pytest tests/intelligence/test_defect_guardrails.py
+# DEF-03 and DEF-04 verification, old tests, performance
+python -m pytest tests/intelligence/test_defect_pipeline.py
+# DEF-05 draft pull request
+dotnet test tests/VisionIQ.Api.Tests --configuration Release --filter FullyQualifiedName~FixPullRequestTests
+# The limits found in the review of PR #19, one test per case (47 passed)
+python -m pytest tests/intelligence/test_defect_hardening.py
+# DEF-06 honest checks
+python -m pytest tests/intelligence/test_defect_gates.py
+dotnet test tests/VisionIQ.Api.Tests --configuration Release --filter FullyQualifiedName~FixGatesTests
+```
+
+### 2C.2 Database tests (opt-in, isolated database only)
+
+Run these only against a disposable database, after `python -m db.manage all`, never the everyday development database. A throwaway one:
+
+```powershell
+docker run -d --rm --name def-test-pg -e POSTGRES_DB=visioniq -e POSTGRES_USER=visioniq -e POSTGRES_PASSWORD=<admin password> -p 127.0.0.1:55432:5432 pgvector/pgvector:pg16
+Get-Content db/init/01-extensions-and-schemas.sql | docker exec -i def-test-pg psql -q -U visioniq -d visioniq
+$env:DB_TARGET='local'; $env:DB_HOST='127.0.0.1'; $env:DB_PORT='55432'; $env:DB_NAME='visioniq'
+$env:DB_LOCAL_PASSWORD='<admin password>'; $env:DB_API_PASSWORD='<api password>'; $env:DB_INTELLIGENCE_PASSWORD='<intelligence password>'
+$env:DB_API_USER='visioniq_api'; $env:DB_INTELLIGENCE_USER='visioniq_intelligence'
+python -m db.manage all        # expect: roles configured, isolation verified; head 20261111_0025
+```
+
+Then:
+
+```powershell
+$env:VISIONIQ_DB_INTEGRATION = '1'
+python -m pytest tests/intelligence/test_defect_pipeline_db.py          # 7 passed
+$env:VISIONIQ_FIX_DB_INTEGRATION = '1'
+dotnet test tests/VisionIQ.Api.Tests --filter FullyQualifiedName~FixDeliveryDatabaseIntegrationTests   # 3 passed
+docker stop def-test-pg
+```
+
+| Test | What it proves on PostgreSQL |
+| --- | --- |
+| Python, verified fix | A deep request is accepted, left alone by the brief worker, answered once; `knowledge.fix_runs`, `fix_executions`, `llm_calls` and the `analysis.completed` event are stored together |
+| Python, immutability | `UPDATE` / `DELETE` on a fix result or an execution is refused; a late second answer stores nothing |
+| Python, constraints | A `PUBLISHED` row that is not `VERIFIED`, a `VERIFIED` row without a candidate and a `PARTIAL` row without a reason are refused |
+| Python, blocked / off | An unknown repository is stored `BLOCKED` / `repository_not_configured`; with the pipeline off a deep request is answered at once and never queued; requests accepted before it was switched off are answered once |
+| Python, history | The history query (by full path) runs under the run's access scope |
+| .NET, record mode | A verified result becomes exactly one `workflow.fix_pull_requests` row (`published`, `record`, six checks, draft) and no ticket comment; a result whose baseline differs from the run's is `failed` / `fix_result_does_not_match_run` |
+| .NET, nothing to open | A blocked result is `skipped` / `no_draft_pull_request`; with `FIX_PR_MODE=off` nothing is queued |
+| .NET, auto start | A defect ticket's brief starts exactly one deep run (also after redelivery); an enhancement, a blocked brief and a fix result start none |
+
+### 2C.3 The fix pipeline, end to end
+
+Needs Git and the Python requirements only.
+
+```powershell
+python scripts/defect-demo/make_demo_repo.py --out $env:TEMP\kiosk-demo
+```
+
+The script prints the next command with the paths and the baseline commit filled in. Run it from `src/VisionIQ.Intelligence`. Add `2>$null` to hide the structured log lines.
+
+**Pass criteria** (each is a completion-evidence item of its story):
+
+| Check | Expected | Story |
+| --- | --- | --- |
+| First lines | `State PUBLISHED, verdict VERIFIED`, exit code 0 | |
+| `Reproduction` | `REPRODUCED`, failure `AssertionError: captured payment was retried` | DEF-01 |
+| `<out>\evidence\<run id>\M1.json` | Baseline SHA, runner, tool versions and commands, written before `X1.log` | DEF-01 |
+| `Attempts`, patch 1 | `regression_failed`: the old test `tests/test_retry_policy.py` passes on the baseline and fails on the candidate | DEF-04 |
+| `Attempts`, patch 2 | `candidate_accepted`; `candidate.patch` changes only `src/kiosk/retry_policy.py` | DEF-02 |
+| Gates `candidate_test`, `historical_regression`, `touched_suite` | `PASS` | DEF-03, DEF-04 |
+| Gate `performance` | `PASS` with the median change, pair count and noise. On a busy machine it may be `INCONCLUSIVE` (verdict `INCONCLUSIVE`, exit code 3): that is correct behaviour, run it again | DEF-03 |
+| `Gates:` | `NOT_GREEN`, because `native_ci` is `NOT_RUN` and `human_review` is `REVIEW_REQUIRED` | DEF-06 |
+| `pr-description.md` | Defect, reproduction, cause, fix, a table of gates and a table of runs with commit, outcome and log hash | DEF-05 |
+| `Limits` | "Commands ran on the local runner, which has no network isolation." | DEF-01 |
+
+Negative checks (each must end without a fix):
+
+| Change | Expected |
+| --- | --- |
+| `--base-sha main` | `BLOCKED` / `baseline_not_pinned` |
+| `--repository unknown` | `BLOCKED` / `repository_not_configured` |
+| Delete the `code_fix` list from `offline-script.json` | `PARTIAL` / `INCONCLUSIVE` / `llm_unavailable`; the defect is still `REPRODUCED` |
+| In `offline-script.json`, change `message_contains` to a text the failure does not have | `BLOCKED` / `reproduction_different_failure`, after two attempts |
+
+All four end with exit code 3 and no draft pull request (checked on 11 Nov 2026).
+
+### 2C.4 Delivery in the API (record mode)
+
+The Intelligence container has no Git and no test runner yet, so a deep run cannot be answered inside Docker Compose. Until that exists, the API side is proven by the database test in 2C.2 (a stored verified result becomes one recorded draft pull request) and by `FixPullRequestTests`, which run the Azure DevOps adapter against a fake HTTP handler. Report "deep run through Compose" as **not testable yet**, not as failed.
+
+### 2C.5 What you must not do for DEFECT
+
+- Do not set `FIX_PR_MODE=ado` or `ADO_PR_PAT` (Hard Rule above). Mark "draft PR link for the live defect" (DEF-05) and "green required checks on the live defect PR" (DEF-06) as **BLOCKED (read-only rule)**.
+- The three blockers from the review of PR #19 are fixed (see "Review of PR #19" in DEFECT-ARCHITECTURE.md). That does not lift the Hard Rule: `FIX_PR_MODE=ado` still writes to a repository, and it has never been run against Azure DevOps.
+- In the Intelligence service a policy with a local runner needs `DEFECT_ALLOW_LOCAL_RUNNER=true`. Set it on your own machine only. The command-line tool in 2C.3 does not need it.
+- Do not run the pipeline on a real repository: it executes model-written code. Demo repository only.
+- Do not set `LLM_MODE=live` for the fix pipeline. The code tasks go to Claude only, and Claude stays off until decision D04 is made.
+
+---
+
 ## Step 3: Cloud Testing Scope (what's realistic today)
 
 Per the acceptance docs — and the Developer Team Guide PDF, **§17.9 "Cloud validation handoff (FND-06)"**, which lists seven specific gates (Cloud Run image, Cloud SQL, immutable GCS archive, canonical sync end-to-end, cross-run replay, negative access controls, scheduler/event delivery) all marked **Pending** as of the 5 Nov 2026 edition — **full cloud end-to-end is explicitly OPEN and owned by FND-06**. Do not treat it as in scope for today unless your team has already provisioned that infrastructure and can check off those exact gates. What you *can* test today if cloud credentials exist:
@@ -270,6 +497,7 @@ For each LRN feature, report:
 | LRN-01 | pass/fail counts | checkpoint resume verified? | — | PASS/PARTIAL/FAIL |
 | LRN-02 | ... | ... | ... | ... |
 | ... | | | | |
+| BRF-01 … BRF-08 | pass/fail counts | end-to-end pass criteria of Step 2B.3 | not tested (local only) | PASS/PARTIAL/FAIL |
 
 Include: exact commands run, exit codes, any deviation from documented expected baselines (e.g., Step 1 says "569 passed" on `dev` at `1645378` — if you get a different number, that's a finding).
 
@@ -284,5 +512,6 @@ Include: exact commands run, exit codes, any deviation from documented expected 
 - LRN-04: five real (not synthetic) ticket-to-fix examples still need independent sign-off
 - LRN-05: full historical backfill + live cloud chain still OPEN under FND-06
 - LRN-02: Confluence real-source acceptance is partial (ACL fail-closed behavior confirmed, full space scan still pending)
+- BRIEF: no run against real Gemini or Claude yet; decision D04 (what data may go to Claude) is open, so Claude is off; posting to a real ADO ticket and the "work item commented" service hook are untested; `.env.example` lacks the BRIEF, BRF-01 and FND-05 variables, so `scripts/check-env-contract.ps1` fails. The full list is under "Open items" in `docs/features/BRIEF-ARCHITECTURE.md`
 
 See `docs/REVIEW-AND-AUDIT/2026-Q4/INTEGRATION-REVIEW.md` **and** the Developer Team Guide PDF §17.10 (operations/troubleshooting table) for the complete, authoritative list of open findings and known symptoms before you report something as a "new" bug — check it's not already known.

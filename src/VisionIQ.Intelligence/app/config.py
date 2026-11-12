@@ -15,6 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 SslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
+DataClass = Literal["PUBLIC", "INTERNAL", "RESTRICTED"]
 
 
 def find_env_file(start: Path | None = None) -> Path | None:
@@ -65,11 +66,73 @@ class Settings(BaseSettings):
     events_dispatch_interval_seconds: float = Field(default=2.0, gt=0, le=60)
     event_contracts_dir: Path | None = None
 
+    # BRF-03 brief pipeline. Off by default: requests are then answered BLOCKED, as before.
+    brief_pipeline_enabled: bool = False
+    brief_worker_interval_seconds: float = Field(default=1.0, gt=0, le=60)
+    brief_evidence_limit: int = Field(default=8, ge=1, le=20)
+    brief_risk_window_days: int = Field(default=90, ge=1, le=3650)
+
+    # BRF-02 model use. LLM_MODE=offline replaces every model with a deterministic, extractive
+    # stand-in (tests and local demos only; refused in production).
+    llm_mode: Literal["live", "offline"] = "live"
+    gcp_project_id: str | None = None
+    vertex_location: str = "europe-west1"
+    gemini_model: str = "gemini-2.5-flash"
+    # Decision D04: where Claude runs and what data it may receive. Off until decided.
+    claude_route: Literal["off", "vertex", "anthropic"] = "off"
+    claude_model: str = "claude-opus-5-5"
+    claude_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    claude_vertex_region: str = "global"
+    claude_refusal_fallback: bool = True
+    # The classification of ticket and evidence text, and the highest each provider may see.
+    llm_data_classification: DataClass = "INTERNAL"
+    llm_gemini_max_classification: DataClass = "RESTRICTED"
+    llm_claude_max_classification: DataClass | None = None
+    # Per-run budget (v1.11 10.9 rule 3): calls, tokens (input + output) and wall-clock seconds.
+    llm_max_calls_per_run: int = Field(default=3, ge=1, le=10)
+    llm_max_tokens_per_run: int = Field(default=60_000, ge=1_000, le=2_000_000)
+    llm_max_seconds_per_run: float = Field(default=90.0, gt=0, le=600)
+    llm_call_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
+    # Thinking tokens count against this cap on both providers, so it is well above the
+    # size of a brief.
+    llm_max_output_tokens: int = Field(default=16_000, ge=256, le=64_000)
+
+    # BRF-08 hotspot sweep. 0 = no in-process schedule: run `python -m app.hotspots.cli` from
+    # Cloud Scheduler (or by hand) instead.
+    hotspot_sweep_interval_hours: float = Field(default=0.0, ge=0, le=720)
+    hotspot_window_days: int = Field(default=180, ge=1, le=3650)
+    hotspot_area_depth: int = Field(default=2, ge=1, le=10)
+
+    # DEF-01 to DEF-06 fix pipeline (deep analysis). Off by default: a deep request is then
+    # answered BLOCKED, as before. DEFECT_POLICY_FILE names the repositories, runner and budgets.
+    defect_pipeline_enabled: bool = False
+    defect_policy_file: Path | None = None
+    defect_worker_interval_seconds: float = Field(default=2.0, gt=0, le=60)
+    # The local runner executes model-written code on this host with network access. It is for a
+    # developer's machine only and must be allowed explicitly; it is never allowed in production.
+    defect_allow_local_runner: bool = False
+    # Throwaway workspaces and the run evidence (manifests, logs, bundle). Default: the system
+    # temporary directory.
+    defect_work_dir: Path | None = None
+    defect_artifact_dir: Path | None = None
+    defect_artifact_base_uri: str = ""
+    defect_keep_workspaces: bool = False
+    defect_bot_name: str = "VisionIQ Bot"
+    defect_bot_email: str = "visioniq-bot@users.noreply.invalid"
+    # Per-run budget of a fix. The seconds cover the test runs as well as the model calls.
+    defect_max_calls_per_run: int = Field(default=6, ge=1, le=30)
+    defect_max_tokens_per_run: int = Field(default=400_000, ge=1_000, le=5_000_000)
+    defect_max_seconds_per_run: float = Field(default=1800.0, gt=0, le=14_400)
+    # LLM_MODE=offline only: prepared test and patch answers for a demo (see app/defect/cli.py).
+    defect_offline_script: Path | None = None
+
     @model_validator(mode="after")
     def select_runtime_role(self) -> "Settings":
         # Ignore generic DB_* credentials; these may belong to the migration account.
         self.db_user = self.db_intelligence_user
         self.db_password = self.db_intelligence_password
+        if self.llm_mode == "offline" and self.app_env == "production":
+            raise ValueError("LLM_MODE=offline is for tests and local demos, not production.")
         return self
 
     def require_runtime_database_identity(self) -> None:
@@ -83,12 +146,20 @@ class Settings(BaseSettings):
                 "for the Intelligence runtime."
             )
 
-    @field_validator("app_env", "db_ssl_mode", mode="before")
+    @field_validator(
+        "app_env", "db_ssl_mode", "llm_mode", "claude_route", "claude_effort", mode="before"
+    )
     @classmethod
     def _lowercase(cls, value: object) -> object:
         return value.lower() if isinstance(value, str) else value
 
-    @field_validator("app_log_level", mode="before")
+    @field_validator(
+        "app_log_level",
+        "llm_data_classification",
+        "llm_gemini_max_classification",
+        "llm_claude_max_classification",
+        mode="before",
+    )
     @classmethod
     def _uppercase(cls, value: object) -> object:
         return value.upper() if isinstance(value, str) else value

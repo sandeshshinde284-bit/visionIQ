@@ -18,8 +18,9 @@ Full write-up, including how this was carried over from the `visionIQ` repositor
 | S03-10 correlation | `trace_id`, `correlation_id`, `run_id`, `event_id` on every log line of an event (.NET scope, structlog contextvars) |
 | S02-07 / S02-08 topics, DLQ | `contracts/events/topology.json`; local emulator in Compose; cloud plan in `scripts/pubsub/provision-pubsub.ps1` |
 
-Until the BRIEF pipeline exists, Intelligence answers every `analysis.requested` with `analysis.completed`
-`BLOCKED` / `analysis_pipeline_not_implemented`, never a fabricated result.
+With the BRIEF pipeline switched off (the default), Intelligence answers every `analysis.requested` with
+`analysis.completed` `BLOCKED` / `analysis_pipeline_disabled`, never a fabricated result. With
+`BRIEF_PIPELINE_ENABLED=true` a worker answers it with a real brief (`docs/features/BRIEF-ARCHITECTURE.md`).
 
 ## Run locally
 

@@ -14,6 +14,17 @@ public sealed class PickupWorker(
             PickupLog.SweepOff(logger);
         }
 
+        if (options.Policy.AllowedWorkItemIds is null)
+        {
+            PickupLog.Unrestricted(logger);
+        }
+        else
+        {
+            var allowed = options.Policy.AllowedWorkItemIds;
+            var ids = string.Join(", ", allowed);
+            PickupLog.Restricted(logger, allowed.Count, ids);
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var claimed = 0;

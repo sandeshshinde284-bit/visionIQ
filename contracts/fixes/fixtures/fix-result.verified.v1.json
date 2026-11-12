@@ -1,0 +1,800 @@
+{
+  "schema_version": 1,
+  "fix_id": "8b1bf0e4-216b-4fc3-b1d7-f04fc4d1748f",
+  "run_id": "3b25fca8-05e8-4422-9cca-c3e1c2c69565",
+  "ticket": {
+    "system": "ado",
+    "project": "Kiosk",
+    "id": "4711",
+    "revision": 3,
+    "title": "Bug 4711: customer charged twice"
+  },
+  "repository_id": "kiosk-demo",
+  "base_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+  "candidate_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+  "state": "PUBLISHED",
+  "verdict": "VERIFIED",
+  "reason_codes": [],
+  "reproduction": {
+    "reproducibility": "REPRODUCED",
+    "test": {
+      "path": "tests/test_captured_payment.py",
+      "test_id": "test_captured_payment_is_not_retried",
+      "sha256": "2e76de1e7ff7e517b6b7394c3b5d42a634378f0890254bc708f6c54e1da4b1bc",
+      "content": "from kiosk.retry_policy import RetryPolicy\n\n\ndef test_captured_payment_is_not_retried():\n    policy = RetryPolicy(max_attempts=3)\n    assert policy.should_retry(attempt=1, captured=True) is False, \"captured payment was retried\"\n",
+      "rationale": "The ticket says a captured payment is retried; the test asks the policy."
+    },
+    "expected_failure": {
+      "exception": "AssertionError",
+      "message_contains": [
+        "captured payment was retried"
+      ]
+    },
+    "evidence": {
+      "test_path": "tests/test_captured_payment.py",
+      "test_id": "test_captured_payment_is_not_retried",
+      "outcome": "FAIL_TARGET_SIGNATURE",
+      "first_outcome": "FAIL_TARGET_SIGNATURE",
+      "execution_ids": [
+        "X1",
+        "X2"
+      ],
+      "failure_signature": "AssertionError: captured payment was retried"
+    },
+    "detail": "The test ended FAIL_TARGET_SIGNATURE on the unchanged baseline."
+  },
+  "patch": {
+    "iteration": 1,
+    "candidate_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+    "tree_sha": "6c11f77f98f93c03289e0b8a8ff7cf3d8e476a65",
+    "branch": "visioniq/fix/4711-3b25fca8",
+    "bundle_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/candidate.bundle",
+    "bundle_sha256": "2c9d7438b58bd927a790ba69b2b6132ae0e2d05cbc1abe4ca659ec99bbbd717b",
+    "files": [
+      {
+        "path": "src/kiosk/retry_policy.py",
+        "change": "modified",
+        "sha256": "5eec2a8656e87eda8722f3bb2e3adc08f01271de58eaf49ea0df575e87a15577",
+        "added_lines": 1,
+        "removed_lines": 1,
+        "content": "\"\"\"When the kiosk retries a payment.\"\"\"\n\n\nclass RetryPolicy:\n    def __init__(self, max_attempts: int = 3) -> None:\n        self.max_attempts = max_attempts\n\n    def should_retry(self, attempt: int, captured: bool) -> bool:\n        \"\"\"Retry while attempts remain. A captured payment must never be retried.\"\"\"\n        return not captured and attempt < self.max_attempts\n\n    def delays(self) -> list[float]:\n        \"\"\"Seconds to wait before each retry: 0.5, 1, 2, ...\"\"\"\n        return [0.5 * 2**number for number in range(self.max_attempts - 1)]\n"
+      }
+    ],
+    "diff": "diff --git a/src/kiosk/retry_policy.py b/src/kiosk/retry_policy.py\nindex 8c91d01..0290fc5 100644\n--- a/src/kiosk/retry_policy.py\n+++ b/src/kiosk/retry_policy.py\n@@ -7,7 +7,7 @@ class RetryPolicy:\n \n     def should_retry(self, attempt: int, captured: bool) -> bool:\n         \"\"\"Retry while attempts remain. A captured payment must never be retried.\"\"\"\n-        return attempt < self.max_attempts\n+        return not captured and attempt < self.max_attempts\n \n     def delays(self) -> list[float]:\n         \"\"\"Seconds to wait before each retry: 0.5, 1, 2, ...\"\"\"\n",
+    "diff_truncated": false,
+    "cause": "should_retry ignores whether the payment was captured.",
+    "summary": "Do not retry a captured payment; keep the attempt limit",
+    "policy_status": "PASS",
+    "findings": []
+  },
+  "attempts": [
+    {
+      "iteration": 1,
+      "stage": "reproduction_test",
+      "candidate_sha": null,
+      "result": "fail_target_signature",
+      "detail": "AssertionError: captured payment was retried"
+    },
+    {
+      "iteration": 1,
+      "stage": "patch",
+      "candidate_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "result": "candidate_accepted",
+      "detail": ""
+    }
+  ],
+  "candidate_test": {
+    "test_path": "tests/test_captured_payment.py",
+    "test_id": "test_captured_payment_is_not_retried",
+    "outcome": "PASS",
+    "first_outcome": "PASS",
+    "execution_ids": [
+      "X3"
+    ],
+    "failure_signature": null
+  },
+  "regression": {
+    "status": "PASS",
+    "historical_found": true,
+    "tests": [
+      {
+        "test_path": "tests/test_retry_policy.py",
+        "tier": "historical",
+        "discovery_method": "test_changed_by_linked_fix",
+        "ticket_id": "101",
+        "fix_reference": "PR 201",
+        "availability": "AVAILABLE",
+        "outcome": "PASS",
+        "baseline_outcome": null,
+        "execution_ids": [
+          "X4"
+        ],
+        "failure_signature": null
+      }
+    ],
+    "detail": "1 test(s) passed on the candidate: 1 linked to past fixes, 0 found by name only."
+  },
+  "suite": {
+    "test_path": null,
+    "test_id": null,
+    "outcome": "PASS",
+    "first_outcome": "PASS",
+    "execution_ids": [
+      "X5"
+    ],
+    "failure_signature": null
+  },
+  "performance": {
+    "status": "NO_REGRESSION_DEMONSTRATED",
+    "metric": "latency",
+    "unit": "ms",
+    "pairs": 5,
+    "baseline_samples": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+    ],
+    "candidate_samples": [
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+    ],
+    "baseline_median": 10.0,
+    "candidate_median": 10.0,
+    "change_percent": 0.0,
+    "noise_percent": 0.0,
+    "threshold_percent": 25.0,
+    "noise_limit_percent": 30.0,
+    "execution_ids": [
+      "X6",
+      "X7",
+      "X8",
+      "X9",
+      "X10",
+      "X11",
+      "X12",
+      "X13",
+      "X14",
+      "X15",
+      "X16",
+      "X17"
+    ],
+    "detail": "Median change +0.0% over 5 pairs (threshold 25%, noise 0.0%). Measured under these conditions only."
+  },
+  "gates": [
+    {
+      "name": "reproduction",
+      "required": true,
+      "status": "PASS",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "detail": "The test failed on the baseline with the predicted failure.",
+      "execution_ids": [
+        "X1",
+        "X2"
+      ]
+    },
+    {
+      "name": "candidate_test",
+      "required": true,
+      "status": "PASS",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "detail": "Outcome PASS.",
+      "execution_ids": [
+        "X3"
+      ]
+    },
+    {
+      "name": "historical_regression",
+      "required": true,
+      "status": "PASS",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "detail": "1 test(s) passed on the candidate: 1 linked to past fixes, 0 found by name only.",
+      "execution_ids": [
+        "X4"
+      ]
+    },
+    {
+      "name": "touched_suite",
+      "required": true,
+      "status": "PASS",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "detail": "Outcome PASS.",
+      "execution_ids": [
+        "X5"
+      ]
+    },
+    {
+      "name": "performance",
+      "required": true,
+      "status": "PASS",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "detail": "Median change +0.0% over 5 pairs (threshold 25%, noise 0.0%). Measured under these conditions only.",
+      "execution_ids": [
+        "X6",
+        "X7",
+        "X8",
+        "X9",
+        "X10",
+        "X11",
+        "X12",
+        "X13",
+        "X14",
+        "X15",
+        "X16",
+        "X17"
+      ]
+    },
+    {
+      "name": "patch_policy",
+      "required": true,
+      "status": "PASS",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "detail": "The change is inside the repository's policy.",
+      "execution_ids": []
+    },
+    {
+      "name": "native_ci",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "The repository's own pipeline runs on the pull request, after it exists.",
+      "execution_ids": []
+    },
+    {
+      "name": "human_review",
+      "required": true,
+      "status": "REVIEW_REQUIRED",
+      "commit_sha": null,
+      "detail": "An engineer approves or rejects. The bot cannot approve or merge.",
+      "execution_ids": []
+    }
+  ],
+  "gate_summary": {
+    "head_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+    "overall": "NOT_GREEN",
+    "blocking": [
+      "native_ci",
+      "human_review"
+    ]
+  },
+  "manifests": [
+    {
+      "manifest_id": "M1",
+      "ticket_id": "4711",
+      "repository_id": "kiosk-demo",
+      "base_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "candidate_sha": null,
+      "runner": {
+        "kind": "docker",
+        "image": "fake@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "os": "linux",
+        "architecture": "x86_64",
+        "network": "none",
+        "filesystem": "ephemeral_workspace"
+      },
+      "toolchain": {},
+      "lock_hashes": {
+        "pyproject.toml": "1a88f81305915ddcefdca50143285b88c37b1801ccc409a992ed0e08226b3ad0"
+      },
+      "fixture_hashes": {},
+      "dependency_restore": "none",
+      "environment_names": [
+        "PYTHONHASHSEED"
+      ],
+      "timeouts_seconds": {
+        "test_file": 120.0,
+        "suite": 300.0,
+        "benchmark": 120.0
+      },
+      "commands": {
+        "benchmark": [
+          "benchmark",
+          "{output}"
+        ],
+        "suite": [
+          "suite",
+          "{junit}"
+        ],
+        "test_file": [
+          "test-file",
+          "{test_path}",
+          "{junit}"
+        ]
+      },
+      "expected_test_ids": [
+        "test_captured_payment_is_not_retried"
+      ],
+      "policy_revision": "defect-policy-demo.1",
+      "created_at": "2026-11-10T17:16:38.721447Z",
+      "sha256": "7adb9ffbc4168ef1c0c4c0abd2644fe0b20369a7d219f8f830ca1ee8fd028608"
+    },
+    {
+      "manifest_id": "M2",
+      "ticket_id": "4711",
+      "repository_id": "kiosk-demo",
+      "base_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "candidate_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "runner": {
+        "kind": "docker",
+        "image": "fake@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "os": "linux",
+        "architecture": "x86_64",
+        "network": "none",
+        "filesystem": "ephemeral_workspace"
+      },
+      "toolchain": {},
+      "lock_hashes": {
+        "pyproject.toml": "1a88f81305915ddcefdca50143285b88c37b1801ccc409a992ed0e08226b3ad0"
+      },
+      "fixture_hashes": {},
+      "dependency_restore": "none",
+      "environment_names": [
+        "PYTHONHASHSEED"
+      ],
+      "timeouts_seconds": {
+        "test_file": 120.0,
+        "suite": 300.0,
+        "benchmark": 120.0
+      },
+      "commands": {
+        "benchmark": [
+          "benchmark",
+          "{output}"
+        ],
+        "suite": [
+          "suite",
+          "{junit}"
+        ],
+        "test_file": [
+          "test-file",
+          "{test_path}",
+          "{junit}"
+        ]
+      },
+      "expected_test_ids": [
+        "test_captured_payment_is_not_retried"
+      ],
+      "policy_revision": "defect-policy-demo.1",
+      "created_at": "2026-11-10T17:16:39.539238Z",
+      "sha256": "6ad4fb61e364b09c2866bfe3f9e46fab7df36247a5d99c68ff06da073f787d9a"
+    }
+  ],
+  "executions": [
+    {
+      "execution_id": "X1",
+      "manifest_id": "M1",
+      "purpose": "reproduction",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "test-file",
+        "tests/test_captured_payment.py",
+        ".visioniq-out/X1.xml"
+      ],
+      "started_at": "2026-11-10T17:16:38.721447Z",
+      "duration_ms": 5,
+      "exit_code": 1,
+      "timed_out": false,
+      "outcome": "FAIL_TARGET_SIGNATURE",
+      "test_id": "test_captured_payment_is_not_retried",
+      "failure_signature": "AssertionError: captured payment was retried",
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X1.log",
+      "log_sha256": "016b4864048d467b0632d94aadd347d1b25a26ae6c5c44d97ad0933cf6f1a064"
+    },
+    {
+      "execution_id": "X2",
+      "manifest_id": "M1",
+      "purpose": "reproduction",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "test-file",
+        "tests/test_captured_payment.py",
+        ".visioniq-out/X2.xml"
+      ],
+      "started_at": "2026-11-10T17:16:38.734376Z",
+      "duration_ms": 5,
+      "exit_code": 1,
+      "timed_out": false,
+      "outcome": "FAIL_TARGET_SIGNATURE",
+      "test_id": "test_captured_payment_is_not_retried",
+      "failure_signature": "AssertionError: captured payment was retried",
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X2.log",
+      "log_sha256": "016b4864048d467b0632d94aadd347d1b25a26ae6c5c44d97ad0933cf6f1a064"
+    },
+    {
+      "execution_id": "X3",
+      "manifest_id": "M2",
+      "purpose": "candidate",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "test-file",
+        "tests/test_captured_payment.py",
+        ".visioniq-out/X3.xml"
+      ],
+      "started_at": "2026-11-10T17:16:39.539238Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": "test_captured_payment_is_not_retried",
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X3.log",
+      "log_sha256": "d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1"
+    },
+    {
+      "execution_id": "X4",
+      "manifest_id": "M2",
+      "purpose": "regression",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "test-file",
+        "tests/test_retry_policy.py",
+        ".visioniq-out/X4.xml"
+      ],
+      "started_at": "2026-11-10T17:16:39.539238Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X4.log",
+      "log_sha256": "d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1"
+    },
+    {
+      "execution_id": "X5",
+      "manifest_id": "M2",
+      "purpose": "suite",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "suite",
+        ".visioniq-out/X5.xml"
+      ],
+      "started_at": "2026-11-10T17:16:39.549808Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X5.log",
+      "log_sha256": "d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1"
+    },
+    {
+      "execution_id": "X6",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X6.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.555390Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X6.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X7",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X7.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.555390Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X7.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X8",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X8.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.555390Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X8.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X9",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X9.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.555390Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X9.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X10",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X10.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.571479Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X10.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X11",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X11.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.571479Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X11.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X12",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X12.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.571479Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X12.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X13",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X13.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.588155Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X13.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X14",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X14.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.588155Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X14.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X15",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X15.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.588155Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X15.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X16",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "candidate",
+      "commit_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X16.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.603809Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X16.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    },
+    {
+      "execution_id": "X17",
+      "manifest_id": "M2",
+      "purpose": "benchmark",
+      "code": "baseline",
+      "commit_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+      "command": [
+        "benchmark",
+        ".visioniq-out/X17.json"
+      ],
+      "started_at": "2026-11-10T17:16:39.603809Z",
+      "duration_ms": 5,
+      "exit_code": 0,
+      "timed_out": false,
+      "outcome": "PASS",
+      "test_id": null,
+      "failure_signature": null,
+      "log_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/X17.log",
+      "log_sha256": "f1e42019aecc858ffbcca7fddec511b761b474916fde37b1a6ff321a9b459330"
+    }
+  ],
+  "pull_request": {
+    "source_branch": "visioniq/fix/4711-3b25fca8",
+    "target_branch": "main",
+    "base_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
+    "head_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
+    "work_item_id": "4711",
+    "title": "[VisionIQ draft] Fix for #4711: Bug 4711: customer charged twice",
+    "description": "Draft fix for work item #4711, opened by the VisionIQ bot. It is a proposal: the bot cannot approve or merge it.\n\n**Status: NOT GREEN** (sandbox verdict: VERIFIED). Still open: Native CI on this PR, Engineer review.\n\n### Defect\nBug 4711: customer charged twice (baseline `64d6fa52939b`).\n\n### Reproduction\nTest `test_captured_payment_is_not_retried` in `tests/test_captured_payment.py` ran on the unchanged baseline: **FAIL_TARGET_SIGNATURE**.\nFailure: `AssertionError: captured payment was retried`\n\n### Cause (proposed by the model, not verified)\nshould_retry ignores whether the payment was captured.\n\n### Fix\nDo not retry a captured payment; keep the attempt limit. Candidate `2737f4c8ad3a`, iteration 1. Files: `src/kiosk/retry_policy.py` (+1/-1).\n\n### Verification\n| Check | Result | Detail | Runs |\n| --- | --- | --- | --- |\n| Defect reproduced on the baseline | **PASS** (required) | The test failed on the baseline with the predicted failure. | X1, X2 |\n| Same test passes on the fix | **PASS** (required) | Outcome PASS. | X3 |\n| Past regression tests | **PASS** (required) | 1 test(s) passed on the candidate: 1 linked to past fixes, 0 found by name only. | X4 |\n| Touched project's suite (sandbox) | **PASS** (required) | Outcome PASS. | X5 |\n| Performance of the touched path | **PASS** (required) | Median change +0.0% over 5 pairs (threshold 25%, noise 0.0%). Measured under these conditions only. | X6, X7, X8, X9, X10, X11 |\n| Patch policy | **PASS** (required) | The change is inside the repository's policy. | - |\n| Native CI on this PR | **NOT RUN** (required) | The repository's own pipeline runs on the pull request, after it exists. | - |\n| Engineer review | **REVIEW REQUIRED** (required) | An engineer approves or rejects. The bot cannot approve or merge. | - |\n\n### Evidence\nRunner: docker `fake@sha256:0000000000000000000000000000000000000000000000000000000000000000`, network none. Policy `defect-policy-demo.1`. Manifest `6ad4fb61e364`.\n| Run | Purpose | Code | Outcome | Exit | Log SHA-256 |\n| --- | --- | --- | --- | --- | --- |\n| X1 | reproduction | baseline `64d6fa52939b` | FAIL_TARGET_SIGNATURE | 1 | `016b4864048d` |\n| X2 | reproduction | baseline `64d6fa52939b` | FAIL_TARGET_SIGNATURE | 1 | `016b4864048d` |\n| X3 | candidate | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n| X4 | regression | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n| X5 | suite | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n\n12 benchmark run(s): X6 to X17.\n\nFull result: fix `8b1bf0e4-216b-4fc3-b1d7-f04fc4d1748f`, run `3b25fca8-05e8-4422-9cca-c3e1c2c69565`.",
+    "is_draft": true,
+    "checks": [
+      {
+        "name": "visioniq/reproduction",
+        "state": "succeeded",
+        "description": "PASS: The test failed on the baseline with the predicted failure.",
+        "execution_ids": [
+          "X1",
+          "X2"
+        ]
+      },
+      {
+        "name": "visioniq/fix-test",
+        "state": "succeeded",
+        "description": "PASS: Outcome PASS.",
+        "execution_ids": [
+          "X3"
+        ]
+      },
+      {
+        "name": "visioniq/historical-regression",
+        "state": "succeeded",
+        "description": "PASS: 1 test(s) passed on the candidate: 1 linked to past fixes, 0 found by name only.",
+        "execution_ids": [
+          "X4"
+        ]
+      },
+      {
+        "name": "visioniq/touched-suite",
+        "state": "succeeded",
+        "description": "PASS: Outcome PASS.",
+        "execution_ids": [
+          "X5"
+        ]
+      },
+      {
+        "name": "visioniq/performance",
+        "state": "succeeded",
+        "description": "PASS: Median change +0.0% over 5 pairs (threshold 25%, noise 0.0%). Measured under these conditions only.",
+        "execution_ids": [
+          "X6",
+          "X7",
+          "X8",
+          "X9",
+          "X10",
+          "X11",
+          "X12",
+          "X13",
+          "X14",
+          "X15",
+          "X16",
+          "X17"
+        ]
+      },
+      {
+        "name": "visioniq/patch-policy",
+        "state": "succeeded",
+        "description": "PASS: The change is inside the repository's policy.",
+        "execution_ids": []
+      }
+    ]
+  },
+  "limitations": [],
+  "generation": {
+    "routing_revision": "routing-2026-11-10.2",
+    "test_provider": "claude",
+    "test_prompt_version": "defect.reproduction@v1",
+    "fix_provider": "claude",
+    "fix_model_id": "scripted-1",
+    "fix_prompt_version": "defect.fix@v1",
+    "calls": 2,
+    "input_tokens": 1800,
+    "output_tokens": 400
+  },
+  "policy_revision": "defect-policy-demo.1",
+  "timings": {
+    "reproduction_ms": 19,
+    "fix_ms": 878,
+    "total_ms": 1860
+  }
+}

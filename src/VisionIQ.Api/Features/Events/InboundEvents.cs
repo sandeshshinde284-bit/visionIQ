@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
+using VisionIQ.Api.Features.Briefs;
+using VisionIQ.Api.Features.Fixes;
 
 namespace VisionIQ.Api.Features.Events;
 
@@ -49,11 +51,17 @@ public sealed class EventRejectedException : Exception
 /// Idempotent inbox (S03-07): the inbox row and the handler's writes commit in one transaction, so an event is
 /// applied exactly once or not at all (and Pub/Sub redelivers it). A concurrent redelivery blocks on the
 /// primary key until the first attempt commits, then sees the row and reports a duplicate. A rejected event keeps
-/// its inbox row (with the reason) but none of the handler's writes.
+/// its inbox row (with the reason) but none of the handler's writes. When brief publishing is on (BRF-05), the
+/// run's ticket comment is queued in the same transaction as its result. The result of a deep run is a fix,
+/// not a brief: it is queued for a draft pull request instead (DEF-05), and never for a ticket comment.
 /// </summary>
-public sealed class PostgresInboundEventProcessor(NpgsqlDataSource dataSource, ILogger<PostgresInboundEventProcessor> logger)
+public sealed class PostgresInboundEventProcessor(
+    NpgsqlDataSource dataSource, ILogger<PostgresInboundEventProcessor> logger, BriefPublishOptions publishing,
+    FixPullRequestOptions? fixes = null)
     : IInboundEventProcessor
 {
+    private readonly FixPullRequestOptions fixes = fixes ?? FixPullRequestOptions.Disabled;
+
     public async Task<InboundOutcome> ProcessAsync(EventEnvelope envelope, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(envelope);
@@ -110,8 +118,9 @@ public sealed class PostgresInboundEventProcessor(NpgsqlDataSource dataSource, I
         NpgsqlConnection connection, NpgsqlTransaction transaction, EventEnvelope envelope,
         CancellationToken cancellationToken)
     {
+        string mode;
         await using (var run = new NpgsqlCommand(
-            "SELECT tenant_id, status FROM workflow.analysis_runs WHERE run_id = $1 FOR UPDATE",
+            "SELECT tenant_id, status, analysis_mode FROM workflow.analysis_runs WHERE run_id = $1 FOR UPDATE",
             connection,
             transaction))
         {
@@ -132,6 +141,8 @@ public sealed class PostgresInboundEventProcessor(NpgsqlDataSource dataSource, I
             {
                 throw new EventRejectedException("run_already_completed");
             }
+
+            mode = reader.GetString(2);
         }
 
         var result = envelope.ReadData<AnalysisCompletedV1>();
@@ -152,6 +163,38 @@ public sealed class PostgresInboundEventProcessor(NpgsqlDataSource dataSource, I
         command.Parameters.Add(new NpgsqlParameter { Value = result.ReasonCodes.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
         command.Parameters.Add(new NpgsqlParameter { Value = envelope.EventId });
         await command.ExecuteNonQueryAsync(cancellationToken);
+        var state = JsonSerializer.SerializeToElement(result.ResultState, EventEnvelope.Json).GetString()!;
+        if (mode == "deep")
+        {
+            if (fixes.Mode != FixPullRequestMode.Off)
+            {
+                await PostgresFixPullRequestStore.EnqueueAsync(
+                    connection, transaction, envelope.RunId!.Value, result.ResultId, state, cancellationToken);
+                FixLog.Queued(logger, result.ResultId, envelope.RunId!.Value, state);
+            }
+        }
+        else
+        {
+            if (publishing.Mode != BriefPublishMode.Off &&
+                !result.ReasonCodes.Contains(PostgresBriefPublicationStore.PipelineDisabled, StringComparer.Ordinal))
+            {
+                await PostgresBriefPublicationStore.EnqueueAsync(
+                    connection, transaction, envelope.RunId!.Value, result.ResultId, state, cancellationToken);
+            }
+
+            if (fixes.AutoStart && result.ResultState != ResultState.Blocked)
+            {
+                if (await FixRunStarter.StartAfterBriefAsync(connection, transaction, envelope, cancellationToken) is { } fixRun)
+                {
+                    FixLog.FixRunRequested(logger, fixRun, envelope.RunId!.Value);
+                }
+                else
+                {
+                    FixLog.NoFixRun(logger, envelope.RunId!.Value);
+                }
+            }
+        }
+
         EventLog.AnalysisCompleted(logger, result.ResultState);
     }
 }

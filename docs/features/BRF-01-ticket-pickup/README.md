@@ -49,9 +49,11 @@ recovery test.
                                        → the worker picks it up exactly like a webhook pickup
 ```
 
-Today Intelligence answers every request with `BLOCKED` / `analysis_pipeline_not_implemented` (FND-05). The brief
-itself and the ADO comment are later BRIEF stories. So "a run started" means a `workflow.analysis_runs` row,
-followed by its `analysis.requested` event and the `analysis.completed` reply.
+With the brief pipeline switched off (the default), Intelligence answers every request with `BLOCKED` /
+`analysis_pipeline_disabled`. So "a run started" means a `workflow.analysis_runs` row, followed by its
+`analysis.requested` event and the `analysis.completed` reply. With `BRIEF_PIPELINE_ENABLED=true` the run gets
+a real brief and, with `BRIEF_PUBLISH_MODE` set, a comment on the ticket: see
+[BRIEF-ARCHITECTURE.md](../BRIEF-ARCHITECTURE.md).
 
 ### What counts as a pickup (S10-01, decision D05)
 
@@ -61,6 +63,7 @@ reason code and logs it.
 | Rule | Reason code when it fails |
 | --- | --- |
 | The body comes from the configured ADO organization (`organization_url`) | `organization_not_allowed` |
+| If `PICKUP_ALLOWED_WORK_ITEM_IDS` is set, the work item is on that list (see [Piloting on chosen work items](#piloting-on-chosen-work-items)) | `work_item_not_allowlisted` |
 | The project is in the policy | `project_not_configured` |
 | The work-item type is one of the project's `defect_types` or `enhancement_types` | `type_not_eligible` |
 | After the change the item is **actionable**: in one of `pickup_states` and, if `require_assignee`, assigned | `unassigned` (in the state but nobody assigned) or `no_pickup_transition` |
@@ -125,6 +128,7 @@ Pickup is **off** unless `PICKUP_POLICY_FILE` is set. Then `/webhooks/ado` is no
 | --- | --- | --- |
 | `PICKUP_POLICY_FILE` | none | Path to the policy JSON (copy `config/pickup-policy.example.json` to `config/pickup-policy.local.json`, which git ignores) |
 | `PICKUP_WEBHOOK_SECRET` | none | Required with the policy; at least 24 characters. ADO sends it as the Basic-auth password |
+| `PICKUP_ALLOWED_WORK_ITEM_IDS` | none | Comma-separated work-item ids. When set, only these items can be picked up; unset means no restriction. A malformed value stops start-up |
 | `PICKUP_WORKER_INTERVAL_SECONDS` | `2` | Idle poll interval of the worker |
 | `PICKUP_SWEEP_INTERVAL_MINUTES` | `15` | `0` turns the sweep off |
 | `PICKUP_SWEEP_LOOKBACK_HOURS` | `24` | How far back the sweep looks for pickups; must cover at least two sweep intervals, so consecutive sweeps overlap |
@@ -136,6 +140,47 @@ Policy file fields (per project): `project`, optional `project_id` (required whe
 `repository_id`, `branch` (default `main`), optional `base_commit_sha`, and `security_scope_id`. At the top level:
 `policy_revision`, `organization_url` and `bot_identities`. Invalid policies stop start-up with a message listing
 every problem.
+
+### Piloting on chosen work items
+
+To try the flow in a live organization without touching anyone else's tickets, name the work items
+that may be picked up:
+
+```
+PICKUP_ALLOWED_WORK_ITEM_IDS=48213,48214
+```
+
+| With the setting | Behaviour |
+| --- | --- |
+| A listed item becomes actionable (moves into a pickup state, assigned if required) | Picked up, as usual. Every other rule still applies |
+| Any other item changes | `202 ignored` / `work_item_not_allowlisted`. Nothing is stored, no run starts, no brief is written |
+| The sweep | Its ADO query names the listed ids, so it asks ADO about no other work item |
+| A rating comment on another item | `202 ignored` / `work_item_not_allowlisted` |
+| Not set, or empty | No restriction: every eligible item of the configured projects is picked up |
+| Malformed (`4711,abc`, `#4711`, a trailing comma) or more than 200 ids | The API refuses to start. A typo never widens pickup to every ticket |
+
+The list is checked before every other rule, for the webhook and the sweep alike. At start-up the
+API logs either "Ticket pickup is limited to N work items …" with the ids, or a warning that pickup
+is not limited. Changing the list needs an API restart (`docker compose up -d api`).
+
+**Using Task work items.** The policy file decides which types are eligible, so add `Task` to the
+project's `defect_types` in your `config/pickup-policy.local.json` (keep `Bug` out of both type
+lists if real bugs must never qualify, even without the allowlist):
+
+```json
+"defect_types": ["Task"],
+"enhancement_types": [],
+"pickup_states": ["In Progress"],
+```
+
+Use the state name exactly as your process template spells it (for example `In Progress`, `Active`
+or `Doing`). The type only labels the run (`ticket_kind`); the brief is built the same way.
+
+**What the allowlist does not do.** It limits which tickets get a run, a brief and a comment. The
+history a brief is built from still comes from every ticket the run's access scope can read; those
+are only read from VisionIQ's own database, never changed. And the brief still needs the chosen
+Task to be in the knowledge base (synced and indexed under the project's `security_scope_id`),
+or the run ends `BLOCKED` / `ticket_not_readable`.
 
 ### ADO service hook setup (per project)
 

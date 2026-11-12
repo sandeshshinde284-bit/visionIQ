@@ -129,6 +129,22 @@ public sealed class PickupWebhookEndpointTests(WebApplicationFactory<Program> fa
     }
 
     [Fact]
+    public async Task With_an_allowlist_only_the_chosen_work_items_are_picked_up()
+    {
+        var store = new FakePickupStore();
+        using var others = CreateClient(store, allowed: "9001,9002");
+        using var pilot = CreateClient(store, allowed: "9001, 4711");
+
+        var ignored = await PostAsync(others, Updated()); // the sample moves #4711 to In Progress
+        var queued = await PostAsync(pilot, Updated());
+
+        Assert.Equal(HttpStatusCode.Accepted, ignored.StatusCode);
+        Assert.Equal(new PickupResponse("ignored", "work_item_not_allowlisted"), await ignored.Content.ReadFromJsonAsync<PickupResponse>());
+        Assert.Equal("queued", (await queued.Content.ReadFromJsonAsync<PickupResponse>())!.Status);
+        Assert.Equal("4711", Assert.Single(store.Pickups).TicketId);
+    }
+
+    [Fact]
     public void A_policy_without_a_strong_secret_stops_start_up()
     {
         var configuration = new ConfigurationBuilder()
@@ -177,7 +193,7 @@ public sealed class PickupWebhookEndpointTests(WebApplicationFactory<Program> fa
         return path;
     }
 
-    private HttpClient CreateClient(ITicketPickupStore store) =>
+    private HttpClient CreateClient(ITicketPickupStore store, string? allowed = null) =>
         factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -186,6 +202,7 @@ public sealed class PickupWebhookEndpointTests(WebApplicationFactory<Program> fa
             builder.UseSetting("DB_API_PASSWORD", "test-only-api-password");
             builder.UseSetting("PICKUP_POLICY_FILE", policyFile);
             builder.UseSetting("PICKUP_WEBHOOK_SECRET", Secret);
+            builder.UseSetting("PICKUP_ALLOWED_WORK_ITEM_IDS", allowed);
             builder.ConfigureTestServices(services =>
             {
                 services.AddSingleton(store);

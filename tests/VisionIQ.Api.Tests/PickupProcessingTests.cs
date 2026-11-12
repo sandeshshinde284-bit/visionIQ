@@ -289,6 +289,24 @@ public sealed class PickupProcessingTests
         new(rev, Now.AddMinutes(rev), "Bug", state, assigned, [], "id-" + actor, actor);
 
     [Fact]
+    public async Task With_an_allowlist_the_sweep_asks_ADO_only_about_those_items_and_recovers_no_other()
+    {
+        var store = new FakePickupStore();
+        // Even if ADO returned another item (it should not: the query names the ids), it is not picked up.
+        var ado = new FakeAdo { Pickups = [Change(), Change() with { WorkItemId = 9001 }] };
+        var policy = Policy with { AllowedWorkItemIds = new HashSet<int> { 4711, 5000 } };
+        var sweep = new PickupSweep(ado, store, policy, NullLogger.Instance, new FixedClock(Now));
+
+        Assert.Equal(1, await sweep.SweepAsync(TimeSpan.FromHours(1)));
+
+        Assert.Equal("4711", Assert.Single(store.Pickups).TicketId);
+        Assert.Equal([4711, 5000], ado.Only!.Order());
+        var wiql = AdoPickupSource.BuildWiql(Payments, Now, [5000, 4711]);
+        Assert.Contains("[System.TeamProject] = 'Payments Core' AND [System.Id] IN (4711, 5000) AND", wiql, StringComparison.Ordinal);
+        Assert.DoesNotContain("[System.Id] IN", AdoPickupSource.BuildWiql(Payments, Now), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Sweep_query_selects_eligible_items_and_escapes_values()
     {
         var project = Payments with { Project = "O'Brien", PickupStates = ["In Progress", "Doing"] };
@@ -337,9 +355,13 @@ public sealed class PickupProcessingTests
 
         public List<string> Resolved { get; } = [];
 
-        public Task<IReadOnlyList<TicketChange>> FindPickupsAsync(ProjectPickupPolicy project, DateTimeOffset since, CancellationToken cancellationToken)
+        public IReadOnlyCollection<int>? Only { get; private set; }
+
+        public Task<IReadOnlyList<TicketChange>> FindPickupsAsync(
+            ProjectPickupPolicy project, DateTimeOffset since, IReadOnlyCollection<int>? onlyWorkItems, CancellationToken cancellationToken)
         {
             Since = since;
+            Only = onlyWorkItems;
             if (project.Project == FailFor)
             {
                 throw new HttpRequestException("ADO down");

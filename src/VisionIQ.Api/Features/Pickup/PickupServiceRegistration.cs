@@ -25,6 +25,9 @@ public static class PickupServiceRegistration
         services.AddSingleton(options);
         services.AddSingleton<ITicketPickupStore>(provider =>
             new PostgresTicketPickupStore(provider.GetRequiredService<NpgsqlDataSource>()));
+        // BRF-06: rating comments arrive on the same webhook as pickups.
+        services.AddSingleton<Feedback.IAdviceFeedbackStore>(provider =>
+            new Feedback.PostgresAdviceFeedbackStore(provider.GetRequiredService<NpgsqlDataSource>()));
 
         var ado = AdoConnection(configuration, options.Policy);
         if (ado is not null)

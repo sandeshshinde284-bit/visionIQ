@@ -81,6 +81,21 @@ public static class PickupWebhookEndpoints
         var delivery = AdoServiceHook.Parse(body, out var problem);
         if (delivery is null)
         {
+            // BRF-06: a comment on a ticket may rate the advice of its brief. It never starts a run.
+            if (problem == "unsupported_event" &&
+                Feedback.AdviceFeedbackParser.ParseDelivery(body, out _) is { } comment)
+            {
+                return await Feedback.AdviceFeedbackEndpoint.HandleAsync(
+                    comment, options.Policy, request.HttpContext.RequestServices, logger, cancellationToken);
+            }
+
+            // S11-17: a new commit on a pull request VisionIQ opened invalidates its checks.
+            if (problem == "unsupported_event" && Fixes.AdoPullRequestHook.Parse(body) is { } update)
+            {
+                return await Fixes.AdoPullRequestHook.HandleAsync(
+                    update, request.HttpContext.RequestServices, logger, cancellationToken);
+            }
+
             PickupLog.WebhookRejected(logger, problem!);
             // Another event type on the same subscription is not an error for ADO to retry.
             return problem == "unsupported_event"

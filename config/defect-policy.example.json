@@ -1,0 +1,75 @@
+{
+  // DEF-01 to DEF-06 fix policy (decisions D03 and D10). Copy to defect-policy.local.json, adjust,
+  // and point DEFECT_POLICY_FILE at it. A repository that is not listed here is never cloned or
+  // run. A model never chooses a command or a path outside this file.
+  // Changing the rules? Bump revision: it is recorded with every run.
+  "revision": "defect-policy-2026-11-10.1",
+  "repositories": [
+    {
+      // Must equal repository_id of the pickup policy (config/pickup-policy.example.json).
+      "repository_id": "demo-repo",
+      // Where the workspace is cloned from: a local path or an HTTPS URL without credentials.
+      "source": "https://dev.azure.com/your-org/VisionIQ-Demo/_git/demo-repo",
+      // The branch the draft PR targets.
+      "target_branch": "main",
+      "runner": {
+        // "docker": no network, no privileges, only the workspace mounted (use this one).
+        // "local": a child process with no network isolation; development only, refused in production.
+        "kind": "docker",
+        // The approved test runner image, pinned by digest. A tag such as ":8.0" is refused.
+        "image": "mcr.microsoft.com/dotnet/sdk@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        // Fixed, non-secret values for the container. Names that look like credentials are refused.
+        "env": { "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1" },
+        "memory": "4g",
+        "cpus": 2,
+        "test_timeout_seconds": 600,
+        "suite_timeout_seconds": 1800,
+        "benchmark_timeout_seconds": 600
+      },
+      // Allowlisted commands, as argv (never a shell line).
+      //   test_file  runs ONE test file and writes a JUnit XML report to {junit}  (required).
+      //              {test_path} is the file; {test_name} is its name without the extension,
+      //              for frameworks that select tests by class (as dotnet test does below; the
+      //              test project then needs the JunitXml.TestLogger package).
+      //   suite      runs the touched project's tests, report to {junit}          (optional)
+      //   benchmark  writes {"metric", "unit", "value"} (lower is better) to {output} (optional)
+      "recipes": {
+        "test_file": ["dotnet", "test", "tests/Demo.Tests", "--no-restore", "--filter", "FullyQualifiedName~{test_name}", "--logger", "junit;LogFilePath={junit}"],
+        "suite": ["dotnet", "test", "tests/Demo.Tests", "--no-restore", "--logger", "junit;LogFilePath={junit}"]
+      },
+      // The first output line of each command is recorded in the execution manifest.
+      "toolchain": { "dotnet": ["dotnet", "--version"] },
+      // How dependencies reach the runner. With no network they must be in the image or restored before.
+      "dependency_restore": "restored in the runner image",
+      // Where a generated test may be added, and which paths are tests (a fix may never change those).
+      "new_test_paths": ["tests/**"],
+      "test_file_patterns": ["tests/**", "**/*Tests.cs"],
+      // The only paths a fix may change.
+      "writable_paths": ["src/**"],
+      // A change in one of these areas stops for an engineer, whatever its size (design 8.6.4).
+      "restricted_areas": [
+        { "area": "payment", "patterns": ["src/Payments/**"] },
+        { "area": "security", "patterns": ["src/**/Auth/**", "src/**/Security/**"] },
+        { "area": "identity", "patterns": ["src/**/Identity/**"] },
+        { "area": "schema", "patterns": ["**/Migrations/**", "**/*.sql"] },
+        { "area": "hardware", "patterns": ["src/Kiosk/Devices/**"] }
+      ],
+      // Recorded by hash in the execution manifest.
+      "lock_files": ["packages.lock.json", "global.json"],
+      "fixture_paths": [],
+      // Budgets are this repository's own, agreed with its owners. A broader change stops for review.
+      "limits": {
+        "max_test_attempts": 2,
+        "max_fix_iterations": 3,
+        "max_changed_files": 8,
+        "max_changed_lines": 400,
+        "max_regression_tests": 10,
+        "flaky_reruns": 2,
+        "red_confirmations": 1,
+        "environment_retries": 1
+      },
+      // Open a draft PR even when a check failed or was inconclusive (reported as it is). Default false.
+      "draft_pr_on_incomplete": false
+    }
+  ]
+}

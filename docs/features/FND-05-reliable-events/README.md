@@ -76,9 +76,10 @@ existing entries do not list `google-cloud-pubsub` yet; a Linux regeneration wil
   it has already answered (`run_already_requested`).
 - **Correlation.** `trace_id`, `correlation_id`, `run_id` and `event_id` are on every log line about
   an event: a logging scope in .NET and structlog contextvars in Python.
-- **No fake results.** Until the BRIEF pipeline exists, Intelligence answers every
-  `analysis.requested` with `analysis.completed` / `BLOCKED` /
-  `analysis_pipeline_not_implemented`.
+- **No fake results.** With the BRIEF pipeline switched off (the default), Intelligence answers
+  every `analysis.requested` with `analysis.completed` / `BLOCKED` /
+  `analysis_pipeline_disabled`. With `BRIEF_PIPELINE_ENABLED=true` it stores the request and a
+  worker answers it with a real brief (see [BRIEF-ARCHITECTURE.md](../BRIEF-ARCHITECTURE.md)).
 
 Each service writes only its own schema (`workflow` = API, `knowledge` = Intelligence), so the FND-03
 role isolation still holds. The FND-03 default privileges in `db/manage.py` grant the new tables to

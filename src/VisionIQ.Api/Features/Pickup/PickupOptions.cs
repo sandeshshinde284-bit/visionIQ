@@ -16,6 +16,9 @@ public sealed record PickupOptions(
 {
     public const int MinimumSecretLength = 24;
 
+    /// <summary>The most ids PICKUP_ALLOWED_WORK_ITEM_IDS may hold; the list is meant for a pilot, not a rollout.</summary>
+    public const int MaximumAllowedWorkItems = 200;
+
     /// <summary>Null when pickup is not configured.</summary>
     /// <exception cref="InvalidOperationException">Pickup is configured but a setting or the policy file is invalid.</exception>
     public static PickupOptions? FromConfiguration(IConfiguration configuration, Func<string, string>? readFile = null)
@@ -53,11 +56,40 @@ public sealed record PickupOptions(
         }
 
         return new PickupOptions(
-            PickupPolicy.Parse(json),
+            PickupPolicy.Parse(json) with { AllowedWorkItemIds = AllowedWorkItemIds(configuration["PICKUP_ALLOWED_WORK_ITEM_IDS"]) },
             secret.Trim(),
             TimeSpan.FromSeconds(Number(configuration, "PICKUP_WORKER_INTERVAL_SECONDS", 2, 0.1, 60)),
             sweepInterval,
             lookback);
+    }
+
+    /// <summary>
+    /// Reads PICKUP_ALLOWED_WORK_ITEM_IDS ("4711, 4712"). Empty or unset means no restriction. Anything that is
+    /// not a list of positive work-item numbers stops start-up: a typo must never widen pickup to every ticket.
+    /// </summary>
+    public static IReadOnlySet<int>? AllowedWorkItemIds(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var ids = new SortedSet<int>();
+        foreach (var part in value.Split([',', ';'], StringSplitOptions.TrimEntries))
+        {
+            if (!int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
+            {
+                throw new InvalidOperationException(
+                    "PICKUP_ALLOWED_WORK_ITEM_IDS must be a comma-separated list of work-item numbers, for example 4711,4712.");
+            }
+
+            ids.Add(id);
+        }
+
+        return ids.Count <= MaximumAllowedWorkItems
+            ? ids
+            : throw new InvalidOperationException(
+                $"PICKUP_ALLOWED_WORK_ITEM_IDS holds more than {MaximumAllowedWorkItems} ids; remove the setting to pick up every eligible item.");
     }
 
     private static double Number(IConfiguration configuration, string name, double fallback, double min, double max)

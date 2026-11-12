@@ -63,6 +63,71 @@ the ingestor.
 | `graph.persisted` | info | Edges and declared dependency links |
 | `scan.finished` / `scan.failed` | info / error | Duration / error type only (never the message) |
 
+## Fix pipeline events (DEF-01 to DEF-06)
+
+### Intelligence (Python, `app/defect`)
+
+Every line of a fix run carries `run_id`; under the worker it also carries `trace_id`,
+`correlation_id` and `event_id`, as a brief does. `python -m app.defect.cli` reads `LOG_LEVEL` and
+`LOG_FORMAT=text` like the other command-line tools. The model calls of the run are the existing
+`llm_call` lines (tasks `reproduction_test` and `code_fix`).
+
+| Event | Level | Content |
+|---|---|---|
+| `fix_claimed` | info | Attempt, repository, time waited in the queue |
+| `fix_started` | info | Project, ticket id and revision, repository, baseline SHA, policy revision |
+| `fix_not_started` | warning | Why the run could not begin: a reason code such as `repository_not_configured`, `baseline_not_pinned`, `ticket_not_readable` |
+| `fix_workspace_ready` | info | Runner kind, image and network, number of baseline files, paths of the files shown to the model |
+| `fix_manifest_written` | info | Manifest id and hash, candidate SHA, expected test ids |
+| `fix_execution` | debug; warning for `ENVIRONMENT_ERROR` and `TIMEOUT` | One line per runner execution: execution and manifest id, purpose, baseline or candidate, commit, recipe, test path, outcome, exit code, duration, log hash |
+| `fix_reproduction_test_declined` | warning | Attempt and reason code (a rejected test, or no model available) |
+| `fix_reproduction_attempt` | info when reproduced, else warning | Test path and id, outcome, first outcome, execution ids |
+| `fix_not_reproduced` | warning | Reproducibility and reason codes |
+| `fix_patch_declined` | warning | Iteration and reason code (no model, budget spent) |
+| `fix_patch_checked` | info when inside the policy, else warning | Iteration, policy status, changed paths, changed lines, each finding's rule code, severity and path |
+| `fix_candidate_committed` | info | Iteration, candidate SHA, tree SHA, branch, bundle hash |
+| `fix_candidate_tested` | info on `PASS`, else warning | Iteration, test id, outcome, first outcome, execution ids |
+| `fix_regression_replayed` | info on `PASS` or `NOT_FOUND`, else warning | Status, whether a historical test was found, counts, paths of tests that did not pass |
+| `fix_suite_run` | info on `PASS`, else warning | Outcome, first outcome, execution ids |
+| `fix_performance_measured` | info; warning for `REGRESSION` and `INCONCLUSIVE` | Status, pairs, metric name, change, noise and threshold in percent |
+| `fix_iteration_ended` | info when accepted, else warning | Iteration, result code, candidate SHA |
+| `fix_budget_exhausted` | warning | Iterations used |
+| `fix_built` | info | State, verdict, reason codes, reproducibility, iterations, executions, overall gate status, whether a draft PR was prepared, duration |
+| `fix_workspace_removed` | debug | |
+| `fix_answered` / `fix_already_answered` | info | Fix id, state, verdict, reason codes, executions, model calls |
+| `fix_deferred` / `fix_store_failed` | warning | Error type, attempt, retry delay |
+| `fix_gave_up` / `fix_worker_failed` | error | Error type only |
+| `fix_time_budget_exhausted` | warning | The execution that was not started any more |
+| `fix_stranded_answered` / `fix_stranded_check_failed` | warning | Deep requests answered `BLOCKED` at start-up with the pipeline off (count), or the error type when that check failed |
+
+The failure text of a test stays in the run's own log file (`X<n>.log`, scrubbed of secret-looking
+text) and in the stored result. It is test output, so it is never copied into the service log.
+
+### API (.NET, `Features/Fixes`)
+
+| Event | Level | Content |
+|---|---|---|
+| `Fix pull requests on (mode {Mode})` | Information | Start-up |
+| `Fix run {FixRunId} requested after the brief of run {BriefRunId}` | Information | `FIX_AUTO_START` |
+| `No fix run after the brief of run {BriefRunId}: ...` | Debug | Not a picked-up defect, or one already exists |
+| `Fix result {ResultId} of run {RunId} ({ResultState}) queued for a draft pull request` | Information | |
+| `Delivering the fix result of run {RunId} ({ProjectId} #{TicketId}), attempt {Attempt}` | Debug | |
+| `Branch {Branch} pushed to {RepositoryId} from {BaseSha}: commit {HeadSha}, {FileCount} file(s)` | Information | Never the file content |
+| `Retry found pull request ... already open` / `Retry found branch ... already pushed` | Information | Why a retry made no second commit or pull request |
+| `Pushed commit {HeadSha} has the tested tree {TreeSha}` | Debug | |
+| `Pushed commit {HeadSha} does not have the tested tree {TreeSha}; no pull request is opened` | Error | |
+| `Draft pull request {PullRequestId} created in {RepositoryId} for work item {WorkItemId}` | Information | |
+| `Pull request {PullRequestId} status {CheckName}: {State}` | Debug | One line per posted check |
+| `Azure DevOps {Method} {Operation} failed: {Reason}` | Warning | Operation is the last path segment; reason is a fixed code, never ADO's message |
+| `Draft pull request {PullRequestId} for run {RunId} ... opened via {Mode} with {CheckCount} checks` | Information | The delivery is complete |
+| `No pull request for run {RunId}: the fix result is {Verdict}` | Information | Skipped |
+| `Pull request for run {RunId} not opened ({Reason}), attempt {Attempt}; retrying in {DelaySeconds} s` | Warning | |
+| `Pull request for run {RunId} could not be opened: {Reason}` | Error | |
+| `Pull request {PullRequestId} of run {RunId} has a new head: {Outcome}` | Information | `checks_invalidated` or `checks_restored` |
+| `Pull request {PullRequestId} update ignored: {Outcome}` | Debug | Not a VisionIQ pull request, or the head did not change |
+| `Pull request update could not be applied ({ErrorType}); ADO will retry` | Error | |
+| `Fix pull request worker failed ({ErrorType})` | Error | |
+
 ## Never logged
 
 Tokens, PATs, passwords, `Authorization` headers, webhook secrets, connection strings, query strings, request
@@ -71,3 +136,8 @@ and user identities in clear. Tests feed secrets into the graph API, the ingesto
 token, webhook secret, work-item titles) and the code scanner (database password, bucket name, a secret planted
 in source code, an exception message containing the password) and fail if any appears in the log; a deliberate
 leak was used to confirm the tests catch it.
+
+The fix pipeline adds to this list: the source files shown to a model, the generated test, the proposed
+patch, the model's cause and summary, test output and failure messages, the pull request description and the
+bot's token. Tests on both sides run a fix and fail if the ticket text, the patch, the test, the model's
+text, a failure message or the token appears in the log.

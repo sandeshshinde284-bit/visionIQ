@@ -1,0 +1,1647 @@
+{
+  "$defs": {
+    "Attempt": {
+      "additionalProperties": false,
+      "description": "One iteration of the budget, kept whether it worked or not.",
+      "properties": {
+        "candidate_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Sha"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "iteration": {
+          "minimum": 1,
+          "title": "Iteration",
+          "type": "integer"
+        },
+        "result": {
+          "pattern": "^[a-z_]{1,60}$",
+          "title": "Result",
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "reproduction_test",
+            "patch"
+          ],
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "iteration",
+        "stage",
+        "result"
+      ],
+      "title": "Attempt",
+      "type": "object"
+    },
+    "CheckEvidence": {
+      "additionalProperties": false,
+      "description": "One check: every execution made for it under the rerun policy, and the result.\n\n``first_outcome`` is what the first execution said. Reruns never replace it: a test that\nfailed once and then passed is FLAKY, not PASS.",
+      "properties": {
+        "execution_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Execution Ids",
+          "type": "array"
+        },
+        "failure_signature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Signature"
+        },
+        "first_outcome": {
+          "enum": [
+            "PASS",
+            "FAIL_TARGET_SIGNATURE",
+            "FAIL_DIFFERENT_SIGNATURE",
+            "FLAKY",
+            "ENVIRONMENT_ERROR",
+            "TIMEOUT",
+            "NOT_RUN",
+            "UNAVAILABLE",
+            "INCONCLUSIVE"
+          ],
+          "title": "First Outcome",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "PASS",
+            "FAIL_TARGET_SIGNATURE",
+            "FAIL_DIFFERENT_SIGNATURE",
+            "FLAKY",
+            "ENVIRONMENT_ERROR",
+            "TIMEOUT",
+            "NOT_RUN",
+            "UNAVAILABLE",
+            "INCONCLUSIVE"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "test_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Test Id"
+        },
+        "test_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Test Path"
+        }
+      },
+      "required": [
+        "test_path",
+        "test_id",
+        "outcome",
+        "first_outcome",
+        "execution_ids"
+      ],
+      "title": "CheckEvidence",
+      "type": "object"
+    },
+    "Execution": {
+      "additionalProperties": false,
+      "description": "8.6.1: one runner invocation with what it ran, on which commit, and where its log is.",
+      "properties": {
+        "code": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Command",
+          "type": "array"
+        },
+        "commit_sha": {
+          "title": "Commit Sha",
+          "type": "string"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "execution_id": {
+          "pattern": "^X[0-9]{1,4}$",
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "failure_signature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Signature"
+        },
+        "log_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Log Sha256",
+          "type": "string"
+        },
+        "log_uri": {
+          "title": "Log Uri",
+          "type": "string"
+        },
+        "manifest_id": {
+          "title": "Manifest Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "PASS",
+            "FAIL_TARGET_SIGNATURE",
+            "FAIL_DIFFERENT_SIGNATURE",
+            "FLAKY",
+            "ENVIRONMENT_ERROR",
+            "TIMEOUT",
+            "NOT_RUN",
+            "UNAVAILABLE",
+            "INCONCLUSIVE"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "purpose": {
+          "enum": [
+            "reproduction",
+            "candidate",
+            "regression",
+            "suite",
+            "benchmark"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "test_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Test Id"
+        },
+        "timed_out": {
+          "default": false,
+          "title": "Timed Out",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "execution_id",
+        "manifest_id",
+        "purpose",
+        "code",
+        "commit_sha",
+        "command",
+        "started_at",
+        "duration_ms",
+        "exit_code",
+        "outcome",
+        "log_uri",
+        "log_sha256"
+      ],
+      "title": "Execution",
+      "type": "object"
+    },
+    "ExecutionManifest": {
+      "additionalProperties": false,
+      "description": "8.6.3: written before generated code runs; every execution links to one manifest.",
+      "properties": {
+        "base_sha": {
+          "title": "Base Sha",
+          "type": "string"
+        },
+        "candidate_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Sha"
+        },
+        "commands": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Commands",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "dependency_restore": {
+          "default": "none",
+          "title": "Dependency Restore",
+          "type": "string"
+        },
+        "environment_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Environment Names",
+          "type": "array"
+        },
+        "expected_test_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Test Ids",
+          "type": "array"
+        },
+        "fixture_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Fixture Hashes",
+          "type": "object"
+        },
+        "lock_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Lock Hashes",
+          "type": "object"
+        },
+        "manifest_id": {
+          "pattern": "^M[0-9]{1,3}$",
+          "title": "Manifest Id",
+          "type": "string"
+        },
+        "policy_revision": {
+          "title": "Policy Revision",
+          "type": "string"
+        },
+        "repository_id": {
+          "title": "Repository Id",
+          "type": "string"
+        },
+        "runner": {
+          "$ref": "#/$defs/RunnerInfo"
+        },
+        "sha256": {
+          "default": "",
+          "pattern": "^([0-9a-f]{64})?$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "ticket_id": {
+          "title": "Ticket Id",
+          "type": "string"
+        },
+        "timeouts_seconds": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Timeouts Seconds",
+          "type": "object"
+        },
+        "toolchain": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Toolchain",
+          "type": "object"
+        }
+      },
+      "required": [
+        "manifest_id",
+        "ticket_id",
+        "repository_id",
+        "base_sha",
+        "runner",
+        "policy_revision",
+        "created_at"
+      ],
+      "title": "ExecutionManifest",
+      "type": "object"
+    },
+    "ExpectedFailure": {
+      "additionalProperties": false,
+      "description": "The failure the test's author predicted for the baseline, stated before it ran.",
+      "properties": {
+        "exception": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exception"
+        },
+        "message_contains": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Message Contains",
+          "type": "array"
+        }
+      },
+      "required": [
+        "message_contains"
+      ],
+      "title": "ExpectedFailure",
+      "type": "object"
+    },
+    "FileChange": {
+      "additionalProperties": false,
+      "description": "One changed file with its complete new content, so the change can be recreated.",
+      "properties": {
+        "added_lines": {
+          "minimum": 0,
+          "title": "Added Lines",
+          "type": "integer"
+        },
+        "change": {
+          "enum": [
+            "added",
+            "modified"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "removed_lines": {
+          "minimum": 0,
+          "title": "Removed Lines",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "change",
+        "sha256",
+        "added_lines",
+        "removed_lines",
+        "content"
+      ],
+      "title": "FileChange",
+      "type": "object"
+    },
+    "Gate": {
+      "additionalProperties": false,
+      "description": "One piece of evidence, kept separate from the others (8.6.1).",
+      "properties": {
+        "commit_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit Sha"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "execution_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Execution Ids",
+          "type": "array"
+        },
+        "name": {
+          "enum": [
+            "reproduction",
+            "candidate_test",
+            "historical_regression",
+            "touched_suite",
+            "performance",
+            "patch_policy",
+            "native_ci",
+            "human_review"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN",
+            "INCONCLUSIVE",
+            "UNAVAILABLE",
+            "REVIEW_REQUIRED",
+            "NOT_APPLICABLE"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "required",
+        "status",
+        "detail"
+      ],
+      "title": "Gate",
+      "type": "object"
+    },
+    "GateSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking",
+          "type": "array"
+        },
+        "head_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Head Sha"
+        },
+        "overall": {
+          "enum": [
+            "GREEN",
+            "RED",
+            "NOT_GREEN"
+          ],
+          "title": "Overall",
+          "type": "string"
+        }
+      },
+      "required": [
+        "head_sha",
+        "overall"
+      ],
+      "title": "GateSummary",
+      "type": "object"
+    },
+    "GeneratedTest": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "test_id": {
+          "title": "Test Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "test_id",
+        "sha256",
+        "content"
+      ],
+      "title": "GeneratedTest",
+      "type": "object"
+    },
+    "Generation": {
+      "additionalProperties": false,
+      "properties": {
+        "calls": {
+          "default": 0,
+          "title": "Calls",
+          "type": "integer"
+        },
+        "fix_model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Model Id"
+        },
+        "fix_prompt_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Prompt Version"
+        },
+        "fix_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Provider"
+        },
+        "input_tokens": {
+          "default": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "routing_revision": {
+          "title": "Routing Revision",
+          "type": "string"
+        },
+        "test_prompt_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Test Prompt Version"
+        },
+        "test_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Test Provider"
+        }
+      },
+      "required": [
+        "routing_revision"
+      ],
+      "title": "Generation",
+      "type": "object"
+    },
+    "Patch": {
+      "additionalProperties": false,
+      "description": "DEF-02: the proposed change. ``files`` exclude the reproduction test.",
+      "properties": {
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch"
+        },
+        "bundle_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bundle Sha256"
+        },
+        "bundle_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bundle Uri"
+        },
+        "candidate_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Sha"
+        },
+        "cause": {
+          "title": "Cause",
+          "type": "string"
+        },
+        "diff": {
+          "title": "Diff",
+          "type": "string"
+        },
+        "diff_truncated": {
+          "default": false,
+          "title": "Diff Truncated",
+          "type": "boolean"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/PolicyFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "iteration": {
+          "minimum": 1,
+          "title": "Iteration",
+          "type": "integer"
+        },
+        "policy_status": {
+          "enum": [
+            "PASS",
+            "REVIEW_REQUIRED",
+            "BLOCKED"
+          ],
+          "title": "Policy Status",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tree Sha"
+        }
+      },
+      "required": [
+        "iteration",
+        "files",
+        "diff",
+        "cause",
+        "summary",
+        "policy_status"
+      ],
+      "title": "Patch",
+      "type": "object"
+    },
+    "Performance": {
+      "additionalProperties": false,
+      "description": "8.7: baseline against candidate on the same workload, in paired, repeated runs.",
+      "properties": {
+        "baseline_median": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Median"
+        },
+        "baseline_samples": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Baseline Samples",
+          "type": "array"
+        },
+        "candidate_median": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Median"
+        },
+        "candidate_samples": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Candidate Samples",
+          "type": "array"
+        },
+        "change_percent": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Change Percent"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "execution_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Execution Ids",
+          "type": "array"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric"
+        },
+        "noise_limit_percent": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Noise Limit Percent"
+        },
+        "noise_percent": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Noise Percent"
+        },
+        "pairs": {
+          "default": 0,
+          "title": "Pairs",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "NO_REGRESSION_DEMONSTRATED",
+            "REGRESSION",
+            "INCONCLUSIVE",
+            "NOT_MEASURED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "threshold_percent": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold Percent"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Performance",
+      "type": "object"
+    },
+    "PolicyFinding": {
+      "additionalProperties": false,
+      "description": "S11-06: one rule the patch ran into. ``review`` stops the run for an engineer.",
+      "properties": {
+        "code": {
+          "pattern": "^[a-z_]{1,40}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "severity": {
+          "enum": [
+            "block",
+            "review"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "detail"
+      ],
+      "title": "PolicyFinding",
+      "type": "object"
+    },
+    "PullRequestCheck": {
+      "additionalProperties": false,
+      "description": "S13-06: one PR status, with the executions and logs it stands for.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "execution_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Execution Ids",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "pending",
+            "not_applicable"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "state",
+        "description"
+      ],
+      "title": "PullRequestCheck",
+      "type": "object"
+    },
+    "PullRequestDraft": {
+      "additionalProperties": false,
+      "description": "DEF-05: everything needed to open the draft PR. Intelligence never opens it.",
+      "properties": {
+        "base_sha": {
+          "title": "Base Sha",
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/PullRequestCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "head_sha": {
+          "title": "Head Sha",
+          "type": "string"
+        },
+        "is_draft": {
+          "const": true,
+          "default": true,
+          "title": "Is Draft",
+          "type": "boolean"
+        },
+        "source_branch": {
+          "title": "Source Branch",
+          "type": "string"
+        },
+        "target_branch": {
+          "title": "Target Branch",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "work_item_id": {
+          "title": "Work Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_branch",
+        "target_branch",
+        "base_sha",
+        "head_sha",
+        "work_item_id",
+        "title",
+        "description",
+        "checks"
+      ],
+      "title": "PullRequestDraft",
+      "type": "object"
+    },
+    "Regression": {
+      "additionalProperties": false,
+      "description": "DEF-04. ``historical_found`` False is the stated HISTORICAL_TEST_NOT_FOUND.",
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "historical_found": {
+          "title": "Historical Found",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE",
+            "NOT_FOUND",
+            "NOT_RUN"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tests": {
+          "items": {
+            "$ref": "#/$defs/RegressionTest"
+          },
+          "title": "Tests",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "historical_found"
+      ],
+      "title": "Regression",
+      "type": "object"
+    },
+    "RegressionTest": {
+      "additionalProperties": false,
+      "description": "4.5.1: a test from the area's history, how it was found and what it did on the fix.",
+      "properties": {
+        "availability": {
+          "enum": [
+            "AVAILABLE",
+            "UNAVAILABLE"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "baseline_outcome": {
+          "anyOf": [
+            {
+              "enum": [
+                "PASS",
+                "FAIL_TARGET_SIGNATURE",
+                "FAIL_DIFFERENT_SIGNATURE",
+                "FLAKY",
+                "ENVIRONMENT_ERROR",
+                "TIMEOUT",
+                "NOT_RUN",
+                "UNAVAILABLE",
+                "INCONCLUSIVE"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Outcome"
+        },
+        "discovery_method": {
+          "title": "Discovery Method",
+          "type": "string"
+        },
+        "execution_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Execution Ids",
+          "type": "array"
+        },
+        "failure_signature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Signature"
+        },
+        "fix_reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Reference"
+        },
+        "outcome": {
+          "enum": [
+            "PASS",
+            "FAIL_TARGET_SIGNATURE",
+            "FAIL_DIFFERENT_SIGNATURE",
+            "FLAKY",
+            "ENVIRONMENT_ERROR",
+            "TIMEOUT",
+            "NOT_RUN",
+            "UNAVAILABLE",
+            "INCONCLUSIVE"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "test_path": {
+          "title": "Test Path",
+          "type": "string"
+        },
+        "ticket_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticket Id"
+        },
+        "tier": {
+          "enum": [
+            "explicit",
+            "historical",
+            "inferred"
+          ],
+          "title": "Tier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "test_path",
+        "tier",
+        "discovery_method",
+        "availability",
+        "outcome"
+      ],
+      "title": "RegressionTest",
+      "type": "object"
+    },
+    "Reproduction": {
+      "additionalProperties": false,
+      "description": "DEF-01: was the defect shown on the unchanged baseline, for the reported reason?",
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expected_failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExpectedFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reproducibility": {
+          "enum": [
+            "REPRODUCED",
+            "NOT_REPRODUCED",
+            "UNAVAILABLE",
+            "FLAKY",
+            "ENVIRONMENT_ERROR",
+            "INCONCLUSIVE"
+          ],
+          "title": "Reproducibility",
+          "type": "string"
+        },
+        "test": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GeneratedTest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "reproducibility"
+      ],
+      "title": "Reproduction",
+      "type": "object"
+    },
+    "RunnerInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "title": "Architecture",
+          "type": "string"
+        },
+        "filesystem": {
+          "const": "ephemeral_workspace",
+          "default": "ephemeral_workspace",
+          "title": "Filesystem",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image"
+        },
+        "kind": {
+          "enum": [
+            "local",
+            "docker"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "network": {
+          "enum": [
+            "none",
+            "unrestricted"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "os": {
+          "title": "Os",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "os",
+        "architecture",
+        "network"
+      ],
+      "title": "RunnerInfo",
+      "type": "object"
+    },
+    "TicketRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "project": {
+          "title": "Project",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "system": {
+          "const": "ado",
+          "default": "ado",
+          "title": "System",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "id",
+        "revision"
+      ],
+      "title": "TicketRef",
+      "type": "object"
+    },
+    "Timings": {
+      "additionalProperties": false,
+      "properties": {
+        "fix_ms": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Fix Ms",
+          "type": "integer"
+        },
+        "reproduction_ms": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Reproduction Ms",
+          "type": "integer"
+        },
+        "total_ms": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Ms",
+          "type": "integer"
+        }
+      },
+      "title": "Timings",
+      "type": "object"
+    }
+  },
+  "$id": "https://visioniq.internal/schemas/fixes/fix-result.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attempts": {
+      "items": {
+        "$ref": "#/$defs/Attempt"
+      },
+      "title": "Attempts",
+      "type": "array"
+    },
+    "base_sha": {
+      "title": "Base Sha",
+      "type": "string"
+    },
+    "candidate_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Candidate Sha"
+    },
+    "candidate_test": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CheckEvidence"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "executions": {
+      "items": {
+        "$ref": "#/$defs/Execution"
+      },
+      "title": "Executions",
+      "type": "array"
+    },
+    "fix_id": {
+      "format": "uuid",
+      "title": "Fix Id",
+      "type": "string"
+    },
+    "gate_summary": {
+      "$ref": "#/$defs/GateSummary"
+    },
+    "gates": {
+      "items": {
+        "$ref": "#/$defs/Gate"
+      },
+      "title": "Gates",
+      "type": "array"
+    },
+    "generation": {
+      "$ref": "#/$defs/Generation"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "manifests": {
+      "items": {
+        "$ref": "#/$defs/ExecutionManifest"
+      },
+      "title": "Manifests",
+      "type": "array"
+    },
+    "patch": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Patch"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "performance": {
+      "$ref": "#/$defs/Performance"
+    },
+    "policy_revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Revision"
+    },
+    "pull_request": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PullRequestDraft"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "regression": {
+      "$ref": "#/$defs/Regression"
+    },
+    "repository_id": {
+      "title": "Repository Id",
+      "type": "string"
+    },
+    "reproduction": {
+      "$ref": "#/$defs/Reproduction"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "PUBLISHED",
+        "PARTIAL",
+        "BLOCKED"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "suite": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CheckEvidence"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ticket": {
+      "$ref": "#/$defs/TicketRef"
+    },
+    "timings": {
+      "$ref": "#/$defs/Timings"
+    },
+    "verdict": {
+      "enum": [
+        "VERIFIED",
+        "FAIL",
+        "INCONCLUSIVE",
+        "NEEDS_REVIEW",
+        "BLOCKED"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "fix_id",
+    "run_id",
+    "ticket",
+    "repository_id",
+    "base_sha",
+    "state",
+    "verdict",
+    "reproduction",
+    "regression",
+    "performance",
+    "gates",
+    "gate_summary",
+    "generation",
+    "timings"
+  ],
+  "title": "Fix result v1 (S11-01)",
+  "type": "object"
+}

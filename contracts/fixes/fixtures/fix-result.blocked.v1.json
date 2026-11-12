@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "fix_id": "5f7a1d2a-c0ff-4e9f-8305-a28f75226ddb",
+  "run_id": "80ce0744-dff4-40d9-8b75-4bf7d4cd925d",
+  "ticket": {
+    "system": "ado",
+    "project": "Kiosk",
+    "id": "4711",
+    "revision": 3,
+    "title": ""
+  },
+  "repository_id": "kiosk-demo",
+  "base_sha": "35651f5862821bb7373290e73c774fce924ef4d1",
+  "candidate_sha": null,
+  "state": "BLOCKED",
+  "verdict": "BLOCKED",
+  "reason_codes": [
+    "ticket_not_readable"
+  ],
+  "reproduction": {
+    "reproducibility": "INCONCLUSIVE",
+    "test": null,
+    "expected_failure": null,
+    "evidence": null,
+    "detail": "Not attempted."
+  },
+  "patch": null,
+  "attempts": [],
+  "candidate_test": null,
+  "regression": {
+    "status": "NOT_RUN",
+    "historical_found": false,
+    "tests": [],
+    "detail": "No candidate reached this step."
+  },
+  "suite": null,
+  "performance": {
+    "status": "NOT_MEASURED",
+    "metric": null,
+    "unit": null,
+    "pairs": 0,
+    "baseline_samples": [],
+    "candidate_samples": [],
+    "baseline_median": null,
+    "candidate_median": null,
+    "change_percent": null,
+    "noise_percent": null,
+    "threshold_percent": null,
+    "noise_limit_percent": null,
+    "execution_ids": [],
+    "detail": "No candidate reached this step."
+  },
+  "gates": [
+    {
+      "name": "reproduction",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "No reproduction test was run.",
+      "execution_ids": []
+    },
+    {
+      "name": "candidate_test",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "No candidate was tested.",
+      "execution_ids": []
+    },
+    {
+      "name": "historical_regression",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "No candidate reached this step.",
+      "execution_ids": []
+    },
+    {
+      "name": "touched_suite",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "The touched project's suite was not run.",
+      "execution_ids": []
+    },
+    {
+      "name": "performance",
+      "required": false,
+      "status": "NOT_APPLICABLE",
+      "commit_sha": null,
+      "detail": "No candidate reached this step.",
+      "execution_ids": []
+    },
+    {
+      "name": "patch_policy",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "No patch was proposed.",
+      "execution_ids": []
+    },
+    {
+      "name": "native_ci",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "The repository's own pipeline runs on the pull request, after it exists.",
+      "execution_ids": []
+    },
+    {
+      "name": "human_review",
+      "required": true,
+      "status": "REVIEW_REQUIRED",
+      "commit_sha": null,
+      "detail": "An engineer approves or rejects. The bot cannot approve or merge.",
+      "execution_ids": []
+    }
+  ],
+  "gate_summary": {
+    "head_sha": null,
+    "overall": "NOT_GREEN",
+    "blocking": [
+      "reproduction",
+      "candidate_test",
+      "historical_regression",
+      "touched_suite",
+      "patch_policy",
+      "native_ci",
+      "human_review"
+    ]
+  },
+  "manifests": [],
+  "executions": [],
+  "pull_request": null,
+  "limitations": [
+    "The ticket is not in the knowledge base under this project's access scope."
+  ],
+  "generation": {
+    "routing_revision": "routing-2026-11-10.2",
+    "test_provider": null,
+    "test_prompt_version": null,
+    "fix_provider": null,
+    "fix_model_id": null,
+    "fix_prompt_version": null,
+    "calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
+  "policy_revision": "defect-policy-demo.1",
+  "timings": {
+    "reproduction_ms": 0,
+    "fix_ms": 0,
+    "total_ms": 0
+  }
+}

@@ -27,7 +27,7 @@ public sealed class PickupSweep(
         {
             try
             {
-                var changes = await source.FindPickupsAsync(project, since, cancellationToken);
+                var changes = await source.FindPickupsAsync(project, since, policy.AllowedWorkItemIds, cancellationToken);
                 var count = 0;
                 foreach (var change in changes)
                 {

@@ -1,8 +1,10 @@
 using Npgsql;
 using VisionIQ.Api.Configuration;
+using VisionIQ.Api.Features.Briefs;
 using VisionIQ.Api.Features.Events;
 using VisionIQ.Api.Features.Health;
 using VisionIQ.Api.Features.Evidence;
+using VisionIQ.Api.Features.Fixes;
 using VisionIQ.Api.Features.Graph;
 using VisionIQ.Api.Features.Pickup;
 using VisionIQ.Api.Logging;
@@ -69,6 +71,10 @@ if (eventing.DispatchEnabled)
 
 // BRF-01 ticket pickup: off unless PICKUP_POLICY_FILE is set (then PICKUP_WEBHOOK_SECRET is required).
 var pickup = builder.Services.AddTicketPickup(builder.Configuration);
+// BRF-05 brief delivery: off unless BRIEF_PUBLISH_MODE is record or ado (ado also needs ADO_COMMENT_PAT).
+builder.Services.AddBriefPublishing(builder.Configuration, pickup?.Policy);
+// DEF-05 draft pull requests: off unless FIX_PR_MODE is record or ado (ado also needs ADO_PR_PAT).
+builder.Services.AddFixPullRequests(builder.Configuration, pickup?.Policy);
 
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 

@@ -99,8 +99,22 @@ services:
       PICKUP_POLICY_FILE: ${PICKUP_POLICY_FILE:-}
       PICKUP_WEBHOOK_SECRET: ${PICKUP_WEBHOOK_SECRET:-}
       PICKUP_SWEEP_INTERVAL_MINUTES: ${PICKUP_SWEEP_INTERVAL_MINUTES:-15}
+      PICKUP_SWEEP_LOOKBACK_HOURS: ${PICKUP_SWEEP_LOOKBACK_HOURS:-24}
+      # Pilot switch: comma-separated work-item ids. When set, no other work item is ever picked up.
+      PICKUP_ALLOWED_WORK_ITEM_IDS: ${PICKUP_ALLOWED_WORK_ITEM_IDS:-}
       ADO_ORG_URL: ${ADO_ORG_URL:-}
       ADO_READ_PAT: ${ADO_READ_PAT:-}
+      # BRF-05 brief delivery: off | record (kept in the database, no external call) | ado (posts a
+      # work-item comment with ADO_COMMENT_PAT, a separate write token; never the read token).
+      BRIEF_PUBLISH_MODE: ${BRIEF_PUBLISH_MODE:-off}
+      ADO_COMMENT_PAT: ${ADO_COMMENT_PAT:-}
+      # DEF-05 draft pull requests: off | record (kept in the database, no external call) | ado (pushes
+      # a branch and opens a DRAFT pull request with ADO_PR_PAT, a third token that may create branches
+      # and pull requests and must not be able to approve or complete them).
+      FIX_PR_MODE: ${FIX_PR_MODE:-off}
+      ADO_PR_PAT: ${ADO_PR_PAT:-}
+      # After a defect ticket's brief, ask Intelligence for a fix run (needs DEFECT_PIPELINE_ENABLED there).
+      FIX_AUTO_START: ${FIX_AUTO_START:-false}
     volumes:
       - ./config:/app/config:ro
     ports:
@@ -134,6 +148,28 @@ services:
       PUBSUB_EMULATOR_HOST: pubsub:8085
       PUBSUB_PROJECT_ID: visioniq-local
       EVENTS_DISPATCH_ENABLED: "true"
+      # BRF-03 brief pipeline: off unless BRIEF_PIPELINE_ENABLED=true. For a local run without Google
+      # Cloud set LLM_MODE=offline and EMBEDDING_PROVIDER=test (never in production).
+      BRIEF_PIPELINE_ENABLED: ${BRIEF_PIPELINE_ENABLED:-false}
+      LLM_MODE: ${LLM_MODE:-live}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-vertex}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-europe-west1}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      # Decision D04: Claude stays off until a route and a data classification limit are set.
+      CLAUDE_ROUTE: ${CLAUDE_ROUTE:-off}
+      LLM_CLAUDE_MAX_CLASSIFICATION: ${LLM_CLAUDE_MAX_CLASSIFICATION:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-5-5}
+      # Only read when CLAUDE_ROUTE=anthropic. Keep the key in .env (git-ignored), never in this file.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # DEF-01 to DEF-06 fix pipeline (deep analysis): off unless DEFECT_PIPELINE_ENABLED=true, and
+      # then DEFECT_POLICY_FILE must name a policy inside the container. This image has no git and
+      # no test runner yet, so for now run the pipeline on the host: python -m app.defect.cli
+      # (docs/features/DEFECT-ARCHITECTURE.md).
+      DEFECT_PIPELINE_ENABLED: ${DEFECT_PIPELINE_ENABLED:-false}
+      DEFECT_POLICY_FILE: ${DEFECT_POLICY_FILE:-}
+      # BRF-08 hotspot sweep every N hours (0 = only on demand: python -m app.hotspots.cli).
+      HOTSPOT_SWEEP_INTERVAL_HOURS: ${HOTSPOT_SWEEP_INTERVAL_HOURS:-0}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

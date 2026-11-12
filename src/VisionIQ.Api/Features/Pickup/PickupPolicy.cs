@@ -91,16 +91,41 @@ public sealed partial record PickupPolicy(
         AllowTrailingCommas = true,
     };
 
+    /// <summary>
+    /// PICKUP_ALLOWED_WORK_ITEM_IDS: when set, only these work items can be picked up, by the webhook and by the
+    /// sweep alike. Null means no restriction. It lets a pilot run on a few chosen items of a live organization
+    /// without touching anyone else's tickets.
+    /// </summary>
+    public IReadOnlySet<int>? AllowedWorkItemIds { get; init; }
+
     public ProjectPickupPolicy? For(string project) =>
         Projects.FirstOrDefault(p => string.Equals(p.Project, project, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True when the work item may be picked up: no allowlist is set, or it is on the list.</summary>
+    public bool IsWorkItemAllowed(int workItemId) => AllowedWorkItemIds is null || AllowedWorkItemIds.Contains(workItemId);
+
+    /// <summary>True when a delivery's organization is the configured one (or none is configured).</summary>
+    public bool IsOrganizationAllowed(string? organizationUrl) =>
+        OrganizationUrl is null ||
+        string.Equals(Normalize(organizationUrl), Normalize(OrganizationUrl.AbsoluteUri), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when the ADO identity (id or unique name) is one of VisionIQ's own bot identities.</summary>
+    public bool IsBot(string? identityId, string? uniqueName) =>
+        BotIdentities.Any(bot =>
+            string.Equals(bot, identityId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(bot, uniqueName, StringComparison.OrdinalIgnoreCase));
 
     public PickupDecision Evaluate(TicketChange change)
     {
         ArgumentNullException.ThrowIfNull(change);
-        if (OrganizationUrl is not null &&
-            !string.Equals(Normalize(change.OrganizationUrl), Normalize(OrganizationUrl.AbsoluteUri), StringComparison.OrdinalIgnoreCase))
+        if (!IsOrganizationAllowed(change.OrganizationUrl))
         {
             return PickupDecision.Ignore("organization_not_allowed");
+        }
+
+        if (!IsWorkItemAllowed(change.WorkItemId))
+        {
+            return PickupDecision.Ignore("work_item_not_allowlisted");
         }
 
         var project = For(change.Project);
@@ -124,9 +149,7 @@ public sealed partial record PickupPolicy(
             return PickupDecision.Ignore("no_pickup_transition");
         }
 
-        if (BotIdentities.Any(bot =>
-                string.Equals(bot, change.ChangedById, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(bot, change.ChangedByName, StringComparison.OrdinalIgnoreCase)))
+        if (IsBot(change.ChangedById, change.ChangedByName))
         {
             return PickupDecision.Ignore("bot_update");
         }

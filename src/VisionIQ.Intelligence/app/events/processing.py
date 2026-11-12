@@ -6,11 +6,13 @@ event keeps its inbox row (with the reason) but none of the handler's writes.
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
 
 import psycopg
 import structlog
+from psycopg.types.json import Jsonb
 
 from app.config import Settings
 from app.db import connect
@@ -40,6 +42,10 @@ class Outcome(StrEnum):
 class EventContext:
     contracts: ContractRegistry
     topology: Topology
+    # BRIEF_PIPELINE_ENABLED: accepted brief requests are answered by the analysis worker.
+    brief_pipeline_enabled: bool = False
+    # DEFECT_PIPELINE_ENABLED: accepted deep requests are answered by the fix worker (DEF-01).
+    defect_pipeline_enabled: bool = False
 
 
 Handler = Callable[[psycopg.Connection, EventEnvelope, EventContext], None]
@@ -49,27 +55,47 @@ class EventProcessor(Protocol):
     def process(self, envelope: EventEnvelope) -> Outcome: ...
 
 
-# Until the BRIEF pipeline exists the honest answer is BLOCKED with a reason, never a fake result.
-PIPELINE_NOT_IMPLEMENTED = "analysis_pipeline_not_implemented"
+# With a pipeline switched off the honest answer is BLOCKED with a reason, never a fake result.
+# Deep analysis is the defect fix pipeline (app/defect); it is answered only when that is on.
+PIPELINE_DISABLED = "analysis_pipeline_disabled"
+DEEP_ANALYSIS_NOT_IMPLEMENTED = "deep_analysis_not_implemented"
+
+_INSERT_REQUEST = (
+    "INSERT INTO knowledge.analysis_requests (run_id, event_id, tenant_id, project_id, "
+    "ticket_id, ticket_revision, repository_id, base_commit_sha, analysis_mode, "
+    "security_scope_id, status, request_event, result_id, result_state, reason_codes, "
+    "completed_at) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+    "ON CONFLICT (run_id) DO NOTHING RETURNING run_id"
+)
 
 
 def handle_analysis_requested(
     connection: psycopg.Connection, envelope: EventEnvelope, context: EventContext
 ) -> None:
+    """Accept a request. A brief is queued for the analysis worker (BRF-03) and a deep request
+    for the fix worker (DEF-01); each answers with ``analysis.completed``. Anything this service
+    is not set up to do is answered BLOCKED now."""
     request = AnalysisRequestedV1.model_validate(envelope.data)
-    result = AnalysisCompletedV1(
-        result_id=uuid.uuid4(),
-        result_state="BLOCKED",
-        evidence_ids=[],
-        advice_ids=[],
-        reason_codes=[PIPELINE_NOT_IMPLEMENTED],
+    if request.analysis_mode != "brief":
+        blocked: str | None = (
+            None if context.defect_pipeline_enabled else DEEP_ANALYSIS_NOT_IMPLEMENTED
+        )
+    else:
+        blocked = None if context.brief_pipeline_enabled else PIPELINE_DISABLED
+    result = (
+        None
+        if blocked is None
+        else AnalysisCompletedV1(
+            result_id=uuid.uuid4(),
+            result_state="BLOCKED",
+            evidence_ids=[],
+            advice_ids=[],
+            reason_codes=[blocked],
+        )
     )
     stored = connection.execute(
-        "INSERT INTO knowledge.analysis_requests (run_id, event_id, tenant_id, project_id, "
-        "ticket_id, ticket_revision, repository_id, base_commit_sha, analysis_mode, "
-        "security_scope_id, result_id, result_state, reason_codes) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (run_id) DO NOTHING RETURNING run_id",
+        _INSERT_REQUEST,
         (
             envelope.run_id,
             envelope.event_id,
@@ -81,20 +107,25 @@ def handle_analysis_requested(
             request.base_commit_sha,
             request.analysis_mode,
             request.security_scope_id,
-            result.result_id,
-            result.result_state,
-            result.reason_codes,
+            "pending" if result is None else "completed",
+            # Ids only (no ticket text): the worker builds analysis.completed from it.
+            Jsonb(envelope.to_json_dict()),
+            result.result_id if result else None,
+            result.result_state if result else None,
+            result.reason_codes if result else [],
+            datetime.now(UTC) if result else None,
         ),
     ).fetchone()
     if stored is None:
-        # Redeliveries of the same event stop at the inbox, so this is a different event for an
-        # answered run.
+        # Redeliveries of the same event stop at the inbox, so this is a different event for a
+        # run that was already accepted.
         raise EventRejectedError("run_already_requested")
-    completed = follow_up(envelope, "analysis.completed", result)
-    enqueue(connection, completed, context.contracts, context.topology)
+    if result is not None:
+        completed = follow_up(envelope, "analysis.completed", result)
+        enqueue(connection, completed, context.contracts, context.topology)
     structlog.get_logger().info(
         "analysis_request_accepted",
-        result_state=result.result_state,
+        result_state=result.result_state if result else "PENDING",
         analysis_mode=request.analysis_mode,
     )
 

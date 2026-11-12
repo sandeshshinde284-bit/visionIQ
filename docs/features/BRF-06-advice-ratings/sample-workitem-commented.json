@@ -1,0 +1,31 @@
+{
+  "subscriptionId": "00000000-0000-0000-0000-00000000bbbb",
+  "notificationId": 7,
+  "id": "22222222-3333-4444-8555-666666666666",
+  "eventType": "workitem.commented",
+  "publisherId": "tfs",
+  "createdDate": "2026-11-10T09:30:00Z",
+  "resource": {
+    "id": 4711,
+    "rev": 14,
+    "fields": {
+      "System.TeamProject": "VisionIQ-Demo",
+      "System.WorkItemType": "Bug",
+      "System.State": "In Progress",
+      "System.Title": "Refund fails for partial captures",
+      "System.ChangedDate": "2026-11-10T09:29:58Z",
+      "System.ChangedBy": {
+        "id": "6a8f1e2b-0000-4000-8000-000000000001",
+        "uniqueName": "engineer@your-org.example",
+        "displayName": "Engineer"
+      },
+      "System.History": "<div>Thanks, this helped.</div><div>ADV-001 accepted</div><div>ADV-002 rejected: we never touched the retry counter</div><div>ADV-003 n/a</div>"
+    }
+  },
+  "resourceVersion": "1.0",
+  "resourceContainers": {
+    "collection": { "id": "c0ffee00-0000-4000-8000-000000000000", "baseUrl": "https://dev.azure.com/your-org/" },
+    "account": { "id": "c0ffee00-0000-4000-8000-000000000001", "baseUrl": "https://dev.azure.com/your-org/" },
+    "project": { "id": "c0ffee00-0000-4000-8000-000000000002", "baseUrl": "https://dev.azure.com/your-org/" }
+  }
+}

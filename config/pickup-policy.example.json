@@ -12,6 +12,8 @@
       "project": "VisionIQ-Demo",
       // Optional; required when the project name has spaces or other characters outside A-Z a-z 0-9 _ . : / -
       "project_id": "VisionIQ-Demo",
+      // To pilot on Task work items, list "Task" here (the brief is the same; the type only labels
+      // the run) and name the chosen items in PICKUP_ALLOWED_WORK_ITEM_IDS.
       "defect_types": ["Bug"],
       "enhancement_types": ["User Story", "Feature"],
       // A run starts when an item moves INTO one of these states (not on later edits while in it).

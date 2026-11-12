@@ -57,6 +57,7 @@ public sealed class PickupPolicyTests
     [InlineData("unassigned")]
     [InlineData("bot_update")]
     [InlineData("excluded_tag")]
+    [InlineData("work_item_not_allowlisted")]
     public void Each_rule_has_its_own_reason(string reason)
     {
         var change = reason switch
@@ -64,6 +65,7 @@ public sealed class PickupPolicyTests
             "organization_not_allowed" => Change(organization: "https://dev.azure.com/someone-else/"),
             "project_not_configured" => Change(project: "Unknown"),
             "type_not_eligible" => Change(type: "Task"),
+            "work_item_not_allowlisted" => Change() with { WorkItemId = 4712 },
             // An edit while already in progress, e.g. a comment, must not start another run.
             "no_pickup_transition" => Change(before: "In Progress"),
             "unassigned" => Change(assigned: false),
@@ -71,10 +73,58 @@ public sealed class PickupPolicyTests
             _ => Change(tags: ["VisionIQ-Skip"]),
         };
 
-        var decision = Policy.Evaluate(change);
+        // The allowlist names #4711 only; without one, #4712 would be picked up like any other item.
+        var policy = reason == "work_item_not_allowlisted" ? Policy with { AllowedWorkItemIds = new HashSet<int> { 4711 } } : Policy;
+
+        var decision = policy.Evaluate(change);
 
         Assert.False(decision.Eligible);
         Assert.Equal(reason, decision.Reason);
+    }
+
+    [Fact]
+    public void An_allowlist_limits_pickup_to_the_chosen_work_items_and_keeps_every_other_rule()
+    {
+        var pilot = Policy with { AllowedWorkItemIds = new HashSet<int> { 4711, 4800 } };
+
+        Assert.True(pilot.Evaluate(Change()).Eligible); // #4711 moved New -> In Progress
+        Assert.Equal("work_item_not_allowlisted", pilot.Evaluate(Change() with { WorkItemId = 4712 }).Reason);
+        // Being on the list is not enough: it must still be the change that makes the item actionable.
+        Assert.Equal("no_pickup_transition", pilot.Evaluate(Change(before: "In Progress")).Reason);
+        Assert.Equal("unassigned", pilot.Evaluate(Change(assigned: false)).Reason);
+        Assert.Equal("bot_update", pilot.Evaluate(Change(actor: Bot)).Reason);
+        Assert.True(Policy.Evaluate(Change() with { WorkItemId = 4712 }).Eligible); // no list: no restriction
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("   ", null)]
+    [InlineData("4711", "4711")]
+    [InlineData(" 4712 , 4711,4711 ", "4711,4712")]
+    [InlineData("12;7", "7,12")]
+    public void The_allowlist_setting_is_a_list_of_work_item_numbers(string? value, string? expected)
+    {
+        var ids = PickupOptions.AllowedWorkItemIds(value);
+
+        Assert.Equal(expected, ids is null ? null : string.Join(',', ids));
+    }
+
+    [Theory]
+    [InlineData("4711,")]
+    [InlineData("4711,abc")]
+    [InlineData("#4711")]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("4711 4712")]
+    [InlineData("47.11")]
+    public void A_malformed_allowlist_stops_start_up_instead_of_picking_up_everything(string value)
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => PickupOptions.AllowedWorkItemIds(value));
+
+        Assert.Contains("PICKUP_ALLOWED_WORK_ITEM_IDS", error.Message, StringComparison.Ordinal);
+        Assert.Throws<InvalidOperationException>(() =>
+            PickupOptions.AllowedWorkItemIds(string.Join(',', Enumerable.Range(1, PickupOptions.MaximumAllowedWorkItems + 1))));
     }
 
     [Theory]

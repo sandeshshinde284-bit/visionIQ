@@ -10,8 +10,10 @@ public interface IPickupSource
     /// <summary>
     /// For each work item of the project that is now in a pickup state and changed since <paramref name="since"/>,
     /// the change that made it actionable, when that change itself happened at or after <paramref name="since"/>.
+    /// When <paramref name="onlyWorkItems"/> is given, no other work item is asked about.
     /// </summary>
-    Task<IReadOnlyList<TicketChange>> FindPickupsAsync(ProjectPickupPolicy project, DateTimeOffset since, CancellationToken cancellationToken);
+    Task<IReadOnlyList<TicketChange>> FindPickupsAsync(
+        ProjectPickupPolicy project, DateTimeOffset since, IReadOnlyCollection<int>? onlyWorkItems, CancellationToken cancellationToken);
 }
 
 /// <summary>Resolves the commit a run analyses: the head of the project's configured branch.</summary>
@@ -78,15 +80,20 @@ public sealed class AdoPickupSource(AdoClient client) : IPickupSource, IBaseComm
     public const int SweepLimit = 500;
 
     public async Task<IReadOnlyList<TicketChange>> FindPickupsAsync(
-        ProjectPickupPolicy project, DateTimeOffset since, CancellationToken cancellationToken)
+        ProjectPickupPolicy project, DateTimeOffset since, IReadOnlyCollection<int>? onlyWorkItems, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(project);
+        if (onlyWorkItems is { Count: 0 })
+        {
+            return [];
+        }
+
         var uri = client.BuildUri(
             project.Project,
             "_apis/wit/wiql",
             [new("timePrecision", "true"), new("$top", SweepLimit.ToString(CultureInfo.InvariantCulture))]);
         List<int> ids;
-        using (var response = await client.PostJsonAsync(uri, new { query = BuildWiql(project, since) }, cancellationToken))
+        using (var response = await client.PostJsonAsync(uri, new { query = BuildWiql(project, since, onlyWorkItems) }, cancellationToken))
         {
             ids = Items(response.Root, "workItems").Select(item => Int(item, "id")).OfType<int>().ToList();
         }
@@ -124,11 +131,18 @@ public sealed class AdoPickupSource(AdoClient client) : IPickupSource, IBaseComm
             : throw new InvalidOperationException("The configured branch was not found in the repository.");
     }
 
-    /// <summary>WIQL for items of the project's eligible types that are in a pickup state and changed since the given time.</summary>
-    public static string BuildWiql(ProjectPickupPolicy project, DateTimeOffset since)
+    /// <summary>
+    /// WIQL for items of the project's eligible types that are in a pickup state and changed since the given time.
+    /// With <paramref name="onlyWorkItems"/> the query names those ids, so ADO returns (and the sweep then reads
+    /// the history of) nothing else.
+    /// </summary>
+    public static string BuildWiql(ProjectPickupPolicy project, DateTimeOffset since, IReadOnlyCollection<int>? onlyWorkItems = null)
     {
         ArgumentNullException.ThrowIfNull(project);
-        return "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = " + Quote(project.Project) +
+        var only = onlyWorkItems is { Count: > 0 }
+            ? " AND [System.Id] IN (" + string.Join(", ", onlyWorkItems.Order().Select(id => id.ToString(CultureInfo.InvariantCulture))) + ")"
+            : string.Empty;
+        return "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = " + Quote(project.Project) + only +
             " AND [System.WorkItemType] IN (" + string.Join(", ", project.DefectTypes.Concat(project.EnhancementTypes).Select(Quote)) + ")" +
             " AND [System.State] IN (" + string.Join(", ", project.PickupStates.Select(Quote)) + ")" +
             " AND [System.ChangedDate] >= " + Quote(since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture)) +
