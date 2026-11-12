@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import sys
-import uuid
 from pathlib import Path
 
 import pytest
@@ -61,9 +60,11 @@ def test_isolation_refuses_anything_that_is_not_a_local_throwaway_database(
     overrides: dict, expected_message: str, tmp_path: Path
 ) -> None:
     env = {**_base_env(), **overrides}
-    with pytest.raises(ValueError, match=expected_message):
-        with isolated_fixture_database(env, tmp_path, _StubRunner(), "probe"):
-            pytest.fail("must never yield when a guard rejects the environment")
+    with (
+        pytest.raises(ValueError, match=expected_message),
+        isolated_fixture_database(env, tmp_path, _StubRunner(), "probe"),
+    ):
+        pytest.fail("must never yield when a guard rejects the environment")
 
 
 def test_isolated_database_is_a_fresh_throwaway_name_distinct_from_the_real_database(

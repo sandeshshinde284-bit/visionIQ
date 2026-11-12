@@ -100,7 +100,7 @@ jobs:
         run: |
           revision=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT version_num FROM public.alembic_version")
           # Expected head = newest migration revision in the repository (never hardcoded).
-          expected=$(grep -h '^revision = ' db/migrations/versions/*.py | sed -E 's/revision = "([^"]+)"/\1/' | sort | tail -1)
+          expected=$(python -m alembic -c db/alembic.ini heads | awk '{print $1}') test "$(printf '%s\n' "$expected" | wc -l)" -eq 1
           echo "database: $revision, expected: $expected"
           test -n "$expected" && test "$revision" = "$expected"
           schemas=$(docker compose exec -T postgres psql -U visioniq -d visioniq -Atc "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('workflow','evidence','knowledge')")

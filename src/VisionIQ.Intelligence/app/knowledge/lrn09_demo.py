@@ -74,10 +74,7 @@ def main(argv: list[str] | None = None) -> int:
             print("FAIL: select one approved ADO project scope")
             return 1
         allowed = {
-            row[0]
-            for row in conn.execute(
-                ALLOWED_SQL, {"project": args.project, "scopes": scopes}
-            )
+            row[0] for row in conn.execute(ALLOWED_SQL, {"project": args.project, "scopes": scopes})
         }
     if not allowed:
         print("FAIL: no current verified ADO evidence")

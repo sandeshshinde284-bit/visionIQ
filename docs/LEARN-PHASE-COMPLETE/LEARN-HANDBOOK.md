@@ -276,7 +276,7 @@ Evidence-backed Engineering Brief and lessons
 
 - Canonical local PostgreSQL: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_INTELLIGENCE_USER` and `DB_INTELLIGENCE_PASSWORD`.
 - Private raw archive bucket: `GCS_EVIDENCE_BUCKET` and approved Application Default Credentials.
-- Vertex: `EMBEDDING_PROVIDER=vertex`, `GCP_PROJECT_ID` or `VERTEX_PROJECT`, `VERTEX_LOCATION` (model-supported location), `EMBEDDING_MODEL=gemini-embedding-001`, `EMBEDDING_DIMENSION=768`.
+- Vertex: `EMBEDDING_PROVIDER=vertex`, `GCP_PROJECT_ID`, `VERTEX_LOCATION` (model-supported location), `EMBEDDING_MODEL=gemini-embedding-001`, `EMBEDDING_DIMENSION=768`.
 - The LEARN runner needs `INGESTION_OUTPUT_MODE=canonical` and an explicit confirmation before knowledge writes.
 
 Run from the repository root:

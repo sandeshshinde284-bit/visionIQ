@@ -39,14 +39,20 @@ class FakeConnection:
 
 def source_evidence():
     scan = RepositoryScan(
-        "/checkout", "a" * 40, "COMPLETE",
-        (GitFile("package.json", "b" * 40, None, True),), (),
+        "/checkout",
+        "a" * 40,
+        "COMPLETE",
+        (GitFile("package.json", "b" * 40, None, True),),
+        (),
     )
     identity = ScanEvidenceIdentity(
         "https://code.example.test/teams/source", "source-project", "source-repository"
     )
     evidence = build_scan_evidence(
-        scan, identity, identity.source_instance, datetime.now(UTC),
+        scan,
+        identity,
+        identity.source_instance,
+        datetime.now(UTC),
         ado_organization="https://dev.example.test/org",
     )
     return scan, evidence
@@ -59,15 +65,14 @@ def target_row(
     commit="c" * 40,
 ):
     identity = ScanEvidenceIdentity(origin, project_id, repository_id)
-    return (
-        identity.item_key(), origin, project_id, repository_id, commit, origin
-    )
+    return (identity.item_key(), origin, project_id, repository_id, commit, origin)
 
 
 def fake_db(monkeypatch, rows):
     connection = FakeConnection(rows)
     monkeypatch.setattr(
-        approved_sources.psycopg, "connect",
+        approved_sources.psycopg,
+        "connect",
         lambda *args, **kwargs: connection,
     )
     return connection
@@ -104,9 +109,7 @@ def test_discovers_approved_canonical_targets_and_wires_to_graph(monkeypatch):
 def test_excludes_ambiguous_repository_id_across_projects(monkeypatch):
     _, source = source_evidence()
     first = target_row(origin="https://code.example.test/org-one/shared")
-    second = target_row(
-        origin="https://code.example.test/org-two/shared", project_id="project-two"
-    )
+    second = target_row(origin="https://code.example.test/org-two/shared", project_id="project-two")
     fake_db(monkeypatch, [first, second])
     assert approved_sources.load_approved_code_scans("fake-db", source) == ((), {})
 

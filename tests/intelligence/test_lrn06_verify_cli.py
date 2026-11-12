@@ -10,7 +10,9 @@ from app.code_intelligence.verify_cli import main
 def git(repo: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout.strip()
 
@@ -41,11 +43,24 @@ def test_cli_report_proves_pinned_file_symbol_and_dependency_evidence(tmp_path: 
     head = git(root, "rev-parse", "HEAD")
 
     output = tmp_path / "evidence.json"
-    rc = main([
-        "--repo", str(root), "--cache", str(tmp_path / "cache"),
-        "--repository-id", "approved-repo", "--base", base, "--head", head,
-        "--expect-symbol", "charge", "--output", str(output),
-    ])
+    rc = main(
+        [
+            "--repo",
+            str(root),
+            "--cache",
+            str(tmp_path / "cache"),
+            "--repository-id",
+            "approved-repo",
+            "--base",
+            base,
+            "--head",
+            head,
+            "--expect-symbol",
+            "charge",
+            "--output",
+            str(output),
+        ]
+    )
     assert rc == 0
     data = json.loads(output.read_text(encoding="utf-8"))
     assert data["commit"] == head and data["base_commit"] == base
@@ -61,24 +76,48 @@ def test_cli_report_proves_pinned_file_symbol_and_dependency_evidence(tmp_path: 
 def test_missing_expected_symbol_is_visible_and_a_failed_check(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     output = tmp_path / "missing.json"
-    assert main([
-        "--repo", str(root), "--cache", str(tmp_path / "cache"),
-        "--repository-id", "approved", "--expect-symbol", "InventedFunction",
-        "--output", str(output),
-    ]) == 3
-    assert json.loads(output.read_text(encoding="utf-8"))[
-        "missing_expected_symbols"
-    ] == ["InventedFunction"]
+    assert (
+        main(
+            [
+                "--repo",
+                str(root),
+                "--cache",
+                str(tmp_path / "cache"),
+                "--repository-id",
+                "approved",
+                "--expect-symbol",
+                "InventedFunction",
+                "--output",
+                str(output),
+            ]
+        )
+        == 3
+    )
+    assert json.loads(output.read_text(encoding="utf-8"))["missing_expected_symbols"] == [
+        "InventedFunction"
+    ]
 
 
 def test_cli_rejects_missing_git_reference_without_writing_a_report(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     output = tmp_path / "failure.json"
-    assert main([
-        "--repo", str(root), "--cache", str(tmp_path / "cache"),
-        "--repository-id", "approved", "--head", "does-not-exist",
-        "--output", str(output),
-    ]) == 1
+    assert (
+        main(
+            [
+                "--repo",
+                str(root),
+                "--cache",
+                str(tmp_path / "cache"),
+                "--repository-id",
+                "approved",
+                "--head",
+                "does-not-exist",
+                "--output",
+                str(output),
+            ]
+        )
+        == 1
+    )
     assert not output.exists()
 
 
@@ -86,9 +125,20 @@ def test_cli_default_head_keeps_last_good_metadata(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     cache = tmp_path / "cache"
     output = tmp_path / "good.json"
-    assert main([
-        "--repo", str(root), "--cache", str(cache),
-        "--repository-id", "approved", "--output", str(output),
-    ]) == 0
+    assert (
+        main(
+            [
+                "--repo",
+                str(root),
+                "--cache",
+                str(cache),
+                "--repository-id",
+                "approved",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
     assert list(cache.glob("git-scan-*.json"))
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "COMPLETE"

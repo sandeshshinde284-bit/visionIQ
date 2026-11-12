@@ -52,20 +52,88 @@ _NAMESPACE = uuid.UUID("6f7a3b2e-0d1c-4f5e-9a8b-7c6d5e4f3a21")
 # Keep domain-specific terms (barcode, retry, refund, timeout, receipt, etc.).
 STOPWORDS = frozenset(
     {
-        "a", "an", "and", "are", "as", "at",
-        "be", "been", "before", "being", "by", "can",
-        "cannot", "could", "did", "do", "does", "during",
-        "error", "errors", "expected", "actual", "failed", "failing",
-        "fails", "failure", "for", "from", "had", "has",
-        "have", "in", "into", "is", "issue", "issues",
-        "it", "its", "not", "of", "on", "or",
-        "our", "should", "so", "system", "the", "their",
-        "there", "these", "this", "to", "unable", "unexpected",
-        "user", "users", "was", "were", "when", "where",
-        "which", "while", "will", "with", "would", "work",
-        "working", "works", "problem", "problems", "bug", "bugs",
-        "defect", "defects", "kiosk", "application", "app", "report",
-        "reported", "reproduce", "step", "steps",
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "before",
+        "being",
+        "by",
+        "can",
+        "cannot",
+        "could",
+        "did",
+        "do",
+        "does",
+        "during",
+        "error",
+        "errors",
+        "expected",
+        "actual",
+        "failed",
+        "failing",
+        "fails",
+        "failure",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "in",
+        "into",
+        "is",
+        "issue",
+        "issues",
+        "it",
+        "its",
+        "not",
+        "of",
+        "on",
+        "or",
+        "our",
+        "should",
+        "so",
+        "system",
+        "the",
+        "their",
+        "there",
+        "these",
+        "this",
+        "to",
+        "unable",
+        "unexpected",
+        "user",
+        "users",
+        "was",
+        "were",
+        "when",
+        "where",
+        "which",
+        "while",
+        "will",
+        "with",
+        "would",
+        "work",
+        "working",
+        "works",
+        "problem",
+        "problems",
+        "bug",
+        "bugs",
+        "defect",
+        "defects",
+        "kiosk",
+        "application",
+        "app",
+        "report",
+        "reported",
+        "reproduce",
+        "step",
+        "steps",
     }
 )
 WORD_ALIASES = {
@@ -90,6 +158,7 @@ def failure_terms(title: str, repro_steps: str = "") -> frozenset[str]:
     little diagnostic information; otherwise long generic steps can manufacture
     apparent similarity. Raw source text is not persisted in lesson observations.
     """
+
     def tokens(text: str) -> frozenset[str]:
         words = re.findall(r"[a-z][a-z0-9]{2,}", text[:800].lower())
         return frozenset(
@@ -133,7 +202,6 @@ def corroborated_failure(a: Observation, b: Observation) -> bool:
         len(shared) >= MIN_SHARED_SYMPTOM_TERMS
         and jaccard(a.symptoms, b.symptoms) >= SYMPTOM_OVERLAP
     )
-
 
 
 def code_paths(paths: Iterable[str]) -> frozenset[str]:

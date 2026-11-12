@@ -399,7 +399,8 @@ def verify(settings: LocalConfig) -> None:
                 )
 
         # R4-01: the append-only review-history log must reject UPDATE/DELETE from the API role
-        # at the database permission level, not only by application code choosing never to issue them.
+        # at the database permission level, not only by application code choosing never to issue
+        # them.
         has_review_table = admin.execute(
             "SELECT to_regclass('evidence.ticket_fix_reviews') IS NOT NULL"
         ).fetchone()[0]

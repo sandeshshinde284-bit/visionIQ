@@ -18,7 +18,7 @@ public sealed class FixPullRequestTests
 {
     private const string Repository = "https://dev.azure.com/contoso/Payments%20Core/_apis/git/repositories/kiosk-demo";
     private static readonly int[] Attempts = [1, 2, 3, 7, 20];
-    private static readonly string[] AllowedCalls = ["/pushes", "/commits/", "/statuses", "/pullrequests?"];
+    private static readonly string[] AllowedCalls = ["/pushes", "/commits/", "/statuses", "/pullrequests?", "/pullrequests/"];
 
     // ---- The publisher: claim, open, post checks, mark ---------------------------------------------
 
@@ -186,12 +186,14 @@ public sealed class FixPullRequestTests
         var handler = new FakeHandler(
             Reply($$"""{"commits": [{"commitId": "{{PushedSha}}"}]}"""),
             Reply($$"""{"commitId": "{{PushedSha}}", "treeId": "{{Verified.Patch!.TreeSha}}"}"""),
-            Reply("""{"pullRequestId": 812, "isDraft": true}"""));
+            Reply("""{"pullRequestId": 812, "isDraft": true}"""),
+            Reply($$"""{"lastMergeSourceCommit": {"commitId": "{{PushedSha}}"} }"""),
+            Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""));
 
         var opened = await Ado(handler).PublishAsync("Payments Core", Verified, mayAlreadyExist: false, default);
 
         Assert.Equal(new PublishedPullRequest("812", PushedSha), opened);
-        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(5, handler.Requests.Count);
         var push = handler.Requests[0];
         Assert.Equal((HttpMethod.Post, Repository + "/pushes?api-version=7.1"), (push.Method, push.Uri));
         Assert.Equal("Basic " + Convert.ToBase64String(Encoding.ASCII.GetBytes(":bot-pr-token")), push.Authorization);
@@ -308,7 +310,9 @@ public sealed class FixPullRequestTests
             Reply("""{"value": []}"""),
             Reply($$"""{"commits": [{"commitId": "{{PushedSha}}"}]}"""),
             Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""),
-            Reply("""{"pullRequestId": 812}"""));
+            Reply("""{"pullRequestId": 812}"""),
+            Reply($$"""{"lastMergeSourceCommit": {"commitId": "{{PushedSha}}"} }"""),
+            Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""));
 
         var opened = await Ado(handler).PublishAsync("Payments Core", Verified, mayAlreadyExist: true, default);
 
@@ -377,7 +381,9 @@ public sealed class FixPullRequestTests
             Reply("""{"value": []}"""),
             Reply($$"""{"value": [{"name": "{{branch}}-other", "objectId": "{{NewHeadSha}}"}, {"name": "{{branch}}", "objectId": "{{PushedSha}}"}]}"""),
             Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""),
-            Reply("""{"pullRequestId": 813}"""));
+            Reply("""{"pullRequestId": 813}"""),
+            Reply($$"""{"lastMergeSourceCommit": {"commitId": "{{PushedSha}}"} }"""),
+            Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""));
 
         var opened = await Ado(handler).PublishAsync("Payments Core", Verified, mayAlreadyExist: true, default);
 
@@ -412,6 +418,8 @@ public sealed class FixPullRequestTests
             Reply($$"""{"commits": [{"commitId": "{{PushedSha}}"}]}"""),
             Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""),
             Reply("""{"pullRequestId": 812}"""),
+            Reply($$"""{"lastMergeSourceCommit": {"commitId": "{{PushedSha}}"} }"""),
+            Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""),
             Reply("{}"));
         var ado = Ado(handler);
 
@@ -422,7 +430,7 @@ public sealed class FixPullRequestTests
         Assert.All(handler.Requests, sent => Assert.Contains(sent.Method, new[] { HttpMethod.Get, HttpMethod.Post }));
         Assert.DoesNotContain(handler.Requests, sent => sent.Uri.Contains("/reviewers", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(
-            ["/pushes", "/commits/", "/pullrequests?", "/statuses"],
+            ["/pushes", "/commits/", "/pullrequests?", "/pullrequests/", "/commits/", "/statuses"],
             handler.Requests.Select(sent => AllowedCalls.First(part => sent.Uri.Contains(part, StringComparison.Ordinal))));
         Assert.DoesNotContain(
             typeof(IFixPullRequestPublisher).GetMethods(),
@@ -675,6 +683,8 @@ public sealed class FixPullRequestTests
             Reply($$"""{"commits": [{"commitId": "{{PushedSha}}"}]}"""),
             Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""),
             Reply("""{"pullRequestId": 812}"""),
+            Reply($$"""{"lastMergeSourceCommit": {"commitId": "{{PushedSha}}"} }"""),
+            Reply($$"""{"treeId": "{{Verified.Patch!.TreeSha}}"}"""),
             Reply("{}"));
         var log = new CapturingLogger<AdoPullRequestPublisher>();
         var ado = new AdoPullRequestPublisher(new HttpClient(handler), new Uri("https://dev.azure.com/contoso/"), "bot-pr-token", log);

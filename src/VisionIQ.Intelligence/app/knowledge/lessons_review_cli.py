@@ -86,8 +86,12 @@ def run_resolve(args: argparse.Namespace) -> dict[str, object]:
     with psycopg.connect(_conninfo()) as conn, conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (CONSOLIDATION_LOCK,))
         pattern_id = lesson_store.resolve_ambiguous(
-            conn, args.observation_key, args.pattern_id, args.verified_by,
-            now, args.rationale,
+            conn,
+            args.observation_key,
+            args.pattern_id,
+            args.verified_by,
+            now,
+            args.rationale,
         )
     return {"observation_key": args.observation_key, "pattern_id": pattern_id}
 
@@ -96,26 +100,39 @@ def main() -> int:
     configure_from_environment()
     log = structlog.get_logger("visioniq.lessons_review")
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="action", required=True)
 
-    review_parser = sub.add_parser("review", help="Mark a lesson pattern reviewed, disputed or retired.")
+    review_parser = sub.add_parser(
+        "review", help="Mark a lesson pattern reviewed, disputed or retired."
+    )
     review_parser.add_argument("pattern_id")
     review_parser.add_argument("--status", required=True, choices=lesson_store.REVIEW_STATUSES)
     review_parser.add_argument("--verified-by", required=True, help="Named human, never anonymous.")
-    review_parser.add_argument("--cause-status", default="unverified", choices=lesson_store.CAUSE_STATUSES)
+    review_parser.add_argument(
+        "--cause-status", default="unverified", choices=lesson_store.CAUSE_STATUSES
+    )
     review_parser.add_argument("--rationale", default=None)
 
-    fork_parser = sub.add_parser("fork", help="Split a pattern's members into a new, separate pattern.")
+    fork_parser = sub.add_parser(
+        "fork", help="Split a pattern's members into a new, separate pattern."
+    )
     fork_parser.add_argument("pattern_id")
     fork_parser.add_argument("--verified-by", required=True, help="Named human, never anonymous.")
     fork_parser.add_argument(
-        "--observation-key", action="append", required=True, dest="observation_key",
+        "--observation-key",
+        action="append",
+        required=True,
+        dest="observation_key",
         help="Repeat for each observation to move into the new pattern.",
     )
     fork_parser.add_argument("--rationale", default=None)
 
-    resolve_parser = sub.add_parser("resolve", help="Assign a HUMAN_REVIEW observation to one candidate lesson.")
+    resolve_parser = sub.add_parser(
+        "resolve", help="Assign a HUMAN_REVIEW observation to one candidate lesson."
+    )
     resolve_parser.add_argument("--observation-key", required=True)
     resolve_parser.add_argument("--pattern-id", required=True)
     resolve_parser.add_argument("--verified-by", required=True)

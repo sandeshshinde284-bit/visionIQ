@@ -116,9 +116,7 @@ WHERE i.provider = 'azure_devops'
 def database_settings(env: dict[str, str]) -> dict:
     """Allow only a local DB; never read or log credentials from argv."""
     host = env.get("DB_HOST", "").strip().lower()
-    if env.get("DB_TARGET", "").lower() != "local" or host not in {
-        "localhost", "127.0.0.1", "::1"
-    }:
+    if env.get("DB_TARGET", "").lower() != "local" or host not in {"localhost", "127.0.0.1", "::1"}:
         raise ValueError("This inspector requires DB_TARGET=local and loopback DB_HOST")
     required = ("DB_NAME", "DB_API_USER", "DB_API_PASSWORD")
     missing = [name for name in required if not env.get(name)]
@@ -194,14 +192,16 @@ def inspect(
                     if len(seen) >= max_nodes:
                         continue
                     seen[dest] = item
-                edges.append({
-                    "from": key,
-                    "to": dest,
-                    "relation": row["relation_type"],
-                    "classification": row["classification"],
-                    "provenance_item_key": row["provenance_item_key"],
-                    "provenance_revision": row["provenance_revision_id"],
-                })
+                edges.append(
+                    {
+                        "from": key,
+                        "to": dest,
+                        "relation": row["relation_type"],
+                        "classification": row["classification"],
+                        "provenance_item_key": row["provenance_item_key"],
+                        "provenance_revision": row["provenance_revision_id"],
+                    }
+                )
                 if dest not in visited:
                     queue.append((dest, hops + 1))
         return {
@@ -221,7 +221,9 @@ def main() -> int:
     parser.add_argument("--project", required=True, help="Approved provider-native project")
     parser.add_argument("--work-item-id", required=True, help="ADO Task or Bug ID")
     parser.add_argument(
-        "--allow-project", action="append", default=[],
+        "--allow-project",
+        action="append",
+        default=[],
         help="Additional approved project scope for explicit cross-project links",
     )
     parser.add_argument("--depth", type=int, default=4, choices=range(1, 6))
@@ -236,8 +238,13 @@ def main() -> int:
         with psycopg.connect(**settings) as db, db.transaction():
             db.execute("SET TRANSACTION READ ONLY")
             result = inspect(
-                db, args.source_instance, args.project, args.work_item_id,
-                {args.project, *args.allow_project}, args.depth, args.max_nodes,
+                db,
+                args.source_instance,
+                args.project,
+                args.work_item_id,
+                {args.project, *args.allow_project},
+                args.depth,
+                args.max_nodes,
             )
         print(json.dumps(result, indent=2))
         return 0

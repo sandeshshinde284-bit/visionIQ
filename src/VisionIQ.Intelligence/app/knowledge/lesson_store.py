@@ -28,7 +28,8 @@ from app.knowledge.lessons import (
 
 DEFECT_TYPES = ("Bug",)
 
-# Reviewed/disputed/retired and fork-by-scope are both human-initiated (master design 7.4.1, 8.8-8.10:
+# Reviewed/disputed/retired and fork-by-scope are both human-initiated (master design 7.4.1,
+# 8.8-8.10:
 # the Human Gate, not an algorithm, decides these). They share the automated consolidation job's
 # advisory lock so a manual review action and a scheduled consolidation run can never interleave
 # writes to the same pattern.
@@ -286,7 +287,9 @@ def _load_member_observations(conn: psycopg.Connection, pattern_id: str) -> dict
     }
 
 
-def _change_event(conn: psycopg.Connection, event_type: str, pattern_id: str, payload: dict) -> None:
+def _change_event(
+    conn: psycopg.Connection, event_type: str, pattern_id: str, payload: dict
+) -> None:
     conn.execute(
         "INSERT INTO knowledge.change_events (event_type, subject, payload) VALUES (%s, %s, %s)",
         (event_type, pattern_id, json.dumps(payload)),
@@ -309,8 +312,10 @@ def review(
 
     Mirrors the database's own CHECK constraints client-side, so a bad call fails with a clear
     Python exception here rather than an opaque constraint-violation from Postgres:
-      - status must be reviewed/disputed/retired (candidate is the initial state only, never set here)
-      - "reviewed" status or "verified" cause_status both require a named verified_by (never anonymous)
+      - status must be reviewed/disputed/retired
+       (candidate is the initial state only, never set here)
+      - "reviewed" status or "verified" cause_status
+       both require a named verified_by (never anonymous)
     """
     if status not in REVIEW_STATUSES:
         raise ValueError(f"status must be one of {REVIEW_STATUSES}, got {status!r}")
@@ -357,7 +362,12 @@ def review(
         conn,
         "lesson.reviewed",
         pattern_id,
-        {"pattern_id": pattern_id, "revision": next_revision, "status": status, "verified_by": verified_by},
+        {
+            "pattern_id": pattern_id,
+            "revision": next_revision,
+            "status": status,
+            "verified_by": verified_by,
+        },
     )
     return next_revision
 
@@ -422,7 +432,9 @@ def fork(
             "with each other -- a lesson's signature can't be empty. This fork would leave the "
             "original pattern without a valid signature."
         )
-    fork_rationale = (rationale or f"Split out by {verified_by}: evidence showed distinct root causes.")[:2000]
+    fork_rationale = (
+        rationale or f"Split out by {verified_by}: evidence showed distinct root causes."
+    )[:2000]
 
     # New pattern: same (source_instance, project_id, repository_id) scope as the original -- the
     # pattern model has no finer scope dimension to split by, so "fork by scope" here means "split
@@ -449,7 +461,10 @@ def fork(
         ),
     )
     conn.execute(
-        "UPDATE knowledge.lesson_memberships SET pattern_id = %s WHERE pattern_id = %s AND observation_key = ANY(%s)",
+        (
+            "UPDATE knowledge.lesson_memberships SET pattern_id = %s WHERE "
+            "pattern_id = %s AND observation_key = ANY(%s)"
+        ),
         (new_pattern_id, pattern_id, list(split_keys)),
     )
 
@@ -467,7 +482,9 @@ def fork(
             title_for(remaining_signature),
             list(remaining_signature),
             sorted(remaining_keys),
-            f"Forked out {len(split_keys)} observation(s) into {new_pattern_id} by {verified_by}."[:2000],
+            f"Forked out {len(split_keys)} observation(s) into {new_pattern_id} by {verified_by}."[
+                :2000
+            ],
             GENERATED_BY,
             verified_by,
             now,
@@ -479,11 +496,15 @@ def fork(
     )
 
     _change_event(
-        conn, "lesson.forked", pattern_id,
+        conn,
+        "lesson.forked",
+        pattern_id,
         {"pattern_id": pattern_id, "new_pattern_id": new_pattern_id, "verified_by": verified_by},
     )
     _change_event(
-        conn, "lesson.created", new_pattern_id,
+        conn,
+        "lesson.created",
+        new_pattern_id,
         {"pattern_id": new_pattern_id, "forked_from": pattern_id, "verified_by": verified_by},
     )
     return new_pattern_id
@@ -550,7 +571,9 @@ def resolve_ambiguous(
         (observation_key, [pattern_id], f"Human {verified_by}: {rationale}"[:2000], now),
     )
     _change_event(
-        conn, "lesson.observation_resolved", pattern_id,
+        conn,
+        "lesson.observation_resolved",
+        pattern_id,
         {"pattern_id": pattern_id, "observation_key": observation_key, "verified_by": verified_by},
     )
     return pattern_id

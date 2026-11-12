@@ -35,16 +35,17 @@ def test_published_redacted_chunks_qualify_when_source_metadata_has_no_title():
         corpus.fix(str(number), str(number + 100), FILES)
 
     with psycopg.connect(conninfo("API")) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM evidence.source_revisions AS r "
-            "JOIN evidence.source_items AS i ON i.item_key = r.item_key "
-            "WHERE i.source_instance = %s AND r.redacted_payload ? 'title'",
-            (corpus.org,),
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM evidence.source_revisions AS r "
+                "JOIN evidence.source_items AS i ON i.item_key = r.item_key "
+                "WHERE i.source_instance = %s AND r.redacted_payload ? 'title'",
+                (corpus.org,),
+            ).fetchone()[0]
+            == 0
+        )
 
-    indexed, snapshot = snapshots.refresh(
-        conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder()
-    )
+    indexed, snapshot = snapshots.refresh(conninfo("INTELLIGENCE"), corpus.read, HashingEmbedder())
     assert indexed.failed == []
     assert snapshot.status == "published"
     result = lessons_cli.run(conninfo("INTELLIGENCE"))

@@ -216,7 +216,19 @@ public sealed class AdoPullRequestPublisher : IFixPullRequestPublisher
         var pullRequestId = Number(created.RootElement, "pullRequestId")
             ?? throw new FixPublishException("pull_request_id_missing", permanent: false);
         FixLog.PullRequestCreated(logger, pullRequestId, fix.RepositoryId, draft.WorkItemId);
-        return new PublishedPullRequest(pullRequestId, head);
+
+        // The pull request points at the branch tip when it is created, which can be newer than the commit verified
+        // above. Its real head is checked again before any result is shown against it.
+        var openedHead = await CurrentHeadAsync(project, fix.RepositoryId, pullRequestId, cancellationToken);
+        if (openedHead is null || !await HasTreeAsync(repository, openedHead, tested, cancellationToken))
+        {
+            FixLog.TreeMismatch(logger, openedHead ?? head, tested);
+            await PostChecksAsync(
+                project, fix.RepositoryId, pullRequestId, FixGates.Checks(fix.Gates ?? [], openedHead ?? head), cancellationToken);
+            throw new FixPublishException("pull_request_head_not_tested", permanent: true);
+        }
+
+        return new PublishedPullRequest(pullRequestId, openedHead);
     }
 
     public async Task PostChecksAsync(

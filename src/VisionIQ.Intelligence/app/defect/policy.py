@@ -17,6 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.knowledge.redaction import redact
+
 RestrictedAreaName = Literal["security", "payment", "identity", "schema", "hardware"]
 
 # A setting whose name looks like a credential is never passed to the runner.
@@ -58,6 +60,9 @@ class RunnerPolicy(_Model):
         for name in (*self.env_allow, *self.env):
             if _SECRET_NAME.search(name):
                 raise ValueError(f"runner environment name looks like a credential: {name}")
+        for name, value in self.env.items():
+            if redact(value).text != value:
+                raise ValueError(f"runner environment value for {name} looks like a credential")
         return self
 
 

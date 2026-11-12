@@ -16,7 +16,11 @@ ORG = "https://dev.azure.com/contoso"
 
 
 def obs(
-    ticket, *paths, repo="repo-1", fix=None, reverted=(),
+    ticket,
+    *paths,
+    repo="repo-1",
+    fix=None,
+    reverted=(),
     symptom="Barcode print fails after payment retry",
 ):
     return Observation(
@@ -111,8 +115,10 @@ def test_an_observation_matching_two_lessons_goes_to_human_review():
 
     later = consolidate(
         [
-            obs("1", "/a.cs"), obs("2", "/a.cs"),
-            obs("3", "/b.cs"), obs("4", "/b.cs"),
+            obs("1", "/a.cs"),
+            obs("2", "/a.cs"),
+            obs("3", "/b.cs"),
+            obs("4", "/b.cs"),
             obs("5", "/a.cs", "/b.cs"),
         ],
         state_after(first),
@@ -217,7 +223,8 @@ def test_shared_changed_file_does_not_merge_unrelated_defects():
         [
             obs("1", same_file, symptom="Barcode print fails after payment retry"),
             obs(
-                "2", same_file,
+                "2",
+                same_file,
                 symptom="Card reader timeout causes contactless authorization error",
             ),
             obs("3", same_file, symptom="Refund balance calculation displays incorrect total"),
@@ -261,7 +268,8 @@ def test_similar_symptom_text_with_different_wording_can_qualify():
 def test_new_unrelated_observation_is_not_joined_just_for_shared_file():
     first = consolidate([obs("1", "/same.cs"), obs("2", "/same.cs")], [], NOW)
     unrelated = obs(
-        "3", "/same.cs",
+        "3",
+        "/same.cs",
         symptom="Card reader timeout during contactless authorization",
     )
     later = consolidate(
@@ -332,13 +340,18 @@ def test_legacy_pattern_with_unrelated_member_cannot_absorb_new_evidence():
         obs("1", "/src/PaymentService.cs"),
         obs("2", "/src/PaymentService.cs"),
         obs(
-            "3", "/src/PaymentService.cs",
+            "3",
+            "/src/PaymentService.cs",
             symptom="Card reader timeout causes authorization failure",
         ),
     ]
     pattern = Pattern(
-        "legacy-pattern", original[0].scope, 1, "candidate",
-        frozenset({"/src/PaymentService.cs"}), {o.key for o in original},
+        "legacy-pattern",
+        original[0].scope,
+        1,
+        "candidate",
+        frozenset({"/src/PaymentService.cs"}),
+        {o.key for o in original},
     )
     fresh = obs("4", "/src/PaymentService.cs")
     result = consolidate([*original, fresh], [pattern], NOW)

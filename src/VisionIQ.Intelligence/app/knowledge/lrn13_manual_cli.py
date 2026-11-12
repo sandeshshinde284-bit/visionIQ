@@ -72,13 +72,17 @@ def _source_scopes(conn: psycopg.Connection, keys: list[str]) -> set[tuple[str, 
 
 
 def _lesson_status(
-    conn: psycopg.Connection, scopes: set[tuple[str, str]],
+    conn: psycopg.Connection,
+    scopes: set[tuple[str, str]],
 ) -> dict[str, dict]:
     return {
         row[0]: {
-            "source_instance": row[1], "project_id": row[2],
-            "repository_id": row[3], "revision": row[4],
-            "status": row[5], "cause": row[6],
+            "source_instance": row[1],
+            "project_id": row[2],
+            "repository_id": row[3],
+            "revision": row[4],
+            "status": row[5],
+            "cause": row[6],
         }
         for row in conn.execute(LESSON_STATUS_SQL)
         if (row[1], row[2]) in scopes
@@ -86,7 +90,10 @@ def _lesson_status(
 
 
 def run(
-    conninfo: str, keys: list[str], read_raw, embedder: Embedder,
+    conninfo: str,
+    keys: list[str],
+    read_raw,
+    embedder: Embedder,
     *,
     index_limit: int = MAX_ITEMS,
 ) -> dict:
@@ -109,11 +116,17 @@ def run(
         ).fetchone()[0]
 
     indexed, published = snapshots.refresh(
-        conninfo, read_raw, embedder, only=keys, limit=index_limit,
+        conninfo,
+        read_raw,
+        embedder,
+        only=keys,
+        limit=index_limit,
     )
     if indexed.failed or published.status != "published":
-        raise RuntimeError("Targeted indexing failed or snapshot was not published; "
-                           "lesson consolidation was not run")
+        raise RuntimeError(
+            "Targeted indexing failed or snapshot was not published; "
+            "lesson consolidation was not run"
+        )
 
     # The same refresh may affect revocations, but no claim of verified cause
     # is made automatically by LRN-10.
@@ -140,14 +153,19 @@ def run(
             if before.get(pattern) != after.get(pattern)
         ]
     return {
-        "story": "LRN-13", "mode": "manual",
+        "story": "LRN-13",
+        "mode": "manual",
         "completed_at": datetime.now(UTC).isoformat(),
         "target_item_keys": keys,
         "snapshot_before": previous_id,
         "snapshot_after": str(published.snapshot_id),
         "snapshot_status": published.status,
-        "index": {"items_indexed": indexed.indexed, "chunks": indexed.chunks,
-                  "embedded": indexed.embedded, "reused": indexed.reused},
+        "index": {
+            "items_indexed": indexed.indexed,
+            "chunks": indexed.chunks,
+            "embedded": indexed.embedded,
+            "reused": indexed.reused,
+        },
         "lesson_run": lesson_result,
         "changed_lessons": lesson_changes,
         "change_events": events,
@@ -163,21 +181,38 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Manually publish targeted PR evidence and update lesson history"
     )
-    parser.add_argument("--item-key", action="append", required=True,
-                        help="Canonical PR or work-item SHA-256 key (repeatable; max 20)")
-    parser.add_argument("--output", required=True, type=Path,
-                        help="Path to local audit JSON (written on success only)")
+    parser.add_argument(
+        "--item-key",
+        action="append",
+        required=True,
+        help="Canonical PR or work-item SHA-256 key (repeatable; max 20)",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="Path to local audit JSON (written on success only)",
+    )
     args = parser.parse_args(argv)
     try:
         result = run(
-            _conninfo(), _validate_keys(args.item_key), read_gcs,
+            _conninfo(),
+            _validate_keys(args.item_key),
+            read_gcs,
             from_environment(),
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
-        print(json.dumps({"status": "PASS", "snapshot": result["snapshot_after"],
-                          "changed_lessons": len(result["changed_lessons"]),
-                          "report": str(args.output)}))
+        print(
+            json.dumps(
+                {
+                    "status": "PASS",
+                    "snapshot": result["snapshot_after"],
+                    "changed_lessons": len(result["changed_lessons"]),
+                    "report": str(args.output),
+                }
+            )
+        )
         return 0
     except (ValueError, RuntimeError, KeyError, psycopg.Error, OSError) as error:
         # Never echo credential-bearing connection strings or raw source text.

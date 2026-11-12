@@ -141,7 +141,9 @@ def test_insufficient_query_skips_database_and_embedding_search():
     def open_connection():
         return Connection()
 
-    with patch("app.knowledge.retrieval.snapshots.current", return_value=("snap-test", datetime.now(UTC))):
+    with patch(
+        "app.knowledge.retrieval.snapshots.current", return_value=("snap-test", datetime.now(UTC))
+    ):
         result = retrieve(
             open_connection,
             NoSearch(),

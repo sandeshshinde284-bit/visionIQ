@@ -110,12 +110,20 @@ def test_real_structural_chain_and_project_boundaries():
         "file": [edge("test", "file_test")],
     }
     result = inspector.inspect(
-        FakeConnection(nodes, edges), "https://ado.example.test/org",
-        "project-a", "123", {"project-a"}, 4, 100,
+        FakeConnection(nodes, edges),
+        "https://ado.example.test/org",
+        "project-a",
+        "123",
+        {"project-a"},
+        4,
+        100,
     )
     assert len(result["nodes"]) == 5
     assert [e["relation"] for e in result["edges"]] == [
-        "ticket_pr", "pr_commit", "commit_file", "file_test",
+        "ticket_pr",
+        "pr_commit",
+        "commit_file",
+        "file_test",
     ]
     assert all(e["provenance_revision"] == "version-1" for e in result["edges"])
     assert not any(n["key"] == "outside" for n in result["nodes"])
@@ -129,12 +137,22 @@ def test_cross_project_requires_explicit_additional_project_scope():
     edges = {"ticket": [edge("other", "repository_dependency", "project-b")]}
     connection = FakeConnection(nodes, edges)
     excluded = inspector.inspect(
-        connection, "https://ado.example.test/org", "project-a",
-        "123", {"project-a"}, 1, 100,
+        connection,
+        "https://ado.example.test/org",
+        "project-a",
+        "123",
+        {"project-a"},
+        1,
+        100,
     )
     included = inspector.inspect(
-        connection, "https://ado.example.test/org", "project-a",
-        "123", {"project-a", "project-b"}, 1, 100,
+        connection,
+        "https://ado.example.test/org",
+        "project-a",
+        "123",
+        {"project-a", "project-b"},
+        1,
+        100,
     )
     assert len(excluded["nodes"]) == 1
     assert len(included["nodes"]) == 2
@@ -144,8 +162,13 @@ def test_cross_project_requires_explicit_additional_project_scope():
 def test_missing_root_is_not_invented():
     with pytest.raises(ValueError, match="No unique canonical"):
         inspector.inspect(
-            FakeConnection({}, {}, root=None), "https://ado.example.test/org",
-            "project-a", "123", {"project-a"}, 3, 100,
+            FakeConnection({}, {}, root=None),
+            "https://ado.example.test/org",
+            "project-a",
+            "123",
+            {"project-a"},
+            3,
+            100,
         )
 
 
@@ -159,8 +182,13 @@ def test_cycle_does_not_expand_forever():
         "pr": [edge("ticket", "file_dependency")],
     }
     result = inspector.inspect(
-        FakeConnection(nodes, edges), "https://ado.example.test/org",
-        "project-a", "123", {"project-a"}, 5, 100,
+        FakeConnection(nodes, edges),
+        "https://ado.example.test/org",
+        "project-a",
+        "123",
+        {"project-a"},
+        5,
+        100,
     )
     assert len(result["nodes"]) == 2
     assert len(result["edges"]) == 2

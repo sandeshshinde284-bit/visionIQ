@@ -55,10 +55,7 @@ def main(argv: list[str] | None = None) -> int:
             print("BLOCKED: expected one indexed ADO project scope")
             return 2
         allowed = {
-            row[0]
-            for row in conn.execute(
-                ALLOWED_SQL, {"project": args.project, "scopes": scopes}
-            )
+            row[0] for row in conn.execute(ALLOWED_SQL, {"project": args.project, "scopes": scopes})
         }
 
     recalls, precisions, reciprocal, latencies = [], [], [], []

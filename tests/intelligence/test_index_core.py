@@ -224,7 +224,6 @@ def test_empty_settings_copied_from_the_template_fall_back_to_defaults(monkeypat
             captured.update(kwargs)
 
     for name in (
-        "VERTEX_PROJECT",
         "VERTEX_LOCATION",
         "GCP_REGION",
         "EMBEDDING_MODEL",

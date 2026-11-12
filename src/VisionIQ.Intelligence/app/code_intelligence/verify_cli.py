@@ -25,7 +25,10 @@ from app.code_intelligence import (
 def _git(repo: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
-        capture_output=True, text=True, check=False, timeout=60,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
     )
     if result.returncode:
         raise ValueError("The requested committed Git revision could not be read")
@@ -33,8 +36,12 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def report(
-    repo: Path, cache: Path, repo_id: str, head: str | None = None,
-    base: str | None = None, expect_symbols: tuple[str, ...] = (),
+    repo: Path,
+    cache: Path,
+    repo_id: str,
+    head: str | None = None,
+    base: str | None = None,
+    expect_symbols: tuple[str, ...] = (),
 ) -> tuple[dict, int]:
     if not repo_id.strip():
         raise ValueError("An approved repository identifier is required")
@@ -42,7 +49,8 @@ def report(
     # A historical scan does not update the cache for the current HEAD.
     scan = (
         scan_repository(repo, registry=registry, commit=head)
-        if head else scan_with_recovery(repo, cache, registry)
+        if head
+        else scan_with_recovery(repo, cache, registry)
     )
     analyses = {a.path: a for a in scan.analyses}
     parsed = [a for a in scan.analyses if a.symbol_analysis == "AVAILABLE"]
@@ -55,34 +63,40 @@ def report(
             raise ValueError("Requested manifest is not part of the scanned commit")
         raw = subprocess.run(
             ["git", "-C", scan.repo_root, "show", f"{scan.commit_sha}:{path}"],
-            capture_output=True, check=False, timeout=60,
+            capture_output=True,
+            check=False,
+            timeout=60,
         )
         if raw.returncode:
             raise ValueError("Committed manifest is unavailable")
         return raw.stdout.decode("utf-8")
 
     dependencies = resolve_dependencies(
-        ApprovedRepository(repo_id, "", scan), read_blob=committed_blob,
+        ApprovedRepository(repo_id, "", scan),
+        read_blob=committed_blob,
     )
     impacts = ()
     if base:
         resolved_base = _git(repo, "rev-parse", "--verify", f"{base}^{{commit}}")
         impacts = map_diff_to_symbols(repo, resolved_base, scan)
-    known = {symbol.qualified_name or symbol.name
-             for analysis in parsed for symbol in analysis.symbols}
+    known = {
+        symbol.qualified_name or symbol.name for analysis in parsed for symbol in analysis.symbols
+    }
     missing = sorted(set(expect_symbols) - known)
     evidence = {
         "story": "LRN-06",
         "repository_id": repo_id,
         "commit": scan.commit_sha,
-        "base_commit": impacts[0].source_commit if impacts else (
-            _git(repo, "rev-parse", "--verify", f"{base}^{{commit}}") if base else None
-        ),
+        "base_commit": impacts[0].source_commit
+        if impacts
+        else (_git(repo, "rev-parse", "--verify", f"{base}^{{commit}}") if base else None),
         "status": scan.status,
         "last_good_commit": scan.last_good.commit_sha if scan.last_good else None,
         "counts": {
-            "files": len(scan.files), "parsed_files": len(parsed),
-            "file_only": len(unavailable), "failed_files": len(failed),
+            "files": len(scan.files),
+            "parsed_files": len(parsed),
+            "file_only": len(unavailable),
+            "failed_files": len(failed),
             "symbols": len(known),
             "resolved_dependencies": sum(d.status == "RESOLVED_EXPLICIT" for d in dependencies),
             "declared_cross_repo_dependencies": sum(
@@ -92,8 +106,7 @@ def report(
             "impacted_symbols": sum(bool(i.symbols) for i in impacts),
         },
         "files": [
-            {"path": path, "analysis": a.symbol_analysis,
-             "symbols": [asdict(s) for s in a.symbols]}
+            {"path": path, "analysis": a.symbol_analysis, "symbols": [asdict(s) for s in a.symbols]}
             for path, a in sorted(analyses.items())
             if a.symbol_analysis != "UNAVAILABLE"
         ],
@@ -118,20 +131,36 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--repository-id", required=True)
     p.add_argument("--head", help="Exact committed SHA/ref; does not change last-good cache")
     p.add_argument("--base", help="Committed base SHA/ref, to report changed-file symbol impact")
-    p.add_argument("--expect-symbol", action="append", default=[],
-                   help="Declared fully qualified symbol that must exist (repeatable)")
+    p.add_argument(
+        "--expect-symbol",
+        action="append",
+        default=[],
+        help="Declared fully qualified symbol that must exist (repeatable)",
+    )
     p.add_argument("--output", required=True, type=Path, help="Local JSON report path")
     args = p.parse_args(argv)
     try:
         evidence, code = report(
-            args.repo, args.cache, args.repository_id,
-            args.head, args.base, tuple(args.expect_symbol),
+            args.repo,
+            args.cache,
+            args.repository_id,
+            args.head,
+            args.base,
+            tuple(args.expect_symbol),
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-        print(json.dumps({"status": evidence["status"], "commit": evidence["commit"],
-                          "counts": evidence["counts"], "report": str(args.output),
-                          "missing_expected_symbols": evidence["missing_expected_symbols"]}))
+        print(
+            json.dumps(
+                {
+                    "status": evidence["status"],
+                    "commit": evidence["commit"],
+                    "counts": evidence["counts"],
+                    "report": str(args.output),
+                    "missing_expected_symbols": evidence["missing_expected_symbols"],
+                }
+            )
+        )
         return code
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"LRN-06 verification blocked: {type(error).__name__}", file=sys.stderr)

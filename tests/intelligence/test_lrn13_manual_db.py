@@ -20,12 +20,15 @@ FILES = ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
 def test_manual_refresh_replays_fix_revert_preserves_history_and_is_idempotent() -> None:
     corpus = Corpus()
     for bug_id in ("101", "102"):
-        corpus.add("work_item_current", {
-            "id": int(bug_id),
-            "workItemType": "Bug",
-            "title": "Barcode print fails after payment retry",
-            "reproSteps": "Payment captured; barcode print fails when retrying.",
-        })
+        corpus.add(
+            "work_item_current",
+            {
+                "id": int(bug_id),
+                "workItemType": "Bug",
+                "title": "Barcode print fails after payment retry",
+                "reproSteps": "Payment captured; barcode print fails when retrying.",
+            },
+        )
     pr = corpus.add(
         "pull_request",
         {"id": 201, "title": "RetryPolicy patch", "description": "Fix barcode retry"},
@@ -35,12 +38,17 @@ def test_manual_refresh_replays_fix_revert_preserves_history_and_is_idempotent()
 
     embedder = HashingEmbedder()
     index_report, baseline = snapshots.refresh(
-        conninfo("INTELLIGENCE"), corpus.read, embedder,
+        conninfo("INTELLIGENCE"),
+        corpus.read,
+        embedder,
     )
     assert not index_report.failed and baseline.status == "published"
 
     first = lrn13_manual_cli.run(
-        conninfo("INTELLIGENCE"), [pr], corpus.read, embedder,
+        conninfo("INTELLIGENCE"),
+        [pr],
+        corpus.read,
+        embedder,
     )
     assert first["snapshot_status"] == "published"
     assert len(first["changed_lessons"]) == 1
@@ -50,7 +58,10 @@ def test_manual_refresh_replays_fix_revert_preserves_history_and_is_idempotent()
     assert initial["after"]["revision"] == 1
 
     no_change = lrn13_manual_cli.run(
-        conninfo("INTELLIGENCE"), [pr], corpus.read, embedder,
+        conninfo("INTELLIGENCE"),
+        [pr],
+        corpus.read,
+        embedder,
     )
     assert no_change["changed_lessons"] == []
     assert no_change["lesson_run"]["new_revisions"] == 0
@@ -65,12 +76,18 @@ def test_manual_refresh_replays_fix_revert_preserves_history_and_is_idempotent()
         )
     corpus.add(
         "pull_request",
-        {"id": 201, "title": "RetryPolicy patch (reverted)",
-         "description": "Fix reverted after regressions"},
+        {
+            "id": 201,
+            "title": "RetryPolicy patch (reverted)",
+            "description": "Fix reverted after regressions",
+        },
         revision="2",
     )
     disputed = lrn13_manual_cli.run(
-        conninfo("INTELLIGENCE"), [pr], corpus.read, embedder,
+        conninfo("INTELLIGENCE"),
+        [pr],
+        corpus.read,
+        embedder,
     )
     assert disputed["snapshot_status"] == "published"
     assert len(disputed["changed_lessons"]) == 1
@@ -79,13 +96,17 @@ def test_manual_refresh_replays_fix_revert_preserves_history_and_is_idempotent()
     assert changed["after"]["status"] == "disputed"
     assert changed["after"]["revision"] == 2
     assert [(r["revision"], r["status"]) for r in changed["history"]] == [
-        (1, "candidate"), (2, "disputed"),
+        (1, "candidate"),
+        (2, "disputed"),
     ]
     assert all(r["cause"] == "unverified" for r in changed["history"])
     assert any(e["type"] == "lesson.revised" for e in disputed["change_events"])
 
     repeated = lrn13_manual_cli.run(
-        conninfo("INTELLIGENCE"), [pr], corpus.read, embedder,
+        conninfo("INTELLIGENCE"),
+        [pr],
+        corpus.read,
+        embedder,
     )
     assert repeated["changed_lessons"] == []
     assert repeated["lesson_run"]["new_revisions"] == 0

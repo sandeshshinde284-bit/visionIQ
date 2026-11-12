@@ -100,7 +100,11 @@ def build(corpus: Corpus) -> dict[str, str]:
         ),
         "duplicate": corpus.add(
             "work_item_current",
-            bug(102, "Barcode print fails after payment retry; duplicate receipt", "Retrying prints the receipt twice."),
+            bug(
+                102,
+                "Barcode print fails after payment retry; duplicate receipt",
+                "Retrying prints the receipt twice.",
+            ),
         ),
     }
     corpus.fix("101", "201", FILES)
@@ -146,7 +150,9 @@ def test_two_prs_one_reverted_are_both_shown_without_a_verified_cause(tmp_path) 
         "work_item_current",
         bug(301, "Barcode print fails after payment retry", "Retry printing: no barcode."),
     )
-    corpus.add("work_item_current", bug(302, "Barcode print fails after payment retry on receipt", "Same."))
+    corpus.add(
+        "work_item_current", bug(302, "Barcode print fails after payment retry on receipt", "Same.")
+    )
     corpus.fix("301", "401", FILES)
     corpus.fix("301", "402", FILES, reverted=True)
     corpus.fix("302", "403", FILES)

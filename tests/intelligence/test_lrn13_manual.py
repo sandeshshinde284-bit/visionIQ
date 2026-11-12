@@ -32,7 +32,8 @@ def test_failed_snapshot_must_not_run_lesson_consolidation(monkeypatch) -> None:
 
     monkeypatch.setattr(lrn13_manual_cli.psycopg, "connect", lambda _dsn: FakeConnection())
     monkeypatch.setattr(
-        lrn13_manual_cli, "_source_scopes",
+        lrn13_manual_cli,
+        "_source_scopes",
         lambda _conn, _keys: {("org", "project")},
     )
     monkeypatch.setattr(lrn13_manual_cli, "_lesson_status", lambda _conn, _scope: {})
@@ -69,7 +70,8 @@ def test_missing_source_items_fail_before_indexing(monkeypatch) -> None:
 
     monkeypatch.setattr(lrn13_manual_cli.psycopg, "connect", lambda _dsn: FakeConnection())
     monkeypatch.setattr(
-        lrn13_manual_cli.snapshots, "refresh",
+        lrn13_manual_cli.snapshots,
+        "refresh",
         lambda *_a, **_kw: pytest.fail("Missing source key must not attempt indexing"),
     )
     with pytest.raises(ValueError, match="does not exist"):

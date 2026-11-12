@@ -162,9 +162,9 @@ def setting(name: str, default: str = "") -> str:
 
 def vertex_from_environment() -> VertexGeminiEmbedder:
     """Vertex AI settings shared with the Google Cloud section of .env.example."""
-    project = setting("VERTEX_PROJECT") or setting("GCP_PROJECT_ID")
+    project = setting("GCP_PROJECT_ID")
     if not project:
-        raise KeyError("GCP_PROJECT_ID (or VERTEX_PROJECT) is required for Vertex AI embeddings")
+        raise KeyError("GCP_PROJECT_ID is required for Vertex AI embeddings")
     return VertexGeminiEmbedder(
         project=project,
         location=setting("VERTEX_LOCATION") or setting("GCP_REGION", "europe-west1"),

@@ -154,7 +154,7 @@ services:
       LLM_MODE: ${LLM_MODE:-live}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-vertex}
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
-      VERTEX_LOCATION: ${VERTEX_LOCATION:-europe-west1}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-europe-west3}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       # Decision D04: Claude stays off until a route and a data classification limit are set.
       CLAUDE_ROUTE: ${CLAUDE_ROUTE:-off}

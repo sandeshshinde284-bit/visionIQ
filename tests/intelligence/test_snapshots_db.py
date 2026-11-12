@@ -159,7 +159,9 @@ def test_build_and_publish_rejects_an_unknown_scope() -> None:
         snapshots.build_and_publish(intel(), HashingEmbedder().model_id, scope="bogus")
 
 
-def test_incremental_backfill_grows_coverage_without_regressing_then_a_full_pass_completes_it() -> None:
+def test_incremental_backfill_grows_coverage_without_regressing_then_a_full_pass_completes_it() -> (
+    None
+):
     """LRN-08 backfill: bootstrap -> partial -> repeated runs -> complete, never regressing."""
     _, items_before = _coverage_baseline()
     corpus = Corpus()
@@ -191,7 +193,9 @@ def test_an_incremental_pass_that_would_drop_already_published_items_is_rejected
     corpus = Corpus()
     keys = [corpus.add("work_item_current", bug(n, f"Shrink test {n}")) for n in range(300, 310)]
     indexer.run(intel(), corpus.read, HashingEmbedder(), only=keys)
-    published = snapshots.build_and_publish(intel(), HashingEmbedder().model_id, scope="incremental")
+    published = snapshots.build_and_publish(
+        intel(), HashingEmbedder().model_id, scope="incremental"
+    )
     assert published.status == "published"
 
     class NewModel(HashingEmbedder):
