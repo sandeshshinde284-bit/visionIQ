@@ -284,6 +284,26 @@ The template `config/pickup-policy.example.json` **already exists**, but contain
 | `analysis.requested` | `visioniq-analysis-requested-v1` | `visioniq-intelligence-analysis-requested-v1` → Intelligence |
 | `analysis.completed` | `visioniq-analysis-completed-v1` | `visioniq-api-analysis-completed-v1` → API |
 
+
+
+### G06 identity and IAM plan — which account performs each operation?
+
+Pub/Sub is a managed Google Cloud service; **the application publishes using its Cloud Run workload identity**, not a separate service account supplied in an application secret. The dedicated **push** identity authenticates HTTP deliveries to the receiving Cloud Run service.
+
+| Identity | Role in current design | IAM requirement / boundary |
+| --- | --- | --- |
+| Deployment operator (approved corporate identity) | Provisions topics, subscriptions and service identities | Requires explicit Pub/Sub creation permissions and IAM/service-account administration privileges; Cloud Run Admin alone is not sufficient |
+| `visioniq-runtime@<project>.iam.gserviceaccount.com` | Existing API and Intelligence Cloud Run identity: API publishes `analysis.requested`; Intelligence publishes `analysis.completed` | Grant `roles/pubsub.publisher` on **only** their required topics; two services share this identity today, so grants cannot distinguish them without separate workload accounts |
+| `visioniq-pubsub-push@<project>.iam.gserviceaccount.com` | Dedicated identity named in the two authenticated push subscriptions | Grant `roles/run.invoker` on only `visioniq-intelligence` and `visioniq-api` (not project-wide), plus proper OIDC audience configuration |
+| `service-<PROJECT_NUMBER>@gcp-sa-pubsub.iam.gserviceaccount.com` | **Google-managed Pub/Sub service agent**, which mints the push OIDC identity tokens and handles dead-letter forwarding | Needs token-creation authorization for the push service account (verify whether provisioned automatically; grant scoped `roles/iam.serviceAccountTokenCreator` when needed) and DLQ publish/source-subscribe grants as defined by topology |
+| Existing `vision-action@...` service account | Separate account visible in console; not the VisionIQ Pub/Sub push identity | **Do not reuse by default**. Existing `roles/run.invoker` does not prove Pub/Sub publisher rights or appropriate trust scoping |
+
+**No extra credential file is needed for publish calls.** The Google SDK uses Application Default Credentials via the service identity attached to each Cloud Run revision. For authenticated push, Pub/Sub is configured with `--push-auth-service-account` and `--push-auth-token-audience`; Cloud Run checks `roles/run.invoker` before delivering to `POST /events/pubsub`.
+
+**Configuration is not just IAM:** verify `PUBSUB_PROJECT_ID`, `TENANT_ID` and opt-in `EVENTS_DISPATCH_ENABLED` on the correct services, but do **not** enable the in-process background outbox dispatcher blindly. A scale-to-zero Cloud Run service without always-available CPU does not guarantee timely polling when there are no requests; choose and validate the approved worker/job execution model first. Confirm that push subscription traffic can reach both **internal-ingress** service URLs before creating live subscriptions.
+
+**Currently:** neither VisionIQ Pub/Sub resources nor the dedicated push identity have been verified as created; this table is the approved-intent design, **not a claim of completed permissions**. The existing `scripts/pubsub/provision-pubsub.ps1` creates topics/subscriptions and some DLQ IAM bindings only in `-Apply` mode, but explicitly expects the push identity and its `run.invoker` privileges to be provisioned separately. Run plan-only first.
+
 Create the corresponding dead-letter topics and hold subscriptions, authenticated push invoker identity, publisher grants, retry policy, event deduplication and DLQ monitoring. The push path is `/events/pubsub`.
 
 **Automated:** approved infrastructure provisioning stage using the topology and scoped IAM. **Manual:** review the same topology and the plan-only `scripts/pubsub/provision-pubsub.ps1`; perform equivalent approved cloud commands, recording every mutation. Do not provision until private target URLs and invoker permissions are known. Do not change other teams' Pub/Sub resources.
