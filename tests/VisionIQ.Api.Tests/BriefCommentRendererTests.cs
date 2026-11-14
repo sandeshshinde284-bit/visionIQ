@@ -9,6 +9,10 @@ namespace VisionIQ.Api.Tests;
 /// <summary>S13-04: the ticket comment shows status, risk, advice ids and sources, and never trusts brief text.</summary>
 public sealed class BriefCommentRendererTests
 {
+    // The shared brief contract, loaded once: the schema library does not allow one schema id to be registered twice.
+    private static readonly JsonSchema BriefSchema = JsonSchema.FromText(File.ReadAllText(
+        Path.Combine(EventContractTests.ContractsDirectory, "..", "briefs", "brief.v1.schema.json")));
+
     private static string Render(string state = "PUBLISHED", params string[] reasons) =>
         BriefCommentRenderer.Render(Target(state, reasons), BriefDocument.Parse(Brief(state).ToJsonString()));
 
@@ -16,10 +20,7 @@ public sealed class BriefCommentRendererTests
     public void The_test_brief_is_a_valid_version_1_brief()
     {
         // Parity with Intelligence: the document these tests render must match the shared schema.
-        var path = Path.Combine(EventContractTests.ContractsDirectory, "..", "briefs", "brief.v1.schema.json");
-        var schema = JsonSchema.FromText(File.ReadAllText(path));
-
-        var result = schema.Evaluate(JsonDocument.Parse(Brief().ToJsonString()).RootElement);
+        var result = BriefSchema.Evaluate(JsonDocument.Parse(Brief().ToJsonString()).RootElement);
 
         Assert.True(result.IsValid);
     }
@@ -197,10 +198,7 @@ public sealed class BriefCommentRendererTests
     [Fact]
     public void The_enhancement_test_brief_is_a_valid_version_1_brief()
     {
-        var path = Path.Combine(EventContractTests.ContractsDirectory, "..", "briefs", "brief.v1.schema.json");
-        var schema = JsonSchema.FromText(File.ReadAllText(path));
-
-        var result = schema.Evaluate(JsonDocument.Parse(Guidance().ToJsonString()).RootElement);
+        var result = BriefSchema.Evaluate(JsonDocument.Parse(Guidance().ToJsonString()).RootElement);
 
         Assert.True(result.IsValid);
     }
