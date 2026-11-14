@@ -76,7 +76,6 @@ def build_fix_worker(settings: Settings, context: EventContext):
     from app.defect.worker import FixWorker
     from app.knowledge import embeddings
     from app.llm.factory import build_gateway
-    from app.llm.types import DataClassification
 
     if settings.defect_policy_file is None:
         raise ValueError("DEFECT_POLICY_FILE is required when DEFECT_PIPELINE_ENABLED is true.")
@@ -104,31 +103,7 @@ def build_fix_worker(settings: Settings, context: EventContext):
         sources_for,
         build_gateway(settings),
         policy,
-        FixSettings(
-            work_dir=work_dir / "work",
-            artifact_dir=settings.defect_artifact_dir or work_dir / "artifacts",
-            classification=DataClassification(settings.llm_data_classification),
-            max_calls=settings.defect_max_calls_per_run,
-            max_tokens=settings.defect_max_tokens_per_run,
-            max_seconds=settings.defect_max_seconds_per_run,
-            keep_workspace=settings.defect_keep_workspaces,
-            bot_name=settings.defect_bot_name,
-            bot_email=settings.defect_bot_email,
-            artifact_base_uri=settings.defect_artifact_base_uri,
-            production=production,
-            repo_access_token=(
-                settings.defect_repo_read_pat.get_secret_value()
-                if settings.defect_repo_read_pat
-                else None
-            ),
-            repo_token_hosts=tuple(
-                host.strip() for host in settings.defect_repo_token_hosts.split(",") if host.strip()
-            ),
-            repo_cache_dir=settings.defect_repo_cache_dir,
-            model_selection=settings.defect_model_selection,
-            simple_max_files=settings.defect_simple_max_files,
-            complex_min_files=settings.defect_complex_min_files,
-        ),
+        FixSettings.from_app(settings, work_dir, production=production),
         context,
     )
 

@@ -30,6 +30,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import structlog
 
@@ -127,6 +128,21 @@ _WORKSPACE_TEXT = {
     "baseline_not_pinned": "The baseline is not a full commit SHA, so the run could not be pinned.",
     "baseline_not_found": "The baseline commit is not in the repository.",
     "repository_unavailable": "The repository could not be cloned.",
+    "git_not_installed": "Git is not installed where the fix pipeline runs.",
+    "repository_access_denied": (
+        "Access to the repository was denied: check the read token (DEFECT_REPO_READ_PAT, "
+        "scope Code: Read) and that it has not expired."
+    ),
+    "repository_not_found": (
+        "The repository was not found: check its address in the fix policy, and that the read "
+        "token may see it."
+    ),
+    "repository_unreachable": "The repository's server could not be reached.",
+    "repository_redirected": (
+        "The repository's address redirects elsewhere; redirects are refused when a token is "
+        "sent. Use the final address in the fix policy."
+    ),
+    "repository_timeout": "Cloning the repository took too long.",
 }
 _FAILED: tuple[Outcome, ...] = ("FAIL_TARGET_SIGNATURE", "FAIL_DIFFERENT_SIGNATURE")
 
@@ -163,6 +179,46 @@ class FixSettings:
     model_selection: str = "fixed"
     simple_max_files: int = 2
     complex_min_files: int = 6
+
+    @classmethod
+    def from_app(
+        cls,
+        app: Any,
+        work_dir: Path,
+        artifact_dir: Path | None = None,
+        *,
+        production: bool = False,
+        keep_workspace: bool | None = None,
+    ) -> FixSettings:
+        """The fix settings of the service configuration (``app.config.Settings``).
+
+        The background worker and the command line both build their settings here, so a new
+        setting cannot reach one and be missed by the other.
+        """
+        token = app.defect_repo_read_pat
+        return cls(
+            work_dir=work_dir / "work",
+            artifact_dir=artifact_dir or app.defect_artifact_dir or work_dir / "artifacts",
+            classification=DataClassification(app.llm_data_classification),
+            max_calls=app.defect_max_calls_per_run,
+            max_tokens=app.defect_max_tokens_per_run,
+            max_seconds=app.defect_max_seconds_per_run,
+            keep_workspace=(
+                app.defect_keep_workspaces if keep_workspace is None else keep_workspace
+            ),
+            bot_name=app.defect_bot_name,
+            bot_email=app.defect_bot_email,
+            artifact_base_uri=app.defect_artifact_base_uri,
+            production=production,
+            repo_access_token=token.get_secret_value() if token else None,
+            repo_token_hosts=tuple(
+                host.strip() for host in app.defect_repo_token_hosts.split(",") if host.strip()
+            ),
+            repo_cache_dir=app.defect_repo_cache_dir,
+            model_selection=app.defect_model_selection,
+            simple_max_files=app.defect_simple_max_files,
+            complex_min_files=app.defect_complex_min_files,
+        )
 
 
 @dataclass(frozen=True)

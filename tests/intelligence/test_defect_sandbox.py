@@ -65,7 +65,7 @@ def test_a_repository_that_cannot_be_cloned_is_a_reason_code(tmp_path: Path) -> 
     with pytest.raises(WorkspaceError) as error:
         prepare(str(tmp_path / "nowhere"), "a" * 40, tmp_path / "run")
 
-    assert error.value.code == "repository_unavailable"
+    assert error.value.code == "repository_not_found"  # the precise cause, as a fixed code
     assert "nowhere" not in str(error.value)  # a code, never git's message
 
 

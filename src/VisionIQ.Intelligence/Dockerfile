@@ -12,6 +12,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# DEF-01: a fix run clones the repository under test, so the image needs git, and CA
+# certificates for HTTPS. Nothing else is added: no compiler and no test runner (tests of the
+# repository under test never run in this container; see docs/features/DEFECT-ARCHITECTURE.md).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # m-6: runtime dependencies only, pinned and hash-verified (no test tools in the image).
 # The runtime image deliberately excludes db/ migration code.
 COPY requirements-runtime.lock.txt ./requirements-runtime.lock.txt

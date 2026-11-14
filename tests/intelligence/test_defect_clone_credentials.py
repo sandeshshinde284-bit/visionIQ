@@ -19,9 +19,12 @@ def test_an_approved_https_host_gets_the_token_as_a_scoped_header() -> None:
 
     expected = base64.b64encode(f":{TOKEN}".encode()).decode()
     assert environment == {
-        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_COUNT": "2",
         "GIT_CONFIG_KEY_0": "http.https://dev.azure.com/.extraHeader",  # only for this host
         "GIT_CONFIG_VALUE_0": f"Authorization: Basic {expected}",
+        # A redirect is refused: git would otherwise keep sending the header to the new place.
+        "GIT_CONFIG_KEY_1": "http.followRedirects",
+        "GIT_CONFIG_VALUE_1": "false",
     }
 
 

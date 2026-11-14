@@ -36,6 +36,47 @@ OUTPUT_DIR = ".visioniq-out"
 BASELINE_NOT_PINNED = "baseline_not_pinned"
 BASELINE_NOT_FOUND = "baseline_not_found"
 REPOSITORY_UNAVAILABLE = "repository_unavailable"
+# Why a clone or fetch failed, when git's own message makes it clear. Only these fixed codes
+# leave this module: git's message is never logged or stored (it can quote URLs and accounts).
+GIT_NOT_INSTALLED = "git_not_installed"
+REPOSITORY_ACCESS_DENIED = "repository_access_denied"
+REPOSITORY_NOT_FOUND = "repository_not_found"
+REPOSITORY_UNREACHABLE = "repository_unreachable"
+REPOSITORY_REDIRECTED = "repository_redirected"
+REPOSITORY_TIMEOUT = "repository_timeout"
+# Checked in this order: a message such as "unable to access ...: returned error: 403" is an
+# access problem, not a network one.
+_GIT_FAILURES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (REPOSITORY_REDIRECTED, re.compile(r"(?i)redirect|returned error: 30[12378]")),
+    (
+        REPOSITORY_ACCESS_DENIED,
+        re.compile(
+            r"(?i)authentication failed|returned error: 40[13]|could not read (username|password)"
+            r"|terminal prompts disabled|access denied|permission denied|not authorized"
+        ),
+    ),
+    (
+        REPOSITORY_NOT_FOUND,
+        re.compile(
+            r"(?i)returned error: 404|repository .*not found|does not exist"
+            r"|does not appear to be a git repository|not a git repository"
+        ),
+    ),
+    (
+        REPOSITORY_UNREACHABLE,
+        re.compile(
+            r"(?i)could not resolve host|failed to connect|connection (timed out|refused|reset)"
+            r"|network is unreachable|unable to access|ssl|tls|proxy"
+        ),
+    ),
+)
+
+
+def classify_git_failure(message: str) -> str | None:
+    """The fixed reason code for git's error message, or None when it is not a known one."""
+    return next((code for code, pattern in _GIT_FAILURES if pattern.search(message)), None)
+
+
 GIT_TIMEOUT_SECONDS = 300
 # Downloading a large repository for the first time takes longer than any local git command.
 GIT_NETWORK_TIMEOUT_SECONDS = 1800
@@ -44,11 +85,16 @@ Tree = Literal["base", "candidate"]
 
 
 class WorkspaceError(Exception):
-    """The workspace could not be prepared. ``code`` is a fixed reason code, never git output."""
+    """The workspace could not be prepared. ``code`` is a fixed reason code, never git output.
 
-    def __init__(self, code: str) -> None:
+    ``cause`` is a more precise fixed code when one is known (git is not installed, access was
+    denied, the repository was not found, ...); see :func:`classify_git_failure`.
+    """
+
+    def __init__(self, code: str, cause: str | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.cause = cause
 
 
 def is_safe_path(path: str) -> bool:
@@ -80,7 +126,9 @@ def clone_credentials(
     The token is sent as an HTTP header through git's environment configuration: it is never on
     the command line (visible in process lists), never written to the clone's config and never
     used by a later command. It is sent only over HTTPS and only to an approved host, so a
-    source URL in the policy file cannot redirect it elsewhere. A local path needs no token.
+    source URL in the policy file cannot redirect it elsewhere. Redirects are refused for this
+    clone: after following one, git would keep sending the header to the new location. A local
+    path needs no token.
     """
     if not access_token:
         return {}
@@ -91,9 +139,11 @@ def clone_credentials(
         return {}
     basic = base64.b64encode(f":{access_token}".encode()).decode("ascii")
     return {
-        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_COUNT": "2",
         "GIT_CONFIG_KEY_0": f"http.{parts.scheme}://{parts.hostname}/.extraHeader",
         "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+        "GIT_CONFIG_KEY_1": "http.followRedirects",
+        "GIT_CONFIG_VALUE_1": "false",
     }
 
 
@@ -368,10 +418,15 @@ def run_git(
             timeout=timeout_seconds,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except FileNotFoundError as error:
+        raise WorkspaceError("git_unavailable", GIT_NOT_INSTALLED) from error
+    except subprocess.TimeoutExpired as error:
+        raise WorkspaceError("git_unavailable", REPOSITORY_TIMEOUT) from error
+    except OSError as error:
         raise WorkspaceError("git_unavailable") from error
     if check and completed.returncode != 0:
-        raise WorkspaceError("git_failed")
+        message = completed.stderr.decode("utf-8", errors="replace")
+        raise WorkspaceError("git_failed", classify_git_failure(message))
     return completed.stdout.decode("utf-8", errors="replace")
 
 
@@ -415,7 +470,8 @@ def prepare(
                 timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
             )
         except WorkspaceError as error:
-            raise WorkspaceError(REPOSITORY_UNAVAILABLE) from error
+            # The precise cause when git's message made it clear, else the general code.
+            raise WorkspaceError(error.cause or REPOSITORY_UNAVAILABLE) from error
         if run_git(workspace.candidate, ["cat-file", "-t", base_sha], check=False).strip() != (
             "commit"
         ):

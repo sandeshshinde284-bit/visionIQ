@@ -57,6 +57,12 @@ class FileSources:
     def brief_scope(self, project_id: str, ticket_id: str) -> tuple[str, ...]:
         return tuple(str(path) for path in self._ticket.get("scope", []))
 
+    def brief_risk_band(self, project_id: str, ticket_id: str) -> str | None:
+        """Optional "risk_band" of the ticket file (LOW, MODERATE, HIGH); used only when models
+        are selected by complexity."""
+        band = str(self._ticket.get("risk_band", "")).upper()
+        return band if band in {"LOW", "MODERATE", "HIGH", "INSUFFICIENT_DATA"} else None
+
     def historical_fixes(
         self, ticket: TicketText, file_names: Sequence[str]
     ) -> list[HistoricalFix]:
@@ -69,6 +75,15 @@ class FileSources:
             )
             for fix in self._ticket.get("historical_fixes", [])
         ]
+
+
+def _fix_settings(root: Path, out: Path, keep_workspace: bool, live: bool) -> FixSettings:
+    """With live models the service configuration applies (the read token for a private
+    repository, the repository cache, model selection, budgets), exactly as for the background
+    worker. An offline demo needs no configuration and keeps the built-in defaults."""
+    if live:
+        return FixSettings.from_app(get_settings(), root, out, keep_workspace=keep_workspace)
+    return FixSettings(work_dir=root / "work", artifact_dir=out, keep_workspace=keep_workspace)
 
 
 def _gateway(offline_script: Path | None) -> ModelGateway:
@@ -165,9 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         FileSources(ticket),
         _gateway(arguments.offline_script),
         load_policy(arguments.policy),
-        FixSettings(
-            work_dir=root / "work", artifact_dir=out, keep_workspace=arguments.keep_workspace
-        ),
+        _fix_settings(root, out, arguments.keep_workspace, arguments.offline_script is None),
     )
     evidence = write_evidence(outcome, out)
     if arguments.json:
