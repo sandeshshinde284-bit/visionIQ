@@ -108,10 +108,14 @@ class Corpus:
     def read(self, uri: str) -> bytes:
         return self.archive[uri]  # unknown URIs (other tests' rows) fail in isolation
 
-    def index(self, embedder=None, force=False):
+    def index(self, embedder=None, force=False, allow_partial=False):
         """Index and publish a snapshot (LRN-15); returns the indexing report."""
         report, self.published = snapshots.refresh(
-            _conninfo("INTELLIGENCE"), self.read, embedder or HashingEmbedder(), force=force
+            _conninfo("INTELLIGENCE"),
+            self.read,
+            embedder or HashingEmbedder(),
+            force=force,
+            allow_partial=allow_partial,
         )
         return report
 
@@ -197,7 +201,16 @@ def test_a_corrupt_item_fails_alone_and_a_model_change_re_embeds() -> None:
     broken = corpus.add("work_item_current", {"id": 2}, raw=b"{not json")
     bug = corpus.add("work_item_current", BUG)
     report = corpus.index()
-    assert broken in report.failed and corpus.chunks(bug)
+    # The failure is isolated: the good item is indexed although its neighbour could not be.
+    assert broken in report.failed and report.indexed == 1
+    # One of two items failed, so the index is incomplete: a full snapshot is not published
+    # (LRN-15: at least 95% of the eligible evidence), and nothing is served yet.
+    assert corpus.published.status == "rejected" and not corpus.chunks(bug)
+
+    # The explicit backfill mode serves what there is, and says that it is partial.
+    corpus.index(allow_partial=True)
+    assert corpus.published.status == "published" and corpus.chunks(bug)
+    assert corpus.published.counts["coverage_status"] == "partial"
 
     class NewModel(HashingEmbedder):
         model_id = "test-hashing-768-v2"
