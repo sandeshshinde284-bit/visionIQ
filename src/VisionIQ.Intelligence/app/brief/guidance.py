@@ -15,7 +15,7 @@ answer: eight fixed sections instead of a flat list.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -92,6 +92,31 @@ class Dependents:
     url: str | None = None
     revision: str | None = None
     cross_repository: bool = False
+
+
+def lookup_paths(scope: Sequence[str], known: Iterable[str]) -> list[str]:
+    """The full repository paths whose references are looked up.
+
+    The predicted scope can hold a bare file name: the ticket named the file, not its folder. A
+    bare name says nothing about which project it is in, so it is replaced by the recorded path
+    with that name only when the history knows exactly one. An unknown or ambiguous name is left
+    out: naming the dependents of the wrong project would be a guess.
+    """
+    by_name: dict[str, set[str]] = {}
+    for path in known:
+        by_name.setdefault(path.rsplit("/", 1)[-1], set()).add(path)
+    paths: list[str] = []
+    for path in scope:
+        if "/" in path:
+            resolved = path
+        else:
+            matches = by_name.get(path, set())
+            if len(matches) != 1:
+                continue
+            (resolved,) = matches
+        if resolved not in paths:
+            paths.append(resolved)
+    return paths
 
 
 def _named(names: Sequence[str]) -> str:

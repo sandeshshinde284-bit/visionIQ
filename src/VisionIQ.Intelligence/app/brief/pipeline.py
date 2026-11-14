@@ -273,7 +273,10 @@ def build_brief(
 
     if enhancement:
         # ENH-01 / PROP-02: recorded references to the files in scope become citable evidence.
-        found = sources.dependents(request.repository_id, [item.path for item in scope])
+        paths = guidance_rules.lookup_paths(
+            [item.path for item in scope], (path for files in changed.values() for path in files)
+        )
+        found = sources.dependents(request.repository_id, paths)
         references = guidance_rules.dependency_evidence(found, len(evidence) + 1)
         evidence = [*evidence, *references]
         cross_repository = any(item.cross_repository and item.dependents for item in found)
