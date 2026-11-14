@@ -278,6 +278,7 @@ defaults nothing changes.
 | --- | --- | --- |
 | Clone a private repository | `DEFECT_REPO_READ_PAT` (scope *Code: Read*), `DEFECT_REPO_TOKEN_HOSTS` | Authenticates only the clone. The token goes to git through its environment as a host-scoped HTTP header: never on the command line, never in the clone's config, only over HTTPS to an approved host. |
 | Do not download the repository on every run | `DEFECT_REPO_CACHE_DIR` | One local bare mirror per repository. No network when the pinned commit is already there; otherwise only new commits are fetched. Each run still clones its own copy, so runs cannot affect each other or the mirror. |
+| Download only what a run uses | `DEFECT_REPO_FETCH=commit` | Fetches the single commit the run is pinned to instead of cloning the repository with its history. A run never reads history: it lists and checks out that commit, commits on top, diffs, exports and bundles, and the bundle still applies to a full clone. If the server does not hand out a single commit the repository is cloned as before, so the mode cannot make a run fail. With the cache, single commits are kept in their own local store. |
 | A .NET repository without changes to it | recipe `--results-directory . --logger trx;LogFileName={junit}` | The report at `{junit}` may be JUnit XML or TRX (xUnit, NUnit, MSTest). Only `Passed` is a pass; an unclear outcome is an error. |
 | Cheaper models for simple fixes | `DEFECT_MODEL_SELECTION=by_complexity`, `DEFECT_MODEL_SIMPLE` / `_STANDARD` / `_COMPLEX` | See below. |
 
@@ -301,6 +302,28 @@ logs (`fix_model_tier`, and `routing_reason=complexity_<tier>` on `llm_call`).
 
 Sending code tasks to Gemini is possible this way but is not benchmarked (see the routing table's
 note); measure it on real tickets before relying on it.
+
+#### Not built: an AI-assisted difficulty rating
+
+The rating above uses risk and scope. Those are not difficulty: a one-file race condition is hard
+and looks simple; a renamed constant in seven files is easy and looks complex. Letting a model
+rate the difficulty was analysed on 14 November 2026 and **deliberately not built yet**:
+
+- It is a new task in the routing matrix (the task kinds mirror the master design's v1.11
+  table), so it changes the design and the pinned routing revision: a decision for the team.
+- It would have Gemini read source code to judge it, which the routing table defers until a
+  benchmark justifies it.
+- Its value is the quality of the rating, and that cannot be measured before real fix runs exist.
+
+When it is built: the model **proposes** a difficulty (a category with reasons, no percentage);
+code decides. The rule-based rating stays as a floor for risk (a restricted area or a HIGH risk
+band is never rated below complex), the model may raise any rating, and may lower one only where
+no risk rule applies. No answer, an invalid answer or "unsure" keeps the rule-based rating. The
+ticket text stays untrusted data: it cannot talk the rating down.
+
+Acceptance: on real fix runs, compare each run's first tier with how it went (attempts needed,
+verdict). Build it only if the rule-based rating is shown to choose badly, and accept it only if
+it chooses better at no higher cost per verified fix.
 
 ### When the clone fails
 
@@ -371,7 +394,8 @@ Without `VISIONIQ_REAL_CLONE_TEST=1` both tests are reported as **skipped**, nev
 | `DEFECT_REPO_READ_PAT` | Secret Manager secret (suggested name `visioniq-defect-repo-read-pat`), a fixed version; the runtime service account needs *Secret Manager Secret Accessor* on it. A separate token from the comment and pull-request tokens, scope *Code: Read* only. |
 | `DEFECT_REPO_TOKEN_HOSTS` | `dev.azure.com` |
 | `DEFECT_POLICY_FILE` | A path inside the container. **The image does not contain `config/`**, so the policy must be mounted, for example as a Secret Manager volume (`/app/config/defect-policy.json`). The same holds for the API's `PICKUP_POLICY_FILE`: without it ticket pickup is off. |
-| `DEFECT_REPO_CACHE_DIR`, `DEFECT_WORK_DIR` | Cloud Run's writable file system is in memory and counts against the instance's memory limit. A cloned repository (and its mirror) must fit, or a volume must be mounted. |
+| `DEFECT_WORK_DIR`, `DEFECT_REPO_CACHE_DIR` | By default Cloud Run's writable file system is in memory and counts against the instance's memory limit. Cloud Run can also mount a per-instance **ephemeral disk** (see Google Cloud's documentation on ephemeral disks for Cloud Run), which does not use memory: point both settings at it. Either way the storage is deleted when the instance stops and is not shared between instances, so a cache there only helps while an instance stays warm. |
+| `DEFECT_REPO_FETCH` | `commit`. A run then downloads one commit, not the repository's history, which is what makes a persistent cache unnecessary in the cloud. Add a persistent volume only if measured clone times justify it. |
 
 Egress: the service reaches `dev.azure.com` over HTTPS for the clone (the architecture's egress is
 "private ranges only", so public traffic leaves through the service's default route).
