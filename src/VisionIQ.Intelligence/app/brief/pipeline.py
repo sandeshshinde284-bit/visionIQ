@@ -3,6 +3,11 @@
     ticket text -> retrieval (LRN-09) -> scope -> risk factors and band -> model draft
     -> per-advice evidence check -> optional second opinion -> brief
 
+ENH-01: an enhancement goes through the same steps and gets guidance in the eight sections of
+master design 8.5 instead of a flat list (see :mod:`app.brief.guidance`). Recorded references
+to the files in scope are added as evidence, "contracts and APIs touched" is written by code
+from them, and a section nothing supports is reported as missing.
+
 Evidence and risk are computed by code; the model only words the advice, and only the advice the
 evidence supports is kept. Every way of falling short has its own state and reason code:
 
@@ -22,6 +27,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from app.brief import guidance as guidance_rules
 from app.brief import risk as risk_rules
 from app.brief.history import BriefSources, HistoryFacts
 from app.brief.schema import (
@@ -62,6 +68,9 @@ class BriefRequest:
     project_id: str
     ticket_id: str
     ticket_revision: int
+    # ENH-01: from the request event. The pickup policy decides what an enhancement is.
+    ticket_kind: str = "defect"
+    repository_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -156,6 +165,8 @@ def build_brief(
     drafted_by = reviewed_by = prompt_version = model_id = None
     retrieval_ms = generation_ms = 0
     title = ""
+    enhancement = request.ticket_kind == "enhancement"
+    cross_repository = False
 
     def finish(state: str, risk: Risk) -> BriefOutcome:
         brief = Brief(
@@ -167,12 +178,14 @@ def build_brief(
                 revision=request.ticket_revision,
                 title=title,
             ),
+            kind="enhancement" if enhancement else "defect",
             state=state,  # type: ignore[arg-type]
             reason_codes=reasons,
             snapshot_id=snapshot_id,
             predicted_scope=scope,
             risk=risk,
             advice=advice,
+            guidance=guidance_rules.sections(advice) if enhancement else [],
             evidence=evidence,
             disagreements=notes,
             limitations=limitations[:MAX_LIMITATIONS],
@@ -258,6 +271,23 @@ def build_brief(
     )
     limitations.extend(bundle.reasons)
 
+    if enhancement:
+        # ENH-01 / PROP-02: recorded references to the files in scope become citable evidence.
+        found = sources.dependents(request.repository_id, [item.path for item in scope])
+        references = guidance_rules.dependency_evidence(found, len(evidence) + 1)
+        evidence = [*evidence, *references]
+        cross_repository = any(item.cross_repository and item.dependents for item in found)
+        if not scope:
+            limitations.append(
+                "The files this change touches could not be predicted from the ticket and its "
+                "history, so contracts and dependents could not be checked."
+            )
+        elif not references:
+            limitations.append(
+                "The code scan records no reference to the files in scope, so no dependent is "
+                "listed. That is not proof that nothing depends on them."
+            )
+
     # S10-10: with nothing to ground advice on, say so and stop before any model is asked.
     if bundle.status == "insufficient_query":
         reasons.append(TICKET_TOO_VAGUE)
@@ -293,7 +323,8 @@ def build_brief(
         ),
     )
     step = clock()
-    draft = gateway.generate(TaskKind.BRIEF_DRAFT, context, ledger)
+    task = TaskKind.ENHANCEMENT_APPROACH if enhancement else TaskKind.BRIEF_DRAFT
+    draft = gateway.generate(task, context, ledger)
     if draft.result is None:
         generation_ms = int((clock() - step) * 1000)
         reasons.append(draft.reason or "llm_unavailable")
@@ -301,18 +332,36 @@ def build_brief(
             "No advice could be generated for this run; the evidence and risk factors found "
             "are listed as they are."
         )
-        return finish("PARTIAL", risk)
-
-    drafted_by = draft.result.provider
-    model_id = draft.result.model_version or draft.result.model_id
-    prompt_version = draft.result.prompt_template_version
+        if not enhancement:
+            return finish("PARTIAL", risk)
+        # ENH-01: what code can state from recorded references needs no model.
+        output: dict = {"advice": [], "limitations": []}
+    else:
+        drafted_by = draft.result.provider
+        model_id = draft.result.model_version or draft.result.model_id
+        prompt_version = draft.result.prompt_template_version
+        output = draft.result.output
     texts = {
         item.id: EvidenceText(
             item.title, "\n".join([item.title, item.snippet, *item.notes]), item.url
         )
         for item in evidence
     }
-    checked = validate(draft.result.output, texts)
+    if enhancement:
+        drafted = output.get("advice", [])
+        items = [
+            *guidance_rules.contract_items(evidence),
+            *(drafted if isinstance(drafted, list) else []),
+        ]
+        checked = validate(
+            {"advice": guidance_rules.in_section_order(items)},
+            texts,
+            guidance_rules.SECTION_CODES,
+            guidance_rules.MAX_ITEMS,
+            guidance_rules.MAX_PER_SECTION,
+        )
+    else:
+        checked = validate(output, texts)
     advice = checked.advice
     if checked.removed_total:
         log.warning("advice_removed", removed=dict(checked.removed))
@@ -320,7 +369,7 @@ def build_brief(
             f"{checked.removed_total} generated statement(s) were removed because their "
             "sources did not support them."
         )
-    limitations.extend(_model_limitations(draft.result.output))
+    limitations.extend(_model_limitations(output))
 
     # S08-10 / S08-11: a second opinion only for conflicting evidence or a high-impact ticket.
     conflicted = {
@@ -333,9 +382,12 @@ def build_brief(
         signals_for_review.add(ESCALATE_EVIDENCE_CONFLICT)
     if risk.band == "HIGH":
         signals_for_review.add(ESCALATE_HIGH_IMPACT)
-    if advice and signals_for_review:
+    if cross_repository:
+        # v1.11 routing: a second opinion on guidance when other repositories depend on this one.
+        signals_for_review.add(guidance_rules.ESCALATE_CROSS_REPOSITORY)
+    if advice and signals_for_review and drafted_by is not None:
         review = gateway.escalate(
-            TaskKind.BRIEF_DRAFT,
+            task,
             TaskKind.EVIDENCE_CRITIQUE,
             context.model_copy(
                 update={
@@ -367,6 +419,9 @@ def build_brief(
 
     if not advice:
         reasons.append(NO_SUPPORTED_ADVICE)
+        return finish("PARTIAL", risk)
+    if draft.result is None:
+        # ENH-01: only the code-written items exist; the model's part is missing, so not complete.
         return finish("PARTIAL", risk)
     if bundle.status != "answered":
         # Advice exists but rests on thin history: publish it as PARTIAL and say so.
