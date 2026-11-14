@@ -2,10 +2,10 @@ using Npgsql;
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Briefs;
 using VisionIQ.Api.Features.Events;
-using VisionIQ.Api.Features.Health;
 using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Api.Features.Fixes;
 using VisionIQ.Api.Features.Graph;
+using VisionIQ.Api.Features.Health;
 using VisionIQ.Api.Features.Pickup;
 using VisionIQ.Api.Logging;
 

@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using VisionIQ.Ingestor.Ado;
 using VisionIQ.Ingestor.Checkpoints;
 using VisionIQ.Ingestor.Links;
 using VisionIQ.Ingestor.Sources;
-using Microsoft.Extensions.Logging;
 
 namespace VisionIQ.Ingestor.Sync;
 

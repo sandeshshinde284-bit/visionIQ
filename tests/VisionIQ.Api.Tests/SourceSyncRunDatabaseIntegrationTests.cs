@@ -31,8 +31,11 @@ public sealed class SourceSyncRunDatabaseIntegrationTests
 
         var connectionString = new NpgsqlConnectionStringBuilder
         {
-            Host = options.Host, Port = options.Port, Database = options.Name,
-            Username = options.User, Password = options.Password,
+            Host = options.Host,
+            Port = options.Port,
+            Database = options.Name,
+            Username = options.User,
+            Password = options.Password,
         }.ConnectionString;
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();

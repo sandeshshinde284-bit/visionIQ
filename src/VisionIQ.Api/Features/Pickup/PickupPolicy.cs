@@ -232,7 +232,7 @@ public sealed partial record PickupPolicy(
                 problems.Add($"{where}.repository_id is required");
             }
 
-            if (!IdentifierPattern().IsMatch(entry.SecurityScopeId ?? string.Empty))
+            if (!VisionIQ.Api.Features.Events.EventContracts.Scope().IsMatch(entry.SecurityScopeId ?? string.Empty))
             {
                 problems.Add($"{where}.security_scope_id is required");
             }

@@ -29,7 +29,7 @@ COPY --from=build /app/publish .
 ENV ASPNETCORE_URLS=http://+:5100
 EXPOSE 5100
 
-# Run as the non-root user provided by the base image (APP_UID is defined by the .NET 8 images).
+# Run as the non-root user provided by the base image (APP_UID is defined by the .NET images).
 # hadolint ignore=DL3066
 USER $APP_UID
 

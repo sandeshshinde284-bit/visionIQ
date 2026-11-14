@@ -81,7 +81,8 @@ public sealed class DeletionTests
     {
         var tombstones = new Tombstones();
         var sink = new CanonicalEvidenceSink(new EvidenceIngestionService(new NoArchive(), new NoStore()),
-            new Uri("https://dev.azure.com/contoso"), "contoso") { Tombstones = tombstones };
+            new Uri("https://dev.azure.com/contoso"), "contoso")
+        { Tombstones = tombstones };
 
         await sink.WriteAsync("work-item-deletions", "k", new WorkItemDeletion(1234, "Payments", DateTimeOffset.UtcNow, "deleted_in_source"));
 

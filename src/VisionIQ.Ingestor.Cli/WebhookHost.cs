@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Backfill;
 using VisionIQ.Api.Features.Evidence;
@@ -58,7 +58,7 @@ public static class WebhookHost
                 new AdoChangedWorkItemReader(new AdoWorkItemSource(client, settings.Environments)), evidence),
             // LRN-12: PR created/updated/reviewed/abandoned/merged/commented events.
             new AdoPullRequestChangeHandler(settings.Ado, new AdoChangedPullRequestReader(new AdoRepositorySource(client)), evidence));
-        var endpoint = new AdoWebhookEndpoint(credentials, new SourceChangeProcessor(inbox, handler),
+        var endpoint = new AdoWebhookEndpoint(credentials, new SourceChangeProcessor(inbox, handler, loggerFactory.CreateLogger<SourceChangeProcessor>()),
             settings.Ado.OrganizationUrl, settings.Ado.Projects, settings.Ado.Tenant, loggerFactory.CreateLogger<AdoWebhookEndpoint>());
 
         var builder = WebApplication.CreateSlimBuilder();

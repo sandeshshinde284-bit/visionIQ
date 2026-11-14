@@ -39,8 +39,11 @@ public sealed class TicketFixDatabaseIntegrationTests
 
         var builder = new NpgsqlConnectionStringBuilder
         {
-            Host = options.Host, Port = options.Port, Database = options.Name,
-            Username = options.User, Password = options.Password,
+            Host = options.Host,
+            Port = options.Port,
+            Database = options.Name,
+            Username = options.User,
+            Password = options.Password,
         };
         await using var db = new NpgsqlConnection(builder.ConnectionString);
         await db.OpenAsync();
@@ -99,8 +102,11 @@ public sealed class TicketFixDatabaseIntegrationTests
 
             await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await db.OpenAsync();
             async Task<string> ReadReverts(string associationKey)
@@ -152,7 +158,9 @@ public sealed class TicketFixDatabaseIntegrationTests
         Assert.False(string.IsNullOrWhiteSpace(adminPassword));
         await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
         {
-            Host = apiOptions.Host, Port = apiOptions.Port, Database = apiOptions.Name,
+            Host = apiOptions.Host,
+            Port = apiOptions.Port,
+            Database = apiOptions.Name,
             Username = Environment.GetEnvironmentVariable("DB_LOCAL_USER") ?? "visioniq",
             Password = adminPassword,
         }.ConnectionString);
@@ -201,8 +209,11 @@ public sealed class TicketFixDatabaseIntegrationTests
 
             await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await db.OpenAsync();
             async Task<bool> IsReverted()
@@ -286,8 +297,11 @@ public sealed class TicketFixDatabaseIntegrationTests
 
         await using var cleanup = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
         {
-            Host = options.Host, Port = options.Port, Database = options.Name,
-            Username = options.User, Password = options.Password,
+            Host = options.Host,
+            Port = options.Port,
+            Database = options.Name,
+            Username = options.User,
+            Password = options.Password,
         }.ConnectionString);
         await cleanup.OpenAsync();
         await using (var deleteAssoc = new NpgsqlCommand(
@@ -378,8 +392,11 @@ public sealed class TicketFixDatabaseIntegrationTests
         {
             await using var cleanup = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await cleanup.OpenAsync();
             await using (var deleteAssoc = new NpgsqlCommand(
@@ -443,8 +460,11 @@ public sealed class TicketFixDatabaseIntegrationTests
 
             await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await db.OpenAsync();
             await using var query = new NpgsqlCommand("""
@@ -470,8 +490,11 @@ public sealed class TicketFixDatabaseIntegrationTests
         {
             await using var cleanup = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await cleanup.OpenAsync();
             await using (var deleteAssoc = new NpgsqlCommand(
@@ -540,8 +563,11 @@ public sealed class TicketFixDatabaseIntegrationTests
         {
             await using var cleanup = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await cleanup.OpenAsync();
             await using (var deleteAssoc = new NpgsqlCommand(
@@ -615,8 +641,11 @@ public sealed class TicketFixDatabaseIntegrationTests
             // with).
             await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await db.OpenAsync();
             await using var query = new NpgsqlCommand(
@@ -628,8 +657,11 @@ public sealed class TicketFixDatabaseIntegrationTests
         {
             await using var cleanup = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
             {
-                Host = options.Host, Port = options.Port, Database = options.Name,
-                Username = options.User, Password = options.Password,
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
             }.ConnectionString);
             await cleanup.OpenAsync();
             await using (var deleteAssoc = new NpgsqlCommand(
@@ -676,8 +708,11 @@ public sealed class TicketFixDatabaseIntegrationTests
     {
         await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
         {
-            Host = options.Host, Port = options.Port, Database = options.Name,
-            Username = options.User, Password = options.Password,
+            Host = options.Host,
+            Port = options.Port,
+            Database = options.Name,
+            Username = options.User,
+            Password = options.Password,
         }.ConnectionString);
         await db.OpenAsync();
         await using var query = new NpgsqlCommand(

@@ -18,7 +18,9 @@ public sealed class Lrn03GcsArchiveIntegrationTests
     {
         var bucket = Environment.GetEnvironmentVariable("GCS_EVIDENCE_BUCKET");
         if (string.IsNullOrWhiteSpace(bucket))
+        {
             throw new InvalidOperationException("GCS_EVIDENCE_BUCKET must be set to an approved isolated test bucket.");
+        }
 
         var itemKey = Convert.ToHexStringLower(SHA256.HashData(
             Encoding.UTF8.GetBytes("lrn03-integration-" + Guid.NewGuid().ToString("N"))));

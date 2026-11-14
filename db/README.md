@@ -49,7 +49,7 @@ DB_LOCAL_USER remains the local database owner/admin; do not pass its password t
 
 Cloud SQL is manually provisioned in the approved project; no Terraform required. The local Docker stack must remain isolated. Cloud SQL migration is a separate Cloud Run Job routed via Direct VPC egress and a regional subnet on the approved project VPC.
 
-Build and publish the Python Intelligence image into an approved Artifact Registry repository. Create a Cloud Run Job (not an API service) in the Cloud SQL region, using that image with the container command:
+Build and publish the migration image (`visioniq-db-migrate`, from `db/Dockerfile`) into an approved Artifact Registry repository; the Intelligence image does not contain `db/` and cannot run this. `scripts/manual-deploy/04-migrate-cloud-sql.ps1` creates and runs the job below (plan-only without `-Run`). Create a Cloud Run Job (not an API service) in the Cloud SQL region, using that image with the container command:
 
     python -m db.cloud_manage all --instance PROJECT:REGION:INSTANCE
 
@@ -59,4 +59,4 @@ The runner refuses local mode, a public/loopback database address, an unexpected
 
 Expected log messages: Database roles and schema permissions configured. Then: pgvector, full-text search and role isolation verified.
 
-The standard API/Python Cloud Run deployment is a later story. Running this one-off job does not make the two APIs available in Cloud Run.
+Running this one-off job does not make the two APIs available in Cloud Run; deploy them with `scripts/manual-deploy/02-deploy-services.ps1` afterwards.

@@ -29,8 +29,11 @@ public sealed class GraphDatabaseIntegrationTests
     private static string ConnectionString(DatabaseOptions options) =>
         new NpgsqlConnectionStringBuilder
         {
-            Host = options.Host, Port = options.Port, Database = options.Name,
-            Username = options.User, Password = options.Password,
+            Host = options.Host,
+            Port = options.Port,
+            Database = options.Name,
+            Username = options.User,
+            Password = options.Password,
         }.ConnectionString;
 
     /// <summary>
@@ -263,7 +266,8 @@ public sealed class GraphDatabaseIntegrationTests
             TicketFixSourceClassification.Explicit, ["evidence:" + sourceItemKey + ":1"], []);
         var c2Claim = c1Claim with
         {
-            CommitSha = c2Sha, SourceEvidenceRefs = ["evidence:" + sourceItemKey + ":2"],
+            CommitSha = c2Sha,
+            SourceEvidenceRefs = ["evidence:" + sourceItemKey + ":2"],
         };
         var key1 = c1Claim.AssociationKey();
         var key2 = c2Claim.AssociationKey();

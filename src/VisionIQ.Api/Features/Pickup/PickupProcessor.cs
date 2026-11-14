@@ -28,7 +28,16 @@ public sealed class PickupProcessor(
         var heads = new Dictionary<string, Task<string>>(StringComparer.Ordinal);
         foreach (var (pickup, attempts) in claimed)
         {
-            await ProcessAsync(pickup, attempts, heads, cancellationToken);
+            try
+            {
+                await ProcessAsync(pickup, attempts, heads, cancellationToken);
+            }
+            catch (Exception error) when (!cancellationToken.IsCancellationRequested)
+            {
+                // One pickup whose state could not even be recorded (store failure) must not hold back the
+                // rest of the claimed batch: its lease expires and it is claimed again.
+                PickupLog.ItemFailed(logger, pickup.ProjectId, pickup.TicketId, pickup.TicketRevision, error.GetType().Name);
+            }
         }
 
         return claimed.Count;

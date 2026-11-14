@@ -44,4 +44,7 @@ internal static partial class PickupLog
 
     [LoggerMessage(EventId = 612, Level = LogLevel.Warning, Message = "Ticket pickup is not limited to chosen work items: every eligible item of the configured projects starts a run")]
     public static partial void Unrestricted(ILogger logger);
+
+    [LoggerMessage(EventId = 613, Level = LogLevel.Error, Message = "Pickup of {ProjectId} #{TicketId} rev {Revision} could not be processed ({ErrorType}); it is retried when its lease expires")]
+    public static partial void ItemFailed(ILogger logger, string projectId, string ticketId, int revision, string errorType);
 }

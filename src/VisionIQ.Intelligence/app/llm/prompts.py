@@ -217,7 +217,8 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
 
 
 def _block(label: str, text: str) -> str:
-    return f'<untrusted_data source="{label}">\n{neutralize(text)}\n</untrusted_data>'
+    safe_label = "".join(ch for ch in label if ch not in '"<>\r\n')[:200]
+    return f'<untrusted_data source="{safe_label}">\n{neutralize(text)}\n</untrusted_data>'
 
 
 def render_user_prompt(kind: TaskKind, context: EvidenceContext) -> str:

@@ -1,0 +1,17 @@
+# Local LIVE Gemini runs: gives the Intelligence container your own Google Application Default Credentials,
+# read-only, so the brief pipeline and the embedder can call Vertex AI from Docker.
+#
+#   gcloud auth application-default login            # once, and again whenever it expires
+#   docker compose -f docker-compose.yml -f docker-compose.gemini.yml up --build -d
+#
+# GCLOUD_CONFIG_DIR defaults to the Windows location (%APPDATA%\gcloud). On macOS/Linux set
+# GCLOUD_CONFIG_DIR=$HOME/.config/gcloud in .env. The whole folder is mounted (not the single file) so a
+# fresh `gcloud auth application-default login` is seen after `docker compose restart intelligence`.
+# Your user credentials never enter the image; this is for local development only, never for Cloud Run.
+services:
+  intelligence:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /var/secrets/gcloud/application_default_credentials.json
+      GOOGLE_CLOUD_PROJECT: ${GCP_PROJECT_ID:?Set GCP_PROJECT_ID in .env}
+    volumes:
+      - ${GCLOUD_CONFIG_DIR:-${APPDATA}/gcloud}:/var/secrets/gcloud:ro

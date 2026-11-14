@@ -74,6 +74,12 @@
     "identifier": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.:/-]{1,256}$"
+    },
+    "scope": {
+      "description": "An access principal, e.g. ado-project:{organization URL}/{project}. Azure DevOps project names may contain single spaces between words.",
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9_.:/-]+( [A-Za-z0-9_.:/-]+)*$"
     }
   }
 }

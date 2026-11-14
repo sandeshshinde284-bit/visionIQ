@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     # stand-in (tests and local demos only; refused in production).
     llm_mode: Literal["live", "offline"] = "live"
     gcp_project_id: str | None = None
-    vertex_location: str = "europe-west1"
+    vertex_location: str = "europe-west3"
     gemini_model: str = "gemini-2.5-flash"
     # Decision D04: where Claude runs and what data it may receive. Off until decided.
     claude_route: Literal["off", "vertex", "anthropic"] = "off"

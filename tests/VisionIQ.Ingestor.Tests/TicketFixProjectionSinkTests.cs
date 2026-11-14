@@ -95,7 +95,8 @@ public sealed class TicketFixProjectionSinkTests
         var links = new RecordingLinkStore();
         var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
         var commit = new CommitRecord(new string('b', 40), "repo-id", "Project-A",
-            DateTimeOffset.UtcNow, "Investigation AB#321") { RepositoryName = "repo" };
+            DateTimeOffset.UtcNow, "Investigation AB#321")
+        { RepositoryName = "repo" };
         await sink.WriteAsync("commits", "source/commit", commit);
 
         var claim = Assert.Single(links.Claims);
@@ -256,7 +257,9 @@ public sealed class TicketFixProjectionSinkTests
         var sameTitleAgain = titled with { Id = 43, CommitIds = [new string('3', 40)] };
         var revert = titled with
         {
-            Id = 44, Title = "Revert \"Shared title\"", CommitIds = [new string('4', 40)],
+            Id = 44,
+            Title = "Revert \"Shared title\"",
+            CommitIds = [new string('4', 40)],
         };
 
         await sink.WriteAsync("pull-requests", "source/one", titled);
@@ -275,7 +278,8 @@ public sealed class TicketFixProjectionSinkTests
         var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
         var revert = PullRequest() with
         {
-            Id = 38155, Title = "Revert back to the original html to image package",
+            Id = 38155,
+            Title = "Revert back to the original html to image package",
         };
 
         await sink.WriteAsync("pull-requests", "source/revert-only", revert);

@@ -150,8 +150,12 @@ public sealed class PostgresCanonicalEvidenceReader : ICanonicalEvidenceReader, 
         ArgumentNullException.ThrowIfNull(options);
         var builder = new NpgsqlConnectionStringBuilder
         {
-            Host = options.Host, Port = options.Port, Database = options.Name,
-            Username = options.User, Password = options.Password, Timeout = 10,
+            Host = options.Host,
+            Port = options.Port,
+            Database = options.Name,
+            Username = options.User,
+            Password = options.Password,
+            Timeout = 10,
         };
         builder["SSL Mode"] = options.SslMode;
         source = NpgsqlDataSource.Create(builder.ConnectionString);

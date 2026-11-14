@@ -26,7 +26,11 @@ public sealed class DbCheckpointStoreIntegrationTests
     {
         var connectionString = new NpgsqlConnectionStringBuilder
         {
-            Host = c.Host, Port = c.Port, Database = c.Db, Username = c.User, Password = c.Password,
+            Host = c.Host,
+            Port = c.Port,
+            Database = c.Db,
+            Username = c.User,
+            Password = c.Password,
         }.ConnectionString;
         return new DbCheckpointStore(() => new NpgsqlConnection(connectionString));
     }

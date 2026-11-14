@@ -11,7 +11,7 @@ offered (check the current Vertex AI model availability list; availability chang
 same region as Cloud SQL.
 
     export GCP_PROJECT_ID=<project-id>
-    export VERTEX_LOCATION=<region>        # e.g. europe-west1
+    export VERTEX_LOCATION=<region>        # e.g. europe-west3
 
 ## 2. Enable the API
 

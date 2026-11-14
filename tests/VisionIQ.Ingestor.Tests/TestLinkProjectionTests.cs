@@ -98,7 +98,7 @@ public sealed class TestLinkProjectionTests
         var bug = Bug(Relation(LinkExtractor.TestedByForward, 77));
         var snapshot = TestLinkProjectionSink.Snapshot("https://dev.azure.com/contoso", bug);
 
-        Assert.True(snapshot.EvidenceRef.EndsWith(":" + CanonicalEvidenceSink.ContentRevision("9", bug), StringComparison.Ordinal));
+        Assert.EndsWith(":" + CanonicalEvidenceSink.ContentRevision("9", bug), snapshot.EvidenceRef, StringComparison.Ordinal);
         Assert.True(VisionIQ.Api.Features.Graph.TestLinkGraphMaterializer.TryParseReference(snapshot.EvidenceRef, out _, out var revision));
         Assert.StartsWith("9#", revision);
     }

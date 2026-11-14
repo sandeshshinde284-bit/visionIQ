@@ -40,7 +40,11 @@ public sealed class Lrn03PostgresIntegrationTests
         var options = new DatabaseOptions(host, 55433, db, user, password, "disable");
         var connectionString = new NpgsqlConnectionStringBuilder
         {
-            Host = host, Port = 55433, Database = db, Username = user, Password = password,
+            Host = host,
+            Port = 55433,
+            Database = db,
+            Username = user,
+            Password = password,
             SslMode = Npgsql.SslMode.Disable
         }.ConnectionString;
 

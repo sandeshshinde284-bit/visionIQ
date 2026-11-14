@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.Json;
 using VisionIQ.Api.Features.Evidence;
 using VisionIQ.Ingestor.Ado;
@@ -168,12 +168,12 @@ public sealed class CanonicalEvidenceSink(
                     AdoUrl(item.Project, "_workitems/edit/" + Id(item.Id)));
 
             case WorkItemRevisionRecord revision when stream == "work-item-revisions":
-            {
-                var project = AdoProjectFromKey(key, "/work-item/");
-                return new Datum("azure_devops", adoInstance, project, null,
-                    "work_item", Id(revision.Id), Id(revision.Revision), revision.ChangedDate,
-                    AdoUrl(project, "_workitems/edit/" + Id(revision.Id)));
-            }
+                {
+                    var project = AdoProjectFromKey(key, "/work-item/");
+                    return new Datum("azure_devops", adoInstance, project, null,
+                        "work_item", Id(revision.Id), Id(revision.Revision), revision.ChangedDate,
+                        AdoUrl(project, "_workitems/edit/" + Id(revision.Id)));
+                }
 
             case PullRequestRecord pr when stream == "pull-requests":
                 return new Datum("azure_devops", adoInstance, pr.Project, pr.RepositoryId,
@@ -205,13 +205,13 @@ public sealed class CanonicalEvidenceSink(
                     AdoUrl(build.Project, "_build/results?buildId=" + Id(build.Id)));
 
             case SourceLink link when stream == "links":
-            {
-                var project = AdoProjectFromKey(key, "/link/");
-                return new Datum("azure_devops", adoInstance, project, null,
-                    // m-10: the source record's time, not the ingestion time (fallback only when absent).
-                    "declared_link", link.Key, ContentRevision("1", link), link.SourceTimestamp ?? observed,
-                    AdoUrl(project, "_workitems"));
-            }
+                {
+                    var project = AdoProjectFromKey(key, "/link/");
+                    return new Datum("azure_devops", adoInstance, project, null,
+                        // m-10: the source record's time, not the ingestion time (fallback only when absent).
+                        "declared_link", link.Key, ContentRevision("1", link), link.SourceTimestamp ?? observed,
+                        AdoUrl(project, "_workitems"));
+                }
 
             case ConfluencePageSnapshot page when stream == "confluence-pages":
                 return new Datum("confluence", confluenceInstance ?? page.Tenant,

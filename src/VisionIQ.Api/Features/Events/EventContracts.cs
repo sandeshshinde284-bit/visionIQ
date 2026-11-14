@@ -84,7 +84,7 @@ public static partial class EventContracts
         Require(Identifier().IsMatch(data.RepositoryId ?? string.Empty), "data/repository_id");
         Require(CommitSha().IsMatch(data.BaseCommitSha ?? string.Empty), "data/base_commit_sha");
         Require(Enum.IsDefined(data.AnalysisMode), "data/analysis_mode");
-        Require(Identifier().IsMatch(data.SecurityScopeId ?? string.Empty), "data/security_scope_id");
+        Require(Scope().IsMatch(data.SecurityScopeId ?? string.Empty), "data/security_scope_id");
     }
 
     private static void ValidateAnalysisCompleted(EventEnvelope envelope)
@@ -124,6 +124,13 @@ public static partial class EventContracts
 
     [GeneratedRegex("^[A-Za-z0-9_.:/-]{1,256}$")]
     private static partial Regex Identifier();
+
+    /// <summary>
+    /// An access principal (envelope.v1 "scope"): identifier characters plus single spaces between words, because
+    /// Azure DevOps project names are part of the "ado-project:{org}/{project}" principal.
+    /// </summary>
+    [GeneratedRegex("^(?=.{1,256}$)[A-Za-z0-9_.:/-]+( [A-Za-z0-9_.:/-]+)*$")]
+    internal static partial Regex Scope();
 
     [GeneratedRegex("^[0-9a-f]{40}([0-9a-f]{24})?$")]
     private static partial Regex CommitSha();

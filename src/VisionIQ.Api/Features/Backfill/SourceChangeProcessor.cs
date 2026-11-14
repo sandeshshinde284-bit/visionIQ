@@ -83,10 +83,14 @@ public interface ISourceChangeHandler
 /// Runs trusted event processing without exposing an unauthenticated Pub/Sub endpoint.
 /// Transport authentication and subscription wiring belong to FND-06.
 /// </summary>
-public sealed class SourceChangeProcessor(
+public sealed partial class SourceChangeProcessor(
     ISourceChangeInbox inbox,
-    ISourceChangeHandler handler)
+    ISourceChangeHandler handler,
+    ILogger? logger = null)
 {
+    [LoggerMessage(EventId = 680, Level = LogLevel.Error, Message = "Source change {ProviderKind} {NativeId} could not be applied ({ErrorType}); quarantined")]
+    private static partial void ApplyFailed(ILogger logger, string providerKind, string nativeId, string errorType);
+
     /// <summary>
     /// Claims, re-fetches and persists one event; failures are recorded as quarantine,
     /// not represented as a successful empty sync. Cancellation propagates for retry.
@@ -119,9 +123,15 @@ public sealed class SourceChangeProcessor(
             // The claim expires and redelivery safely retries the operation.
             throw;
         }
-        catch (Exception)
+        catch (Exception error)
         {
             // Do not put exception text or source payload into database diagnostics.
+            // The log gets the exception type only, so a failure can be diagnosed without leaking content.
+            if (logger is not null)
+            {
+                ApplyFailed(logger, change.ProviderKind, change.NativeId, error.GetType().Name);
+            }
+
             await inbox.QuarantineAsync(change, token, "SOURCE_APPLY_FAILED", cancellationToken);
             return ChangeProcessingStatus.Quarantined;
         }

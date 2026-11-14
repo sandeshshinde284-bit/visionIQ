@@ -17,7 +17,10 @@ internal static class BriefTestData
         ["run_id"] = RunId.ToString(),
         ["ticket"] = new JsonObject
         {
-            ["system"] = "ado", ["project"] = "payments-core", ["id"] = "4711", ["revision"] = 7,
+            ["system"] = "ado",
+            ["project"] = "payments-core",
+            ["id"] = "4711",
+            ["revision"] = 7,
             ["title"] = "Bug 4711: Barcode not printed after payment retry",
         },
         ["state"] = state,
@@ -33,16 +36,23 @@ internal static class BriefTestData
             ["factors"] = new JsonArray(
                 new JsonObject
                 {
-                    ["code"] = "recent_fixes", ["label"] = "Defect fixes that changed these files in the last 90 days",
-                    ["value"] = 2, ["window_days"] = 90, ["missing"] = false,
+                    ["code"] = "recent_fixes",
+                    ["label"] = "Defect fixes that changed these files in the last 90 days",
+                    ["value"] = 2,
+                    ["window_days"] = 90,
+                    ["missing"] = false,
                     ["references"] = new JsonArray("ticket 101 -> PR 201", "ticket 102 -> PR 202 (reverted)"),
                     ["evidence_ids"] = new JsonArray("E1", "E2"),
                 },
                 new JsonObject
                 {
-                    ["code"] = "hotspot_areas", ["label"] = "Areas flagged by the latest hotspot sweep",
-                    ["value"] = null, ["window_days"] = null, ["missing"] = true,
-                    ["references"] = new JsonArray(), ["evidence_ids"] = new JsonArray(),
+                    ["code"] = "hotspot_areas",
+                    ["label"] = "Areas flagged by the latest hotspot sweep",
+                    ["value"] = null,
+                    ["window_days"] = null,
+                    ["missing"] = true,
+                    ["references"] = new JsonArray(),
+                    ["evidence_ids"] = new JsonArray(),
                 }),
         },
         ["advice"] = new JsonArray(
@@ -56,16 +66,24 @@ internal static class BriefTestData
         ["disagreements"] = new JsonArray(
             new JsonObject
             {
-                ["advice_id"] = "ADV-002", ["drafted_by"] = "gemini", ["reviewed_by"] = "claude",
-                ["verdict"] = "conflicting", ["reason"] = "E2 only says the fix was merged.",
+                ["advice_id"] = "ADV-002",
+                ["drafted_by"] = "gemini",
+                ["reviewed_by"] = "claude",
+                ["verdict"] = "conflicting",
+                ["reason"] = "E2 only says the fix was merged.",
             }),
         ["limitations"] = new JsonArray("Some source text contains instructions addressed to an AI assistant. It was treated as data and not followed."),
         ["injection_flags"] = new JsonArray(new JsonObject { ["source"] = "ticket", ["pattern"] = "override_instructions" }),
         ["generation"] = new JsonObject
         {
-            ["provider"] = "gemini", ["model_id"] = "gemini-2.5-flash", ["prompt_template_version"] = "brief.defect@v1",
-            ["routing_revision"] = "routing-2026-11-10.1", ["reviewed_by"] = "claude", ["calls"] = 2,
-            ["input_tokens"] = 1800, ["output_tokens"] = 400,
+            ["provider"] = "gemini",
+            ["model_id"] = "gemini-2.5-flash",
+            ["prompt_template_version"] = "brief.defect@v1",
+            ["routing_revision"] = "routing-2026-11-10.1",
+            ["reviewed_by"] = "claude",
+            ["calls"] = 2,
+            ["input_tokens"] = 1800,
+            ["output_tokens"] = 400,
         },
         ["timings"] = new JsonObject { ["retrieval_ms"] = 300, ["generation_ms"] = 9000, ["total_ms"] = 9600 },
     };
@@ -77,33 +95,33 @@ internal static class BriefTestData
     public static JsonObject Commented(
         string text, string eventId = "c0mment-0000-4000-8000-000000000001", string actor = "dev@contoso.example",
         string project = "Payments Core", string organization = PickupTestData.Organization, string? actorId = "a1b2c3") => new()
-    {
-        ["id"] = eventId,
-        ["eventType"] = "workitem.commented",
-        ["publisherId"] = "tfs",
-        ["createdDate"] = "2026-11-10T09:30:00Z",
-        ["resource"] = new JsonObject
         {
-            ["id"] = 4711,
-            ["rev"] = 9,
-            ["fields"] = new JsonObject
+            ["id"] = eventId,
+            ["eventType"] = "workitem.commented",
+            ["publisherId"] = "tfs",
+            ["createdDate"] = "2026-11-10T09:30:00Z",
+            ["resource"] = new JsonObject
             {
-                ["System.TeamProject"] = project,
-                ["System.WorkItemType"] = "Bug",
-                ["System.State"] = "In Progress",
-                ["System.History"] = text,
-                ["System.ChangedDate"] = "2026-11-10T09:29:58.12Z",
-                ["System.ChangedBy"] = actorId is null
+                ["id"] = 4711,
+                ["rev"] = 9,
+                ["fields"] = new JsonObject
+                {
+                    ["System.TeamProject"] = project,
+                    ["System.WorkItemType"] = "Bug",
+                    ["System.State"] = "In Progress",
+                    ["System.History"] = text,
+                    ["System.ChangedDate"] = "2026-11-10T09:29:58.12Z",
+                    ["System.ChangedBy"] = actorId is null
                     ? $"Dev <{actor}>"
                     : new JsonObject { ["id"] = actorId, ["uniqueName"] = actor, ["displayName"] = "Dev" },
+                },
             },
-        },
-        ["resourceVersion"] = "1.0",
-        ["resourceContainers"] = new JsonObject
-        {
-            ["collection"] = new JsonObject { ["id"] = "c0ffee", ["baseUrl"] = organization },
-        },
-    };
+            ["resourceVersion"] = "1.0",
+            ["resourceContainers"] = new JsonObject
+            {
+                ["collection"] = new JsonObject { ["id"] = "c0ffee", ["baseUrl"] = organization },
+            },
+        };
 
     private static JsonObject Advice(string id, string kind, string statement, string evidence, string state = "UNVERIFIED") => new()
     {
