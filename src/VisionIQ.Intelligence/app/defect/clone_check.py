@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 
 from app.defect.pipeline import _WORKSPACE_TEXT, FixSettings
 from app.defect.policy import RepositoryPolicy, load_policy
-from app.defect.workspace import WorkspaceError, prepare, run_git
+from app.defect.workspace import WorkspaceError, clone_credentials, prepare, run_git
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,11 @@ def check(repo: RepositoryPolicy, base_sha: str, settings: FixSettings, root: Pa
     parts = urlsplit(repo.source)
     where = parts.hostname or "a local path"
     token = "configured" if settings.repo_access_token else "not configured"
+    sent = clone_credentials(
+        repo.source, settings.repo_access_token, settings.repo_organization_url
+    )
+    if settings.repo_access_token and not sent and parts.hostname:
+        token += " but NOT sent: the repository is not in the organization of ADO_ORG_URL"
     download = "the pinned commit only" if settings.repo_fetch == "commit" else "the repository"
     lines = [
         f"repository      {repo.repository_id} ({where})",
@@ -56,7 +61,7 @@ def check(repo: RepositoryPolicy, base_sha: str, settings: FixSettings, root: Pa
                 base_sha,
                 target,
                 access_token=settings.repo_access_token,
-                token_hosts=settings.repo_token_hosts,
+                organization_url=settings.repo_organization_url,
                 cache_dir=settings.repo_cache_dir,
                 fetch=settings.repo_fetch,
             )

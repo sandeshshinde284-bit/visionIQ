@@ -175,10 +175,11 @@ services:
       # (docs/features/DEFECT-ARCHITECTURE.md).
       DEFECT_PIPELINE_ENABLED: ${DEFECT_PIPELINE_ENABLED:-false}
       DEFECT_POLICY_FILE: ${DEFECT_POLICY_FILE:-}
-      # Read-only token (Code: Read) used only to clone a private repository; never the comment
-      # or pull-request token. Keep it in .env (git-ignored), never in this file.
-      DEFECT_REPO_READ_PAT: ${DEFECT_REPO_READ_PAT:-}
-      DEFECT_REPO_TOKEN_HOSTS: ${DEFECT_REPO_TOKEN_HOSTS:-dev.azure.com}
+      # The existing ADO settings, as for the API: a fix run uses the read token only to clone
+      # the repository under test and sends it only to repositories of this organization. Keep
+      # the token in .env (git-ignored), never in this file.
+      ADO_ORG_URL: ${ADO_ORG_URL:-}
+      ADO_READ_PAT: ${ADO_READ_PAT:-}
       DEFECT_REPO_CACHE_DIR: ${DEFECT_REPO_CACHE_DIR:-}
       DEFECT_REPO_FETCH: ${DEFECT_REPO_FETCH:-full}
       DEFECT_MODEL_SELECTION: ${DEFECT_MODEL_SELECTION:-fixed}

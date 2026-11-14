@@ -13,6 +13,11 @@ from dataclasses import dataclass
 
 from app.llm.routing import TIERS
 
+# Not settings: nobody has data to tune them yet. Change them here once real fix runs show how
+# the first tier compared with how each run went.
+SIMPLE_MAX_FILES = 2
+COMPLEX_MIN_FILES = 6
+
 
 @dataclass(frozen=True)
 class Complexity:
@@ -25,8 +30,8 @@ def assess(
     scope_files: int,
     risk_band: str | None,
     restricted_areas: Sequence[str],
-    simple_max_files: int = 2,
-    complex_min_files: int = 6,
+    simple_max_files: int = SIMPLE_MAX_FILES,
+    complex_min_files: int = COMPLEX_MIN_FILES,
 ) -> Complexity:
     """Rate a run simple, standard or complex."""
     reasons = [f"restricted_area_{area}" for area in sorted(set(restricted_areas))]

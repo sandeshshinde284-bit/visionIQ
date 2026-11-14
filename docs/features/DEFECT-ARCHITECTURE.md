@@ -276,7 +276,7 @@ defaults nothing changes.
 
 | Need | Setting | What it does |
 | --- | --- | --- |
-| Clone a private repository | `DEFECT_REPO_READ_PAT` (scope *Code: Read*), `DEFECT_REPO_TOKEN_HOSTS` | Authenticates only the clone. The token goes to git through its environment as a host-scoped HTTP header: never on the command line, never in the clone's config, only over HTTPS to an approved host. |
+| Clone a private repository | `ADO_READ_PAT`, `ADO_ORG_URL` (the existing settings; scope *Code: Read* is enough) | Authenticates only the clone. The token goes to git through its environment as an HTTP header scoped to the organization: never on the command line, never in the clone's config, only over HTTPS, and only to repositories of `ADO_ORG_URL` (not to another organization on the same host). Redirects are refused. |
 | Do not download the repository on every run | `DEFECT_REPO_CACHE_DIR` | One local bare mirror per repository. No network when the pinned commit is already there; otherwise only new commits are fetched. Each run still clones its own copy, so runs cannot affect each other or the mirror. |
 | Download only what a run uses | `DEFECT_REPO_FETCH=commit` | Fetches the single commit the run is pinned to instead of cloning the repository with its history. A run never reads history: it lists and checks out that commit, commits on top, diffs, exports and bundles, and the bundle still applies to a full clone. If the server does not hand out a single commit the repository is cloned as before, so the mode cannot make a run fail. With the cache, single commits are kept in their own local store. |
 | A .NET repository without changes to it | recipe `--results-directory . --logger trx;LogFileName={junit}` | The report at `{junit}` may be JUnit XML or TRX (xUnit, NUnit, MSTest). Only `Passed` is a pass; an unclear outcome is an error. |
@@ -289,9 +289,13 @@ The routing table sends the two code tasks (reproduction test, fix) to Claude. W
 
 | Tier | When |
 | --- | --- |
-| simple | brief risk band `LOW`, 1 to `DEFECT_SIMPLE_MAX_FILES` files in scope, no restricted area |
-| complex | risk band `HIGH`, or a restricted area in scope, or `DEFECT_COMPLEX_MIN_FILES` files or more |
+| simple | brief risk band `LOW`, 1 or 2 files in scope, no restricted area |
+| complex | risk band `HIGH`, or a restricted area in scope, or 6 files or more |
 | standard | everything else, including a run with no brief or an unresolved scope |
+
+The two file counts (2 and 6) are constants in `app/defect/complexity.py`, not settings: there is no
+data yet to tune them with. Change them there once real fix runs show how the first tier compared
+with how each run went.
 
 Each tier names a provider and optionally a model (`gemini`, `claude:claude-haiku-5-5`, ...). A
 failed attempt is retried one tier up. If a tier's model returns an error, the usual route is
@@ -333,7 +337,7 @@ logged or stored (it can quote addresses and account names).
 | Code | Meaning | What to check |
 | --- | --- | --- |
 | `git_not_installed` | No `git` executable where the pipeline runs | Rebuild the Intelligence image; on a host, install Git |
-| `repository_access_denied` | The server refused the request (401/403, or no credentials) | `DEFECT_REPO_READ_PAT` is set, has scope *Code: Read*, has not expired, and belongs to an account that may read the repository |
+| `repository_access_denied` | The server refused the request (401/403, or no credentials) | `ADO_READ_PAT` is set, has scope *Code: Read*, has not expired, and belongs to an account that may read the repository; and the repository's address is in the organization of `ADO_ORG_URL` (the token is sent nowhere else) |
 | `repository_not_found` | The repository does not exist at that address, or the token may not see it | `source` in the fix policy; the token's organization |
 | `repository_unreachable` | DNS, connection or TLS failure | Network, proxy, firewall |
 | `repository_redirected` | The address redirects; redirects are refused when a token is sent | Use the final address in the fix policy |
@@ -351,7 +355,7 @@ Local Docker (PowerShell, from the repository root). Only the Intelligence servi
 restarted; the database, its volume and the other containers are not touched.
 
 ```powershell
-# 1. In .env (never commit it): DEFECT_REPO_READ_PAT=<token>, and
+# 1. In .env (never commit it): ADO_ORG_URL and ADO_READ_PAT (the settings you already have), and
 #    DEFECT_POLICY_FILE=/app/config/defect-policy.local.json  (a copy of the example in .\config)
 
 # 2. Build the image and restart only this service
@@ -381,7 +385,7 @@ Expected in step 5: `commit matches  yes`, `token in config none`, `RESULT: OK`.
 $env:VISIONIQ_REAL_CLONE_TEST = "1"
 $env:VISIONIQ_REAL_CLONE_URL  = "https://dev.azure.com/<organization>/<project>/_git/<repository>"
 $env:VISIONIQ_REAL_CLONE_SHA  = "<40-hex commit>"
-# DEFECT_REPO_READ_PAT must be set in this session as well
+# ADO_ORG_URL and ADO_READ_PAT must be set in this session as well
 python -m pytest tests/intelligence/test_defect_clone_review.py -k real -v
 ```
 
@@ -391,8 +395,8 @@ Without `VISIONIQ_REAL_CLONE_TEST=1` both tests are reported as **skipped**, nev
 
 | Setting | Value |
 | --- | --- |
-| `DEFECT_REPO_READ_PAT` | Secret Manager secret (suggested name `visioniq-defect-repo-read-pat`), a fixed version; the runtime service account needs *Secret Manager Secret Accessor* on it. A separate token from the comment and pull-request tokens, scope *Code: Read* only. |
-| `DEFECT_REPO_TOKEN_HOSTS` | `dev.azure.com` |
+| `ADO_READ_PAT` | The same setting the API uses; the Intelligence service did not have it before. Map a Secret Manager secret (a fixed version; the runtime service account needs *Secret Manager Secret Accessor* on it). **Recommended: give this service its own token with scope *Code: Read* only.** It clones and does nothing else in Azure DevOps, so it does not need the wider token the sync uses; each Cloud Run service maps its own secret, so the name stays the same. |
+| `ADO_ORG_URL` | The same value as on the API, for example `https://dev.azure.com/<organization>`. The read token is sent only to repositories under this address. |
 | `DEFECT_POLICY_FILE` | A path inside the container. **The image does not contain `config/`**, so the policy must be mounted, for example as a Secret Manager volume (`/app/config/defect-policy.json`). The same holds for the API's `PICKUP_POLICY_FILE`: without it ticket pickup is off. |
 | `DEFECT_WORK_DIR`, `DEFECT_REPO_CACHE_DIR` | By default Cloud Run's writable file system is in memory and counts against the instance's memory limit. Cloud Run can also mount a per-instance **ephemeral disk** (see Google Cloud's documentation on ephemeral disks for Cloud Run), which does not use memory: point both settings at it. Either way the storage is deleted when the instance stops and is not shared between instances, so a cache there only helps while an instance stays warm. |
 | `DEFECT_REPO_FETCH` | `commit`. A run then downloads one commit, not the repository's history, which is what makes a persistent cache unnecessary in the cloud. Add a persistent volume only if measured clone times justify it. |
@@ -408,7 +412,7 @@ $p = "gbr-mts-wgh-hkt-dev"; $r = "europe-west3"
 gcloud run services describe visioniq-intelligence --project $p --region $r --format "value(spec.template.spec.containers[0].image)"
 gcloud run services describe visioniq-intelligence --project $p --region $r --format "yaml(spec.template.spec.containers[0].env, spec.template.spec.volumes)"
 # The secret exists and has an enabled version
-gcloud secrets versions list visioniq-defect-repo-read-pat --project $p --filter "state=ENABLED" --format "value(name)"
+gcloud secrets versions list <secret mapped to ADO_READ_PAT> --project $p --filter "state=ENABLED" --format "value(name)"
 ```
 
 After a deployment, run the clone check once with the same image, settings and service account,

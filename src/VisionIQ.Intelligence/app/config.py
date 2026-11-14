@@ -120,10 +120,12 @@ class Settings(BaseSettings):
     defect_keep_workspaces: bool = False
     defect_bot_name: str = "VisionIQ Bot"
     defect_bot_email: str = "visioniq-bot@users.noreply.invalid"
-    # Read-only (Code: Read) token used ONLY to clone a private repository for a fix run, and the
-    # hosts it may be sent to. Without it only a local path or a public repository can be cloned.
-    defect_repo_read_pat: SecretStr | None = None
-    defect_repo_token_hosts: str = "dev.azure.com"
+    # The same two settings the API and the ingestor use (no separate ones for a fix run).
+    # A fix run uses the read token ONLY to clone the repository under test, and sends it ONLY to
+    # repositories of this organization. Without them only a local path or a public repository
+    # can be cloned. Give this service a token with scope Code: Read; it needs nothing else.
+    ado_org_url: str | None = None
+    ado_read_pat: SecretStr | None = None
     # A local mirror of each cloned repository: the first fix run downloads it, later runs only
     # fetch new commits. Every run still works on its own fresh copy. Unset: clone every time.
     defect_repo_cache_dir: Path | None = None
@@ -140,10 +142,6 @@ class Settings(BaseSettings):
     defect_model_simple: str = ""
     defect_model_standard: str = ""
     defect_model_complex: str = ""
-    # Simple: at most this many files in scope (and a LOW risk band, no restricted area).
-    defect_simple_max_files: int = Field(default=2, ge=1, le=50)
-    # Complex: at least this many files in scope (or a HIGH risk band, or a restricted area).
-    defect_complex_min_files: int = Field(default=6, ge=2, le=200)
     # Per-run budget of a fix. The seconds cover the test runs as well as the model calls.
     defect_max_calls_per_run: int = Field(default=6, ge=1, le=30)
     defect_max_tokens_per_run: int = Field(default=400_000, ge=1_000, le=5_000_000)

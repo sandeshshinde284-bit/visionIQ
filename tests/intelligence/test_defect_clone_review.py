@@ -128,7 +128,8 @@ def test_every_clone_failure_has_a_text_that_says_what_to_check() -> None:
     }
 
     assert codes <= set(_WORKSPACE_TEXT)
-    assert "DEFECT_REPO_READ_PAT" in _WORKSPACE_TEXT["repository_access_denied"]
+    denied = _WORKSPACE_TEXT["repository_access_denied"]
+    assert "ADO_READ_PAT" in denied and "ADO_ORG_URL" in denied
 
 
 # ---- One settings builder for the background worker and the command line ------------------------
@@ -136,8 +137,8 @@ def test_every_clone_failure_has_a_text_that_says_what_to_check() -> None:
 
 def service_configuration(**overrides) -> SimpleNamespace:
     values = {
-        "defect_repo_read_pat": SecretStr(SECRET),
-        "defect_repo_token_hosts": "dev.azure.com, acme.visualstudio.com ,",
+        "ado_read_pat": SecretStr(SECRET),
+        "ado_org_url": "https://dev.azure.com/acme",
         "defect_repo_cache_dir": Path("/var/cache/visioniq"),
         "defect_repo_fetch": "commit",
         "defect_artifact_dir": Path("/var/artifacts"),
@@ -149,8 +150,6 @@ def service_configuration(**overrides) -> SimpleNamespace:
         "defect_bot_name": "Some Bot",
         "defect_bot_email": "bot@example.invalid",
         "defect_model_selection": "by_complexity",
-        "defect_simple_max_files": 3,
-        "defect_complex_min_files": 9,
         "llm_data_classification": "RESTRICTED",
         "app_env": "development",
         "defect_allow_local_runner": True,
@@ -162,13 +161,9 @@ def test_every_fix_setting_comes_from_the_service_configuration(tmp_path: Path) 
     built = FixSettings.from_app(service_configuration(), tmp_path, production=True)
 
     assert built.repo_access_token == SECRET
-    assert built.repo_token_hosts == ("dev.azure.com", "acme.visualstudio.com")
+    assert built.repo_organization_url == "https://dev.azure.com/acme"
     assert built.repo_cache_dir == Path("/var/cache/visioniq")
-    assert (built.model_selection, built.simple_max_files, built.complex_min_files) == (
-        "by_complexity",
-        3,
-        9,
-    )
+    assert built.model_selection == "by_complexity"
     # A field added to FixSettings later must be wired here too: with distinctive values, none
     # may still hold its default (work_dir and artifact_dir have none).
     defaults = {f.name: f.default for f in dataclasses.fields(FixSettings)}
@@ -181,7 +176,7 @@ def test_every_fix_setting_comes_from_the_service_configuration(tmp_path: Path) 
 
 
 def test_without_a_token_none_is_passed_on(tmp_path: Path) -> None:
-    built = FixSettings.from_app(service_configuration(defect_repo_read_pat=None), tmp_path)
+    built = FixSettings.from_app(service_configuration(ado_read_pat=None), tmp_path)
 
     assert built.repo_access_token is None
 
@@ -316,6 +311,53 @@ def test_the_clone_check_prints_neither_the_token_nor_the_full_address(tmp_path:
     assert SECRET not in text and "acme" not in text and "_git" not in text
 
 
+def test_the_clone_check_says_when_a_token_exists_but_will_not_be_sent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    demo = make_demo(tmp_path)
+    elsewhere = demo.policy.repositories[0].model_copy(
+        update={"source": "https://dev.azure.com/someone-else/Shop/_git/shop"}
+    )
+    settings = dataclasses.replace(
+        fix_settings(tmp_path),
+        repo_access_token=SECRET,
+        repo_organization_url="https://dev.azure.com/acme",
+    )
+    root = tmp_path / "check"
+    root.mkdir()
+
+    def refused(arguments, **options):  # no network: the server answers "not allowed"
+        assert "GIT_CONFIG_VALUE_0" not in options["env"]  # the token really was not sent
+        return subprocess.CompletedProcess(arguments, 128, b"", b"fatal: Authentication failed")
+
+    monkeypatch.setattr(workspace.subprocess, "run", refused)
+
+    result = clone_check.check(elsewhere, "a" * 40, settings, root)
+
+    text = "\n".join(result.lines)
+    assert result.code == "repository_access_denied"
+    assert "NOT sent: the repository is not in the organization of ADO_ORG_URL" in text
+    assert SECRET not in text and "someone-else" not in text
+
+
+def test_a_fix_run_reuses_the_existing_ado_settings_and_adds_no_token_setting() -> None:
+    from test_config import settings as app_settings
+
+    chosen = app_settings(ado_org_url="https://dev.azure.com/acme", ado_read_pat="read-token")
+    removed = {
+        "defect_repo_read_pat",
+        "defect_repo_token_hosts",
+        "defect_simple_max_files",
+        "defect_complex_min_files",
+    }
+
+    assert chosen.ado_org_url == "https://dev.azure.com/acme"
+    assert chosen.ado_read_pat.get_secret_value() == "read-token"
+    assert "read-token" not in repr(chosen)  # a secret, never shown
+    assert not removed & set(type(chosen).model_fields)
+    assert app_settings().ado_read_pat is None and app_settings().ado_org_url is None
+
+
 # ---- The image and the local stack --------------------------------------------------------------
 
 
@@ -336,8 +378,10 @@ def test_the_local_stack_passes_the_clone_settings_and_mounts_the_policy_read_on
     service = compose["services"]["intelligence"]
     environment = service["environment"]
 
-    assert environment["DEFECT_REPO_READ_PAT"] == "${DEFECT_REPO_READ_PAT:-}"  # from .env only
-    assert environment["DEFECT_REPO_TOKEN_HOSTS"] == "${DEFECT_REPO_TOKEN_HOSTS:-dev.azure.com}"
+    # The existing settings, from .env only: no separate token or host list for a fix run.
+    assert environment["ADO_READ_PAT"] == "${ADO_READ_PAT:-}"
+    assert environment["ADO_ORG_URL"] == "${ADO_ORG_URL:-}"
+    assert not [name for name in environment if name.startswith("DEFECT_REPO_READ")]
     assert "./config:/app/config:ro" in service["volumes"]
 
 
@@ -346,7 +390,7 @@ def test_the_local_stack_passes_the_clone_settings_and_mounts_the_policy_read_on
 REAL = os.environ.get("VISIONIQ_REAL_CLONE_TEST") == "1"
 real_only = pytest.mark.skipif(
     not REAL,
-    reason="Opt-in: set VISIONIQ_REAL_CLONE_TEST=1, DEFECT_REPO_READ_PAT, "
+    reason="Opt-in: set VISIONIQ_REAL_CLONE_TEST=1, ADO_ORG_URL, ADO_READ_PAT, "
     "VISIONIQ_REAL_CLONE_URL and VISIONIQ_REAL_CLONE_SHA (read-only, no fakes)",
 )
 
@@ -355,10 +399,12 @@ real_only = pytest.mark.skipif(
 def test_real_private_repository_is_cloned_at_the_exact_commit(tmp_path: Path) -> None:
     source = os.environ["VISIONIQ_REAL_CLONE_URL"]
     sha = os.environ["VISIONIQ_REAL_CLONE_SHA"]
-    token = os.environ["DEFECT_REPO_READ_PAT"]
-    hosts = tuple(os.environ.get("DEFECT_REPO_TOKEN_HOSTS", "dev.azure.com").split(","))
+    token = os.environ["ADO_READ_PAT"]
+    organization = os.environ["ADO_ORG_URL"]
 
-    prepared = prepare(source, sha, tmp_path / "run", access_token=token, token_hosts=hosts)
+    prepared = prepare(
+        source, sha, tmp_path / "run", access_token=token, organization_url=organization
+    )
 
     assert workspace.run_git(prepared.base, ["rev-parse", "HEAD"]).strip() == sha
     assert prepared.files()
@@ -369,7 +415,7 @@ def test_real_private_repository_is_cloned_at_the_exact_commit(tmp_path: Path) -
 @real_only
 def test_real_private_repository_refuses_a_wrong_token(tmp_path: Path) -> None:
     source = os.environ["VISIONIQ_REAL_CLONE_URL"]
-    hosts = tuple(os.environ.get("DEFECT_REPO_TOKEN_HOSTS", "dev.azure.com").split(","))
+    organization = os.environ["ADO_ORG_URL"]
 
     with pytest.raises(WorkspaceError) as error:
         prepare(
@@ -377,7 +423,7 @@ def test_real_private_repository_refuses_a_wrong_token(tmp_path: Path) -> None:
             os.environ["VISIONIQ_REAL_CLONE_SHA"],
             tmp_path / "run",
             access_token="not-a-valid-token",
-            token_hosts=hosts,
+            organization_url=organization,
         )
 
     assert error.value.code in {"repository_access_denied", "repository_not_found"}

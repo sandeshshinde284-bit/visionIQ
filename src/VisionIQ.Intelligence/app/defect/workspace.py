@@ -27,7 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import structlog
 
@@ -121,28 +121,49 @@ def _git_environment() -> dict[str, str]:
 
 
 def clone_credentials(
-    source: str, access_token: str | None, token_hosts: Sequence[str]
+    source: str, access_token: str | None, organization_url: str | None
 ) -> dict[str, str]:
     """Extra git environment that authenticates ONE clone of a private HTTPS repository.
 
     The token is sent as an HTTP header through git's environment configuration: it is never on
     the command line (visible in process lists), never written to the clone's config and never
-    used by a later command. It is sent only over HTTPS and only to an approved host, so a
-    source URL in the policy file cannot redirect it elsewhere. Redirects are refused for this
-    clone: after following one, git would keep sending the header to the new location. A local
-    path needs no token.
+    used by a later command.
+
+    It is sent only over HTTPS and only to a repository of ``organization_url`` (ADO_ORG_URL,
+    for example https://dev.azure.com/acme): not to another organization on the same host, not
+    to another host, and so not wherever a source address in the policy file might point. The
+    header is scoped to the organization as the source writes it, because git compares the path
+    exactly while Azure DevOps ignores its case. Redirects are refused for this clone: after
+    following one, git would keep sending the header to the new location. A local path needs
+    no token.
     """
-    if not access_token:
+    if not access_token or not organization_url:
         return {}
-    parts = urlsplit(source)
-    if parts.scheme != "https" or (parts.hostname or "").lower() not in {
-        host.lower() for host in token_hosts
-    }:
+    repository, organization = urlsplit(source), urlsplit(organization_url.strip())
+    if repository.scheme != "https" or organization.scheme != "https":
         return {}
+    try:
+        same_server = (
+            bool(repository.hostname)
+            and repository.hostname.lower() == (organization.hostname or "").lower()
+            and (repository.port or 443) == (organization.port or 443)
+        )
+    except ValueError:  # a port that is not a number
+        return {}
+    wanted = [unquote(part).lower() for part in organization.path.split("/") if part]
+    written = [part for part in repository.path.split("/") if part]
+    if (
+        not same_server
+        or any(unquote(part) in (".", "..") for part in written)
+        or [unquote(part).lower() for part in written[: len(wanted)]] != wanted
+    ):
+        return {}
+    server = repository.hostname + (f":{repository.port}" if repository.port else "")
+    scope = "".join(f"{part}/" for part in written[: len(wanted)])
     basic = base64.b64encode(f":{access_token}".encode()).decode("ascii")
     return {
         "GIT_CONFIG_COUNT": "2",
-        "GIT_CONFIG_KEY_0": f"http.{parts.scheme}://{parts.hostname}/.extraHeader",
+        "GIT_CONFIG_KEY_0": f"http.https://{server}/{scope}.extraHeader",
         "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
         "GIT_CONFIG_KEY_1": "http.followRedirects",
         "GIT_CONFIG_VALUE_1": "false",
@@ -499,7 +520,7 @@ def prepare(
     bot_name: str = "VisionIQ Bot",
     bot_email: str = "visioniq-bot@users.noreply.invalid",
     access_token: str | None = None,
-    token_hosts: Sequence[str] = ("dev.azure.com",),
+    organization_url: str | None = None,
     cache_dir: Path | None = None,
     fetch: str = "full",
 ) -> Workspace:
@@ -510,7 +531,7 @@ def prepare(
     the mode can only make a run faster, never make it fail.
 
     ``access_token`` (a read-only repository token) authenticates the clone of a private HTTPS
-    repository on one of ``token_hosts``; see :func:`clone_credentials`. With ``cache_dir`` a
+    repository of ``organization_url``; see :func:`clone_credentials`. With ``cache_dir`` a
     remote repository is downloaded once into a local mirror and only new commits are fetched
     afterwards; see :func:`update_cache`.
 
@@ -525,7 +546,7 @@ def prepare(
     workspace = Workspace(root, base_sha, bot_name, bot_email)
     try:
         try:
-            credentials = clone_credentials(source, access_token, token_hosts)
+            credentials = clone_credentials(source, access_token, organization_url)
             fetched = False
             if fetch == "commit":
                 try:

@@ -130,8 +130,9 @@ _WORKSPACE_TEXT = {
     "repository_unavailable": "The repository could not be cloned.",
     "git_not_installed": "Git is not installed where the fix pipeline runs.",
     "repository_access_denied": (
-        "Access to the repository was denied: check the read token (DEFECT_REPO_READ_PAT, "
-        "scope Code: Read) and that it has not expired."
+        "Access to the repository was denied: check that ADO_READ_PAT is set, has scope "
+        "Code: Read and has not expired, and that the repository belongs to the organization "
+        "of ADO_ORG_URL (the token is sent nowhere else)."
     ),
     "repository_not_found": (
         "The repository was not found: check its address in the fix policy, and that the read "
@@ -172,7 +173,7 @@ class FixSettings:
     production: bool = False
     # Read-only token for cloning a private repository, and the hosts it may be sent to.
     repo_access_token: str | None = None
-    repo_token_hosts: tuple[str, ...] = ("dev.azure.com",)
+    repo_organization_url: str | None = None
     # A local mirror per repository, so only new commits are downloaded. None: clone every time.
     repo_cache_dir: Path | None = None
     # "full": clone the repository. "commit": download only the pinned commit (falls back to a
@@ -180,8 +181,6 @@ class FixSettings:
     repo_fetch: str = "full"
     # "fixed": the code tasks follow the routing table. "by_complexity": see app/defect/complexity.
     model_selection: str = "fixed"
-    simple_max_files: int = 2
-    complex_min_files: int = 6
 
     @staticmethod
     def local_runner_refused(app: Any) -> bool:
@@ -210,7 +209,7 @@ class FixSettings:
         """
         if production is None:
             production = cls.local_runner_refused(app)
-        token = app.defect_repo_read_pat
+        token = app.ado_read_pat
         return cls(
             work_dir=work_dir / "work",
             artifact_dir=artifact_dir or app.defect_artifact_dir or work_dir / "artifacts",
@@ -226,14 +225,10 @@ class FixSettings:
             artifact_base_uri=app.defect_artifact_base_uri,
             production=production,
             repo_access_token=token.get_secret_value() if token else None,
-            repo_token_hosts=tuple(
-                host.strip() for host in app.defect_repo_token_hosts.split(",") if host.strip()
-            ),
+            repo_organization_url=app.ado_org_url,
             repo_cache_dir=app.defect_repo_cache_dir,
             repo_fetch=app.defect_repo_fetch,
             model_selection=app.defect_model_selection,
-            simple_max_files=app.defect_simple_max_files,
-            complex_min_files=app.defect_complex_min_files,
         )
 
 
@@ -388,7 +383,7 @@ class _FixRun:
                 self.settings.bot_name,
                 self.settings.bot_email,
                 self.settings.repo_access_token,
-                self.settings.repo_token_hosts,
+                self.settings.repo_organization_url,
                 self.settings.repo_cache_dir,
                 self.settings.repo_fetch,
             )
@@ -454,8 +449,6 @@ class _FixRun:
             len(code),
             self.sources.brief_risk_band(ticket.project, ticket.id),
             areas,
-            self.settings.simple_max_files,
-            self.settings.complex_min_files,
         )
         _log().info(
             "fix_model_tier", tier=self.complexity.tier, reasons=list(self.complexity.reasons)
