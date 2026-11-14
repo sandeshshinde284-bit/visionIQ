@@ -104,8 +104,12 @@ def _is_remote(source: str) -> bool:
 
 @contextlib.contextmanager
 def _cache_lock(cache: Path, timeout_seconds: float):
-    """One process at a time updates a repository's mirror. A lock left by a crashed run is
-    taken over once it is older than the longest an update may take."""
+    """One process at a time updates a repository's mirror.
+
+    A waiting run gives up after ``timeout_seconds`` (the longest an update may take). A lock
+    left behind by a crashed run is taken over only after twice that long, so a lock that is
+    still legitimately held is never mistaken for an abandoned one.
+    """
     lock = cache.with_name(cache.name + ".lock")
     deadline = time.monotonic() + timeout_seconds
     while True:
@@ -114,7 +118,7 @@ def _cache_lock(cache: Path, timeout_seconds: float):
             break
         except FileExistsError:
             with contextlib.suppress(OSError):
-                if time.time() - lock.stat().st_mtime > timeout_seconds:
+                if time.time() - lock.stat().st_mtime > 2 * timeout_seconds:
                     lock.rmdir()
                     continue
             if time.monotonic() > deadline:
