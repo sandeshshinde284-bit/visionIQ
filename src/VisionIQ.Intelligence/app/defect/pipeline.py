@@ -153,6 +153,9 @@ class FixSettings:
     # Prefix of a log's address in the result, e.g. "gs://bucket/fix-runs/". Empty: relative.
     artifact_base_uri: str = ""
     production: bool = False
+    # Read-only token for cloning a private repository, and the hosts it may be sent to.
+    repo_access_token: str | None = None
+    repo_token_hosts: tuple[str, ...] = ("dev.azure.com",)
 
 
 @dataclass(frozen=True)
@@ -301,6 +304,8 @@ class _FixRun:
                 self.settings.work_dir / str(request.run_id),
                 self.settings.bot_name,
                 self.settings.bot_email,
+                self.settings.repo_access_token,
+                self.settings.repo_token_hosts,
             )
         except WorkspaceError as error:
             self.limitations.append(
