@@ -17,7 +17,13 @@ import structlog
 from jsonschema import Draft202012Validator
 
 from app.llm.prompts import TEMPLATES, render_user_prompt
-from app.llm.routing import ROUTING_REVISION, RoutingDecision, RoutingPolicy
+from app.llm.routing import (
+    REASON_TIER_FALLBACK,
+    REASON_TIER_PREFIX,
+    ROUTING_REVISION,
+    RoutingDecision,
+    RoutingPolicy,
+)
 from app.llm.types import (
     DataClassification,
     EvidenceContext,
@@ -107,16 +113,34 @@ class ModelGateway:
         self._max_output_tokens = max_output_tokens
 
     def generate(
-        self, kind: TaskKind, context: EvidenceContext, ledger: RunLedger
+        self,
+        kind: TaskKind,
+        context: EvidenceContext,
+        ledger: RunLedger,
+        tier: str | None = None,
     ) -> GatewayOutcome:
-        """Run ``kind`` on its routed provider; after a provider error, try one fallback."""
-        decision = self._routing.primary(kind, ledger.classification)
+        """Run ``kind`` on its routed provider; after a provider error, try one fallback.
+
+        ``tier`` (model selection by complexity) asks for that tier's provider on a code task.
+        If that provider returns an error, the task's normal route is tried once.
+        """
+        decision = self._routing.primary(kind, ledger.classification, tier)
         if decision.provider is None:
             structlog.get_logger().warning(
                 "llm_not_routed", task=kind.value, reason=decision.reason
             )
             return GatewayOutcome(None, REASON_NO_PROVIDER)
         outcome = self._call(kind, context, ledger, decision)
+        if outcome.reason == REASON_UNAVAILABLE and decision.reason.startswith(REASON_TIER_PREFIX):
+            usual = self._routing.primary(kind, ledger.classification)
+            if usual.provider is not None and usual.provider is not decision.provider:
+                retry = self._call(
+                    kind,
+                    context,
+                    ledger,
+                    RoutingDecision(usual.provider, "fallback", REASON_TIER_FALLBACK),
+                )
+                return retry if retry.reason is None else GatewayOutcome(None, retry.reason)
         failed_result = outcome.result
         if outcome.reason != REASON_UNAVAILABLE or failed_result is None:
             return outcome if outcome.reason is None else GatewayOutcome(None, outcome.reason)
