@@ -48,7 +48,7 @@ from app.defect.generate import (
 )
 from app.defect.performance import compare, measure_pairs
 from app.defect.policy import DefectPolicy, RepositoryPolicy, RunnerPolicy, matches, render
-from app.defect.results import CheckVerdict, Observation, classify, parse_junit, run_with_policy
+from app.defect.results import CheckVerdict, Observation, classify, parse_report, run_with_policy
 from app.defect.runner import Runner, RunResult, build_runner, store_log
 from app.defect.schema import (
     Attempt,
@@ -529,7 +529,7 @@ class _FixRun:
             run = self.runner.run(argv, root, min(timeout, remaining), log)
         outcome: Outcome
         if not benchmark:
-            outcome, signature = classify(run, parse_junit(output), test_id, expected)
+            outcome, signature = classify(run, parse_report(output), test_id, expected)
         elif run.error is not None:
             outcome, signature = "ENVIRONMENT_ERROR", run.error
         elif run.timed_out:
