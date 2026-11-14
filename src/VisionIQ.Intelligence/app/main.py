@@ -76,14 +76,13 @@ def build_fix_worker(settings: Settings, context: EventContext):
     from app.defect.worker import FixWorker
     from app.knowledge import embeddings
     from app.llm.factory import build_gateway
-    from app.llm.types import DataClassification
 
     if settings.defect_policy_file is None:
         raise ValueError("DEFECT_POLICY_FILE is required when DEFECT_PIPELINE_ENABLED is true.")
     policy = load_policy(settings.defect_policy_file)
     # Refused unless it was allowed on purpose: a forgotten APP_ENV must not be enough to run
     # model-written code on the host.
-    production = settings.app_env == "production" or not settings.defect_allow_local_runner
+    production = FixSettings.local_runner_refused(settings)
     if production and any(repo.runner.kind == "local" for repo in policy.repositories):
         raise ValueError(
             "The local runner has no network isolation. Use a docker runner, or set "
@@ -104,19 +103,7 @@ def build_fix_worker(settings: Settings, context: EventContext):
         sources_for,
         build_gateway(settings),
         policy,
-        FixSettings(
-            work_dir=work_dir / "work",
-            artifact_dir=settings.defect_artifact_dir or work_dir / "artifacts",
-            classification=DataClassification(settings.llm_data_classification),
-            max_calls=settings.defect_max_calls_per_run,
-            max_tokens=settings.defect_max_tokens_per_run,
-            max_seconds=settings.defect_max_seconds_per_run,
-            keep_workspace=settings.defect_keep_workspaces,
-            bot_name=settings.defect_bot_name,
-            bot_email=settings.defect_bot_email,
-            artifact_base_uri=settings.defect_artifact_base_uri,
-            production=production,
-        ),
+        FixSettings.from_app(settings, work_dir),
         context,
     )
 

@@ -47,6 +47,11 @@ services:
     environment:
       PUBSUB_EMULATOR_HOST: pubsub:8085
       PUBSUB_PROJECT_ID: visioniq-local
+      # Where the emulator pushes events. Defaults are the services in this file. To run a service
+      # on the host instead (Intelligence needs that for the fix pipeline and for Google
+      # credentials), point its URL at the host, e.g. http://host.docker.internal:8000.
+      EVENTS_PUSH_BASE_URL_API: ${EVENTS_PUSH_BASE_URL_API:-http://api:5100}
+      EVENTS_PUSH_BASE_URL_INTELLIGENCE: ${EVENTS_PUSH_BASE_URL_INTELLIGENCE:-http://intelligence:8000}
     command: ["python", "-m", "app.events.emulator_setup"]
     restart: "no"
 
@@ -163,13 +168,29 @@ services:
       # Only read when CLAUDE_ROUTE=anthropic. Keep the key in .env (git-ignored), never in this file.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # DEF-01 to DEF-06 fix pipeline (deep analysis): off unless DEFECT_PIPELINE_ENABLED=true, and
-      # then DEFECT_POLICY_FILE must name a policy inside the container. This image has no git and
-      # no test runner yet, so for now run the pipeline on the host: python -m app.defect.cli
+      # then DEFECT_POLICY_FILE must name a policy inside the container (./config is mounted at
+      # /app/config, e.g. /app/config/defect-policy.local.json). The image has git, so a
+      # repository can be cloned here (check: python -m app.defect.clone_check). It has no test
+      # runner and no Google credentials, so a complete fix run still needs the host
       # (docs/features/DEFECT-ARCHITECTURE.md).
       DEFECT_PIPELINE_ENABLED: ${DEFECT_PIPELINE_ENABLED:-false}
       DEFECT_POLICY_FILE: ${DEFECT_POLICY_FILE:-}
+      # The existing ADO settings, as for the API: a fix run uses the read token only to clone
+      # the repository under test and sends it only to repositories of this organization. Keep
+      # the token in .env (git-ignored), never in this file.
+      ADO_ORG_URL: ${ADO_ORG_URL:-}
+      ADO_READ_PAT: ${ADO_READ_PAT:-}
+      DEFECT_REPO_CACHE_DIR: ${DEFECT_REPO_CACHE_DIR:-}
+      DEFECT_REPO_FETCH: ${DEFECT_REPO_FETCH:-full}
+      DEFECT_MODEL_SELECTION: ${DEFECT_MODEL_SELECTION:-fixed}
+      DEFECT_MODEL_SIMPLE: ${DEFECT_MODEL_SIMPLE:-}
+      DEFECT_MODEL_STANDARD: ${DEFECT_MODEL_STANDARD:-}
+      DEFECT_MODEL_COMPLEX: ${DEFECT_MODEL_COMPLEX:-}
       # BRF-08 hotspot sweep every N hours (0 = only on demand: python -m app.hotspots.cli).
       HOTSPOT_SWEEP_INTERVAL_HOURS: ${HOTSPOT_SWEEP_INTERVAL_HOURS:-0}
+    volumes:
+      # The fix policy (DEFECT_POLICY_FILE), read-only, as for the API's pickup policy.
+      - ./config:/app/config:ro
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

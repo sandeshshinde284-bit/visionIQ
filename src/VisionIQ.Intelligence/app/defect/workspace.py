@@ -13,6 +13,7 @@ A run can therefore never see what an earlier run left behind.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import os
@@ -21,10 +22,14 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import unquote, urlsplit
+
+import structlog
 
 SHA = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 # What a model may name: plain relative paths, no traversal, no drive, no shell characters.
@@ -33,17 +38,65 @@ OUTPUT_DIR = ".visioniq-out"
 BASELINE_NOT_PINNED = "baseline_not_pinned"
 BASELINE_NOT_FOUND = "baseline_not_found"
 REPOSITORY_UNAVAILABLE = "repository_unavailable"
+# Why a clone or fetch failed, when git's own message makes it clear. Only these fixed codes
+# leave this module: git's message is never logged or stored (it can quote URLs and accounts).
+GIT_NOT_INSTALLED = "git_not_installed"
+REPOSITORY_ACCESS_DENIED = "repository_access_denied"
+REPOSITORY_NOT_FOUND = "repository_not_found"
+REPOSITORY_UNREACHABLE = "repository_unreachable"
+REPOSITORY_REDIRECTED = "repository_redirected"
+REPOSITORY_TIMEOUT = "repository_timeout"
+# Checked in this order: a message such as "unable to access ...: returned error: 403" is an
+# access problem, not a network one.
+_GIT_FAILURES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (REPOSITORY_REDIRECTED, re.compile(r"(?i)redirect|returned error: 30[12378]")),
+    (
+        REPOSITORY_ACCESS_DENIED,
+        re.compile(
+            r"(?i)authentication failed|returned error: 40[13]|could not read (username|password)"
+            r"|terminal prompts disabled|access denied|permission denied|not authorized"
+        ),
+    ),
+    (
+        REPOSITORY_NOT_FOUND,
+        re.compile(
+            r"(?i)returned error: 404|repository .*not found|does not exist"
+            r"|does not appear to be a git repository|not a git repository"
+        ),
+    ),
+    (
+        REPOSITORY_UNREACHABLE,
+        re.compile(
+            r"(?i)could not resolve host|failed to connect|connection (timed out|refused|reset)"
+            r"|network is unreachable|unable to access|ssl|tls|proxy"
+        ),
+    ),
+)
+
+
+def classify_git_failure(message: str) -> str | None:
+    """The fixed reason code for git's error message, or None when it is not a known one."""
+    return next((code for code, pattern in _GIT_FAILURES if pattern.search(message)), None)
+
+
 GIT_TIMEOUT_SECONDS = 300
+# Downloading a large repository for the first time takes longer than any local git command.
+GIT_NETWORK_TIMEOUT_SECONDS = 1800
 
 Tree = Literal["base", "candidate"]
 
 
 class WorkspaceError(Exception):
-    """The workspace could not be prepared. ``code`` is a fixed reason code, never git output."""
+    """The workspace could not be prepared. ``code`` is a fixed reason code, never git output.
 
-    def __init__(self, code: str) -> None:
+    ``cause`` is a more precise fixed code when one is known (git is not installed, access was
+    denied, the repository was not found, ...); see :func:`classify_git_failure`.
+    """
+
+    def __init__(self, code: str, cause: str | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.cause = cause
 
 
 def is_safe_path(path: str) -> bool:
@@ -65,6 +118,186 @@ def _git_environment() -> dict[str, str]:
         LC_ALL="C",
     )
     return environment
+
+
+def clone_credentials(
+    source: str, access_token: str | None, organization_url: str | None
+) -> dict[str, str]:
+    """Extra git environment that authenticates ONE clone of a private HTTPS repository.
+
+    The token is sent as an HTTP header through git's environment configuration: it is never on
+    the command line (visible in process lists), never written to the clone's config and never
+    used by a later command.
+
+    It is sent only over HTTPS and only to a repository of ``organization_url`` (ADO_ORG_URL,
+    for example https://dev.azure.com/acme): not to another organization on the same host, not
+    to another host, and so not wherever a source address in the policy file might point. The
+    header is scoped to the organization as the source writes it, because git compares the path
+    exactly while Azure DevOps ignores its case. Redirects are refused for this clone: after
+    following one, git would keep sending the header to the new location. A local path needs
+    no token.
+    """
+    if not access_token or not organization_url:
+        return {}
+    repository, organization = urlsplit(source), urlsplit(organization_url.strip())
+    if repository.scheme != "https" or organization.scheme != "https":
+        return {}
+    try:
+        same_server = (
+            bool(repository.hostname)
+            and repository.hostname.lower() == (organization.hostname or "").lower()
+            and (repository.port or 443) == (organization.port or 443)
+        )
+    except ValueError:  # a port that is not a number
+        return {}
+    wanted = [unquote(part).lower() for part in organization.path.split("/") if part]
+    written = [part for part in repository.path.split("/") if part]
+    if (
+        not same_server
+        or any(unquote(part) in (".", "..") for part in written)
+        or [unquote(part).lower() for part in written[: len(wanted)]] != wanted
+    ):
+        return {}
+    server = repository.hostname + (f":{repository.port}" if repository.port else "")
+    scope = "".join(f"{part}/" for part in written[: len(wanted)])
+    basic = base64.b64encode(f":{access_token}".encode()).decode("ascii")
+    return {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": f"http.https://{server}/{scope}.extraHeader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+        "GIT_CONFIG_KEY_1": "http.followRedirects",
+        "GIT_CONFIG_VALUE_1": "false",
+    }
+
+
+def _is_remote(source: str) -> bool:
+    """True for a URL that is downloaded over the network (a local path is not cached)."""
+    return urlsplit(source).scheme in {"https", "http", "ssh", "git"}
+
+
+@contextlib.contextmanager
+def _cache_lock(cache: Path, timeout_seconds: float):
+    """One process at a time updates a repository's mirror.
+
+    A waiting run gives up after ``timeout_seconds`` (the longest an update may take). A lock
+    left behind by a crashed run is taken over only after twice that long, so a lock that is
+    still legitimately held is never mistaken for an abandoned one.
+    """
+    lock = cache.with_name(cache.name + ".lock")
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            lock.mkdir()
+            break
+        except FileExistsError:
+            with contextlib.suppress(OSError):
+                if time.time() - lock.stat().st_mtime > 2 * timeout_seconds:
+                    lock.rmdir()
+                    continue
+            if time.monotonic() > deadline:
+                raise WorkspaceError(REPOSITORY_UNAVAILABLE) from None
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            lock.rmdir()
+
+
+def update_cache(
+    source: str, base_sha: str, cache_dir: Path, credentials: Mapping[str, str] | None = None
+) -> Path:
+    """A local bare mirror of ``source`` that contains ``base_sha``; returns its path.
+
+    The first run downloads the repository once. A later run uses no network at all when its
+    commit is already in the mirror, and otherwise fetches only what is new. Runs never work in
+    the mirror: each clones its own copy from it, so one run cannot affect another. A damaged
+    mirror is rebuilt; a mirror is never deleted because the network is unavailable.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache = cache_dir / f"{hashlib.sha256(source.encode()).hexdigest()[:24]}.git"
+    with _cache_lock(cache, GIT_NETWORK_TIMEOUT_SECONDS + GIT_TIMEOUT_SECONDS):
+        if cache.exists():
+            intact = run_git(cache, ["rev-parse", "--is-bare-repository"], check=False).strip()
+            if intact != "true":
+                shutil.rmtree(cache, onerror=_remove_readonly)
+        if cache.exists():
+            if run_git(cache, ["cat-file", "-t", base_sha], check=False).strip() == "commit":
+                return cache
+            run_git(
+                cache,
+                ["fetch", "--quiet", "--prune", source, "+refs/heads/*:refs/heads/*"],
+                extra_environment=credentials,
+                timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+            )
+            return cache
+        run_git(
+            cache_dir,
+            ["clone", "--quiet", "--bare", source, cache.name],
+            extra_environment=credentials,
+            timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+        )
+    return cache
+
+
+# Where a commit cache keeps each commit it holds, so git does not discard it.
+COMMIT_REF = "refs/visioniq/commits/"
+
+
+def update_commit_cache(
+    source: str, base_sha: str, cache_dir: Path, credentials: Mapping[str, str] | None = None
+) -> Path:
+    """A local store of single commits of ``source`` that contains ``base_sha``; returns its path.
+
+    Unlike :func:`update_cache` it never downloads history: each run adds only the one commit it
+    needs (git sends just what the store does not already have). A commit already stored needs
+    no network. It is kept apart from the full mirror, so the two modes cannot disturb each other.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache = cache_dir / f"{hashlib.sha256(source.encode()).hexdigest()[:24]}.commits.git"
+    ref = f"{COMMIT_REF}{base_sha}"
+    with _cache_lock(cache, GIT_NETWORK_TIMEOUT_SECONDS + GIT_TIMEOUT_SECONDS):
+        if cache.exists():
+            intact = run_git(cache, ["rev-parse", "--is-bare-repository"], check=False).strip()
+            if intact != "true":
+                shutil.rmtree(cache, onerror=_remove_readonly)
+        if not cache.exists():
+            run_git(cache_dir, ["init", "--quiet", "--bare", cache.name])
+        stored = run_git(cache, ["rev-parse", "--verify", "--quiet", ref], check=False).strip()
+        if stored == base_sha:
+            return cache
+        run_git(
+            cache,
+            ["fetch", "--quiet", "--depth", "1", source, f"+{base_sha}:{ref}"],
+            extra_environment=credentials,
+            timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+        )
+    return cache
+
+
+def _fetch_commit(
+    root: Path,
+    source: str,
+    base_sha: str,
+    credentials: Mapping[str, str],
+    cache_dir: Path | None,
+) -> None:
+    """Make ``root/candidate`` a repository that holds exactly the pinned commit, no history.
+
+    A fix run needs the files of one commit and the commit it adds on top; it never reads
+    history. Fetching that commit alone downloads far less than a clone of the repository.
+    """
+    run_git(root, ["init", "--quiet", "candidate"])
+    origin, wanted = source, base_sha
+    if cache_dir is not None and _is_remote(source):
+        origin = str(update_commit_cache(source, base_sha, cache_dir, credentials))
+        wanted, credentials = f"{COMMIT_REF}{base_sha}", {}  # from the local store: no token
+    run_git(
+        root / "candidate",
+        ["fetch", "--quiet", "--depth", "1", origin, wanted],
+        extra_environment=credentials,
+        timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+    )
 
 
 def _remove_readonly(function, path, _error) -> None:
@@ -240,7 +473,13 @@ class Workspace:
         shutil.rmtree(self.root, onerror=_remove_readonly_quietly)
 
 
-def run_git(cwd: Path, arguments: Sequence[str], check: bool = True) -> str:
+def run_git(
+    cwd: Path,
+    arguments: Sequence[str],
+    check: bool = True,
+    extra_environment: Mapping[str, str] | None = None,
+    timeout_seconds: float = GIT_TIMEOUT_SECONDS,
+) -> str:
     try:
         completed = subprocess.run(
             [
@@ -257,15 +496,20 @@ def run_git(cwd: Path, arguments: Sequence[str], check: bool = True) -> str:
                 *arguments,
             ],
             cwd=cwd,
-            env=_git_environment(),
+            env={**_git_environment(), **(extra_environment or {})},
             capture_output=True,
-            timeout=GIT_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except FileNotFoundError as error:
+        raise WorkspaceError("git_unavailable", GIT_NOT_INSTALLED) from error
+    except subprocess.TimeoutExpired as error:
+        raise WorkspaceError("git_unavailable", REPOSITORY_TIMEOUT) from error
+    except OSError as error:
         raise WorkspaceError("git_unavailable") from error
     if check and completed.returncode != 0:
-        raise WorkspaceError("git_failed")
+        message = completed.stderr.decode("utf-8", errors="replace")
+        raise WorkspaceError("git_failed", classify_git_failure(message))
     return completed.stdout.decode("utf-8", errors="replace")
 
 
@@ -275,8 +519,21 @@ def prepare(
     root: Path,
     bot_name: str = "VisionIQ Bot",
     bot_email: str = "visioniq-bot@users.noreply.invalid",
+    access_token: str | None = None,
+    organization_url: str | None = None,
+    cache_dir: Path | None = None,
+    fetch: str = "full",
 ) -> Workspace:
     """Clone ``source`` into ``root`` with both trees at exactly ``base_sha``.
+
+    ``fetch="commit"`` downloads only that commit instead of the repository's history. If the
+    server does not hand out a single commit, the repository is cloned as with ``"full"``, so
+    the mode can only make a run faster, never make it fail.
+
+    ``access_token`` (a read-only repository token) authenticates the clone of a private HTTPS
+    repository of ``organization_url``; see :func:`clone_credentials`. With ``cache_dir`` a
+    remote repository is downloaded once into a local mirror and only new commits are fetched
+    afterwards; see :func:`update_cache`.
 
     The baseline must be a full commit SHA: a branch name moves, so a result measured against it
     could not be reproduced. A commit that is not in the repository is a reason code, not a guess.
@@ -289,11 +546,35 @@ def prepare(
     workspace = Workspace(root, base_sha, bot_name, bot_email)
     try:
         try:
-            run_git(
-                root, ["clone", "--quiet", "--no-checkout", "--no-hardlinks", source, "candidate"]
-            )
+            credentials = clone_credentials(source, access_token, organization_url)
+            fetched = False
+            if fetch == "commit":
+                try:
+                    _fetch_commit(root, source, base_sha, credentials, cache_dir)
+                    fetched = True
+                except WorkspaceError as error:
+                    if error.cause in (GIT_NOT_INSTALLED, REPOSITORY_TIMEOUT):
+                        raise  # cloning the whole repository would fail the same way, later
+                    # Any other refusal: the server may not hand out single commits. Start
+                    # again with a clone of the repository, exactly as fetch="full" does.
+                    structlog.get_logger().warning(
+                        "fix_commit_fetch_fallback", cause=error.cause or "refused"
+                    )
+                    shutil.rmtree(root / "candidate", onerror=_remove_readonly_quietly)
+            if not fetched:
+                origin = source
+                if cache_dir is not None and _is_remote(source):
+                    origin = str(update_cache(source, base_sha, cache_dir, credentials))
+                    credentials = {}  # copied from the local mirror: no network, no token
+                run_git(
+                    root,
+                    ["clone", "--quiet", "--no-checkout", "--no-hardlinks", origin, "candidate"],
+                    extra_environment=credentials,
+                    timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+                )
         except WorkspaceError as error:
-            raise WorkspaceError(REPOSITORY_UNAVAILABLE) from error
+            # The precise cause when git's message made it clear, else the general code.
+            raise WorkspaceError(error.cause or REPOSITORY_UNAVAILABLE) from error
         if run_git(workspace.candidate, ["cat-file", "-t", base_sha], check=False).strip() != (
             "commit"
         ):

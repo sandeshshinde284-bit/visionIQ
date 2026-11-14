@@ -49,6 +49,14 @@ ROUTING_TABLE: Mapping[TaskKind, Route] = {
 }
 
 
+# Model selection by complexity (configuration, not this table): only the two code tasks of a fix
+# run can be sent to a tier's provider. Every other task always follows the table above.
+TIERED_TASKS = frozenset({TaskKind.REPRODUCTION_TEST, TaskKind.CODE_FIX})
+TIERS = ("simple", "standard", "complex")
+REASON_TIER_PREFIX = "complexity_"
+REASON_TIER_FALLBACK = "tier_provider_error"
+
+
 @dataclass(frozen=True)
 class RoutingDecision:
     provider: ModelProvider | None
@@ -63,6 +71,11 @@ class RoutingPolicy:
     ``access`` is the highest data classification each provider may receive (decision D04 for
     Claude); a provider missing from it receives nothing. ``override`` sends every task to one
     provider and is only for offline mode, where no data leaves the process.
+
+    ``tiers`` maps a complexity tier ("simple", "standard", "complex") to a key of ``providers``.
+    A tier applies only to :data:`TIERED_TASKS`, and its provider passes the same ``access``
+    check as any other. A tier without an entry, or whose provider is missing or not allowed,
+    follows the table, so an empty mapping changes nothing.
     """
 
     def __init__(
@@ -71,11 +84,13 @@ class RoutingPolicy:
         access: Mapping[str, DataClassification],
         table: Mapping[TaskKind, Route] = ROUTING_TABLE,
         override: ModelProvider | None = None,
+        tiers: Mapping[str, str] | None = None,
     ) -> None:
         self._providers = providers
         self._access = access
         self._table = table
         self._override = override
+        self._tiers = dict(tiers or {})
 
     def _usable(self, name: str | None, classification: DataClassification) -> ModelProvider | None:
         if name is None or name not in self._providers:
@@ -85,12 +100,18 @@ class RoutingPolicy:
             return None  # evaluated before any prompt is built (10.9 router rule 1)
         return self._providers[name]
 
-    def primary(self, task: TaskKind, classification: DataClassification) -> RoutingDecision:
+    def primary(
+        self, task: TaskKind, classification: DataClassification, tier: str | None = None
+    ) -> RoutingDecision:
         route = self._table[task]
         if route.primary is None:
             return RoutingDecision(None, "primary", "no_model_for_task")
         if self._override is not None:
             return RoutingDecision(self._override, "primary", "offline_mode")
+        if tier is not None and task in TIERED_TASKS:
+            provider = self._usable(self._tiers.get(tier), classification)
+            if provider is not None:
+                return RoutingDecision(provider, "primary", f"{REASON_TIER_PREFIX}{tier}")
         provider = self._usable(route.primary, classification)
         if provider is not None:
             return RoutingDecision(provider, "primary", "routing_table")

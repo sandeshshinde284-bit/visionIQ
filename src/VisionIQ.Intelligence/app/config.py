@@ -6,6 +6,7 @@ is copied into the image, so the container environment (set in docker-compose.ym
 source.
 """
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -119,6 +120,28 @@ class Settings(BaseSettings):
     defect_keep_workspaces: bool = False
     defect_bot_name: str = "VisionIQ Bot"
     defect_bot_email: str = "visioniq-bot@users.noreply.invalid"
+    # The same two settings the API and the ingestor use (no separate ones for a fix run).
+    # A fix run uses the read token ONLY to clone the repository under test, and sends it ONLY to
+    # repositories of this organization. Without them only a local path or a public repository
+    # can be cloned. Give this service a token with scope Code: Read; it needs nothing else.
+    ado_org_url: str | None = None
+    ado_read_pat: SecretStr | None = None
+    # A local mirror of each cloned repository: the first fix run downloads it, later runs only
+    # fetch new commits. Every run still works on its own fresh copy. Unset: clone every time.
+    defect_repo_cache_dir: Path | None = None
+    # How much of the repository a fix run downloads. "full" (default) clones it with its
+    # history. "commit" downloads only the commit the run is pinned to, which is all a run uses;
+    # if the server does not hand out a single commit, the repository is cloned as with "full".
+    defect_repo_fetch: Literal["full", "commit"] = "full"
+    # Model selection by complexity for the two code tasks of a fix run (the reproduction test and
+    # the fix). "fixed" (default) follows the routing table, as before. "by_complexity" rates each
+    # run simple / standard / complex from its brief and sends the code tasks to that tier's model;
+    # a failed attempt moves one tier up. Each tier is "<provider>" or "<provider>:<model>", with
+    # provider gemini or claude (e.g. "claude:claude-haiku-5-5"). An empty tier follows the table.
+    defect_model_selection: Literal["fixed", "by_complexity"] = "fixed"
+    defect_model_simple: str = ""
+    defect_model_standard: str = ""
+    defect_model_complex: str = ""
     # Per-run budget of a fix. The seconds cover the test runs as well as the model calls.
     defect_max_calls_per_run: int = Field(default=6, ge=1, le=30)
     defect_max_tokens_per_run: int = Field(default=400_000, ge=1_000, le=5_000_000)
@@ -147,11 +170,31 @@ class Settings(BaseSettings):
             )
 
     @field_validator(
-        "app_env", "db_ssl_mode", "llm_mode", "claude_route", "claude_effort", mode="before"
+        "app_env",
+        "db_ssl_mode",
+        "llm_mode",
+        "claude_route",
+        "claude_effort",
+        "defect_model_selection",
+        "defect_repo_fetch",
+        mode="before",
     )
     @classmethod
     def _lowercase(cls, value: object) -> object:
         return value.lower() if isinstance(value, str) else value
+
+    @field_validator("defect_model_simple", "defect_model_standard", "defect_model_complex")
+    @classmethod
+    def _model_tier(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.fullmatch(
+            r"(gemini|claude)(:[A-Za-z0-9][A-Za-z0-9._@-]{0,99})?", value
+        ):
+            raise ValueError(
+                'A model tier is "gemini", "claude" or "<provider>:<model>", '
+                'for example "claude:claude-haiku-5-5".'
+            )
+        return value
 
     @field_validator(
         "app_log_level",

@@ -30,6 +30,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import structlog
 
@@ -37,6 +38,7 @@ from app.brief.history import TicketText
 from app.defect import gates as gate_rules
 from app.defect import guardrails, report
 from app.defect import regression as regression_rules
+from app.defect.complexity import Complexity, assess, tier_for_attempt
 from app.defect.generate import (
     REPRODUCTION_UNAVAILABLE,
     TEST_INVALID,
@@ -48,7 +50,7 @@ from app.defect.generate import (
 )
 from app.defect.performance import compare, measure_pairs
 from app.defect.policy import DefectPolicy, RepositoryPolicy, RunnerPolicy, matches, render
-from app.defect.results import CheckVerdict, Observation, classify, parse_junit, run_with_policy
+from app.defect.results import CheckVerdict, Observation, classify, parse_report, run_with_policy
 from app.defect.runner import Runner, RunResult, build_runner, store_log
 from app.defect.schema import (
     Attempt,
@@ -126,6 +128,22 @@ _WORKSPACE_TEXT = {
     "baseline_not_pinned": "The baseline is not a full commit SHA, so the run could not be pinned.",
     "baseline_not_found": "The baseline commit is not in the repository.",
     "repository_unavailable": "The repository could not be cloned.",
+    "git_not_installed": "Git is not installed where the fix pipeline runs.",
+    "repository_access_denied": (
+        "Access to the repository was denied: check that ADO_READ_PAT is set, has scope "
+        "Code: Read and has not expired, and that the repository belongs to the organization "
+        "of ADO_ORG_URL (the token is sent nowhere else)."
+    ),
+    "repository_not_found": (
+        "The repository was not found: check its address in the fix policy, and that the read "
+        "token may see it."
+    ),
+    "repository_unreachable": "The repository's server could not be reached.",
+    "repository_redirected": (
+        "The repository's address redirects elsewhere; redirects are refused when a token is "
+        "sent. Use the final address in the fix policy."
+    ),
+    "repository_timeout": "Cloning the repository took too long.",
 }
 _FAILED: tuple[Outcome, ...] = ("FAIL_TARGET_SIGNATURE", "FAIL_DIFFERENT_SIGNATURE")
 
@@ -153,6 +171,65 @@ class FixSettings:
     # Prefix of a log's address in the result, e.g. "gs://bucket/fix-runs/". Empty: relative.
     artifact_base_uri: str = ""
     production: bool = False
+    # Read-only token for cloning a private repository, and the hosts it may be sent to.
+    repo_access_token: str | None = None
+    repo_organization_url: str | None = None
+    # A local mirror per repository, so only new commits are downloaded. None: clone every time.
+    repo_cache_dir: Path | None = None
+    # "full": clone the repository. "commit": download only the pinned commit (falls back to a
+    # clone when the server does not hand out single commits).
+    repo_fetch: str = "full"
+    # "fixed": the code tasks follow the routing table. "by_complexity": see app/defect/complexity.
+    model_selection: str = "fixed"
+
+    @staticmethod
+    def local_runner_refused(app: Any) -> bool:
+        """Whether the local runner (generated code run with no isolation) is refused.
+
+        It is allowed only on a developer machine that asked for it: never when APP_ENV is
+        production, and not unless DEFECT_ALLOW_LOCAL_RUNNER is true.
+        """
+        return app.app_env == "production" or not app.defect_allow_local_runner
+
+    @classmethod
+    def from_app(
+        cls,
+        app: Any,
+        work_dir: Path,
+        artifact_dir: Path | None = None,
+        *,
+        production: bool | None = None,
+        keep_workspace: bool | None = None,
+    ) -> FixSettings:
+        """The fix settings of the service configuration (``app.config.Settings``).
+
+        The background worker and the command line both build their settings here, so a new
+        setting, and the decision whether the local runner is refused, cannot reach one and be
+        missed by the other. ``production`` overrides that decision only in tests.
+        """
+        if production is None:
+            production = cls.local_runner_refused(app)
+        token = app.ado_read_pat
+        return cls(
+            work_dir=work_dir / "work",
+            artifact_dir=artifact_dir or app.defect_artifact_dir or work_dir / "artifacts",
+            classification=DataClassification(app.llm_data_classification),
+            max_calls=app.defect_max_calls_per_run,
+            max_tokens=app.defect_max_tokens_per_run,
+            max_seconds=app.defect_max_seconds_per_run,
+            keep_workspace=(
+                app.defect_keep_workspaces if keep_workspace is None else keep_workspace
+            ),
+            bot_name=app.defect_bot_name,
+            bot_email=app.defect_bot_email,
+            artifact_base_uri=app.defect_artifact_base_uri,
+            production=production,
+            repo_access_token=token.get_secret_value() if token else None,
+            repo_organization_url=app.ado_org_url,
+            repo_cache_dir=app.defect_repo_cache_dir,
+            repo_fetch=app.defect_repo_fetch,
+            model_selection=app.defect_model_selection,
+        )
 
 
 @dataclass(frozen=True)
@@ -235,6 +312,10 @@ class _FixRun:
         self._toolchain: dict[str, str] | None = None
         # The export the last execution ran in (see _run).
         self._stage: str | None = None
+        # Model selection by complexity: rated once, when the scope is known, and kept for the
+        # whole run. It is NOT part of a candidate: clearing a candidate between fix attempts
+        # must not lose it, or a retry would not move one tier up.
+        self.complexity: Complexity | None = None
         self._clear_candidate()
 
     def _clear_candidate(self) -> None:
@@ -301,6 +382,10 @@ class _FixRun:
                 self.settings.work_dir / str(request.run_id),
                 self.settings.bot_name,
                 self.settings.bot_email,
+                self.settings.repo_access_token,
+                self.settings.repo_organization_url,
+                self.settings.repo_cache_dir,
+                self.settings.repo_fetch,
             )
         except WorkspaceError as error:
             self.limitations.append(
@@ -313,6 +398,7 @@ class _FixRun:
             )
         files = self.workspace.files()
         code = self._context_files(ticket, files)
+        self._rate_complexity(code)
         described = self.runner.describe()
         _log().info(
             "fix_workspace_ready",
@@ -347,6 +433,32 @@ class _FixRun:
         return self._finish("BLOCKED", "BLOCKED")
 
     # ---- Context -------------------------------------------------------------------------
+
+    def _rate_complexity(self, code: Sequence[CodeFile]) -> None:
+        """Model selection by complexity: rate the run once, from its scope and its brief."""
+        if self.settings.model_selection != "by_complexity":
+            return
+        repo, _ = self._ready()
+        ticket = self.request.ticket
+        areas = [
+            str(area.area)
+            for area in repo.restricted_areas
+            if any(matches(file.path, area.patterns) for file in code)
+        ]
+        self.complexity = assess(
+            len(code),
+            self.sources.brief_risk_band(ticket.project, ticket.id),
+            areas,
+        )
+        _log().info(
+            "fix_model_tier", tier=self.complexity.tier, reasons=list(self.complexity.reasons)
+        )
+
+    def _tier(self, attempt: int) -> str | None:
+        """The model tier of the ``attempt``-th try; None when the routing table decides."""
+        if self.complexity is None:
+            return None
+        return tier_for_attempt(self.complexity.tier, attempt)
 
     def _context_files(self, ticket: TicketText, files: Sequence[str]) -> list[CodeFile]:
         """The source files a model is shown: those the brief predicted or the ticket names."""
@@ -529,7 +641,7 @@ class _FixRun:
             run = self.runner.run(argv, root, min(timeout, remaining), log)
         outcome: Outcome
         if not benchmark:
-            outcome, signature = classify(run, parse_junit(output), test_id, expected)
+            outcome, signature = classify(run, parse_report(output), test_id, expected)
         elif run.error is not None:
             outcome, signature = "ENVIRONMENT_ERROR", run.error
         elif run.timed_out:
@@ -626,6 +738,7 @@ class _FixRun:
                 context_for(ticket.title, ticket.text, facts, context_code, feedback),
                 repo,
                 set(files),
+                self._tier(attempt),
             )
             if isinstance(proposal, Declined):
                 # The code only: an "unavailable" reason is model text and is not logged.
@@ -771,6 +884,7 @@ class _FixRun:
                 self.gateway,
                 self.ledger,
                 context_for(ticket.title, ticket.text, facts, context_code, feedback),
+                self._tier(iteration),
             )
             if isinstance(proposal, Declined):
                 _log().warning("fix_patch_declined", iteration=iteration, reason=proposal.code)

@@ -269,6 +269,184 @@ API settings:
 the default without the variable is `off`. The other variables above are not in it; add the ones
 you need by hand.
 
+## Running against a real repository
+
+Added for the first live end-to-end run (14 November 2026). All of it is configuration; with the
+defaults nothing changes.
+
+| Need | Setting | What it does |
+| --- | --- | --- |
+| Clone a private repository | `ADO_READ_PAT`, `ADO_ORG_URL` (the existing settings; scope *Code: Read* is enough) | Authenticates only the clone. The token goes to git through its environment as an HTTP header scoped to the organization: never on the command line, never in the clone's config, only over HTTPS, and only to repositories of `ADO_ORG_URL` (not to another organization on the same host). Redirects are refused. |
+| Do not download the repository on every run | `DEFECT_REPO_CACHE_DIR` | One local bare mirror per repository. No network when the pinned commit is already there; otherwise only new commits are fetched. Each run still clones its own copy, so runs cannot affect each other or the mirror. |
+| Download only what a run uses | `DEFECT_REPO_FETCH=commit` | Fetches the single commit the run is pinned to instead of cloning the repository with its history. A run never reads history: it lists and checks out that commit, commits on top, diffs, exports and bundles, and the bundle still applies to a full clone. If the server does not hand out a single commit the repository is cloned as before, so the mode cannot make a run fail. With the cache, single commits are kept in their own local store. |
+| A .NET repository without changes to it | recipe `--results-directory . --logger trx;LogFileName={junit}` | The report at `{junit}` may be JUnit XML or TRX (xUnit, NUnit, MSTest). Only `Passed` is a pass; an unclear outcome is an error. |
+| Cheaper models for simple fixes | `DEFECT_MODEL_SELECTION=by_complexity`, `DEFECT_MODEL_SIMPLE` / `_STANDARD` / `_COMPLEX` | See below. |
+
+### Model selection by complexity
+
+The routing table sends the two code tasks (reproduction test, fix) to Claude. With
+`DEFECT_MODEL_SELECTION=by_complexity`, code rates each run before any model is called:
+
+| Tier | When |
+| --- | --- |
+| simple | brief risk band `LOW`, 1 or 2 files in scope, no restricted area |
+| complex | risk band `HIGH`, or a restricted area in scope, or 6 files or more |
+| standard | everything else, including a run with no brief or an unresolved scope |
+
+The two file counts (2 and 6) are constants in `app/defect/complexity.py`, not settings: there is no
+data yet to tune them with. Change them there once real fix runs show how the first tier compared
+with how each run went.
+
+Each tier names a provider and optionally a model (`gemini`, `claude:claude-haiku-5-5`, ...). A
+failed attempt is retried one tier up. If a tier's model returns an error, the usual route is
+tried once. A tier's provider must be enabled and allowed for the run's data classification, the
+same check as for any provider; a tier that is empty or not available follows the routing table.
+The model of every call is stored in `knowledge.llm_calls`; the tier and its reasons are in the
+logs (`fix_model_tier`, and `routing_reason=complexity_<tier>` on `llm_call`).
+
+Sending code tasks to Gemini is possible this way but is not benchmarked (see the routing table's
+note); measure it on real tickets before relying on it.
+
+#### Not built: an AI-assisted difficulty rating
+
+The rating above uses risk and scope. Those are not difficulty: a one-file race condition is hard
+and looks simple; a renamed constant in seven files is easy and looks complex. Letting a model
+rate the difficulty was analysed on 14 November 2026 and **deliberately not built yet**:
+
+- It is a new task in the routing matrix (the task kinds mirror the master design's v1.11
+  table), so it changes the design and the pinned routing revision: a decision for the team.
+- It would have Gemini read source code to judge it, which the routing table defers until a
+  benchmark justifies it.
+- Its value is the quality of the rating, and that cannot be measured before real fix runs exist.
+
+When it is built: the model **proposes** a difficulty (a category with reasons, no percentage);
+code decides. The rule-based rating stays as a floor for risk (a restricted area or a HIGH risk
+band is never rated below complex), the model may raise any rating, and may lower one only where
+no risk rule applies. No answer, an invalid answer or "unsure" keeps the rule-based rating. The
+ticket text stays untrusted data: it cannot talk the rating down.
+
+Acceptance: on real fix runs, compare each run's first tier with how it went (attempts needed,
+verdict). Build it only if the rule-based rating is shown to choose badly, and accept it only if
+it chooses better at no higher cost per verified fix.
+
+### When the clone fails
+
+A failed clone ends the run as `BLOCKED` with one of these fixed codes. Git's own message is never
+logged or stored (it can quote addresses and account names).
+
+| Code | Meaning | What to check |
+| --- | --- | --- |
+| `git_not_installed` | No `git` executable where the pipeline runs | Rebuild the Intelligence image; on a host, install Git |
+| `repository_access_denied` | The server refused the request (401/403, or no credentials) | `ADO_READ_PAT` is set, has scope *Code: Read*, has not expired, and belongs to an account that may read the repository; and the repository's address is in the organization of `ADO_ORG_URL` (the token is sent nowhere else) |
+| `repository_not_found` | The repository does not exist at that address, or the token may not see it | `source` in the fix policy; the token's organization |
+| `repository_unreachable` | DNS, connection or TLS failure | Network, proxy, firewall |
+| `repository_redirected` | The address redirects; redirects are refused when a token is sent | Use the final address in the fix policy |
+| `repository_timeout` | The clone took longer than 30 minutes | Repository size; use `DEFECT_REPO_CACHE_DIR` |
+| `baseline_not_found` | The clone worked, but the commit is not in the repository | The branch of the pickup policy; the commit SHA |
+| `repository_unavailable` | Any other failure | Run the clone check below |
+
+### Verify a deployment: the clone check
+
+`python -m app.defect.clone_check` does only what a fix run does first: read the policy, clone
+with the read token, check out exactly that commit, delete the copy. It writes nothing to the
+repository, runs no model and no test, and prints no token and no address beyond the host name.
+
+Local Docker (PowerShell, from the repository root). Only the Intelligence service is rebuilt and
+restarted; the database, its volume and the other containers are not touched.
+
+```powershell
+# 1. In .env (never commit it): ADO_ORG_URL and ADO_READ_PAT (the settings you already have), and
+#    DEFECT_POLICY_FILE=/app/config/defect-policy.local.json  (a copy of the example in .\config)
+
+# 2. Build the image and restart only this service
+docker compose build intelligence
+docker compose up -d --no-deps intelligence
+
+# 3. Git is in the image; the service is ready
+docker exec defect-intelligence-intelligence-1 git --version
+Invoke-RestMethod http://127.0.0.1:5100/ready
+Invoke-RestMethod http://127.0.0.1:8000/ready
+
+# 4. The policy is readable in the container (prints repository ids, nothing secret)
+docker exec defect-intelligence-intelligence-1 python -c "from pathlib import Path; from app.defect.policy import load_policy; import os; print([r.repository_id for r in load_policy(Path(os.environ['DEFECT_POLICY_FILE'])).repositories])"
+
+# 5. A real, read-only clone at an exact commit (use a repository id of your policy and a full SHA)
+docker exec defect-intelligence-intelligence-1 python -m app.defect.clone_check --repository <repository_id> --base-sha <40-hex commit>
+if ($LASTEXITCODE -ne 0) { throw "clone check failed" }
+
+# 6. No credential was written to the logs (the token itself is never printed here)
+docker logs defect-intelligence-intelligence-1 2>&1 | Select-String -Pattern "Authorization|extraheader" -Quiet
+```
+
+Expected in step 5: `commit matches  yes`, `token in config none`, `RESULT: OK`. Step 6 prints
+`False`. The same check as a test, against a real repository, without fakes:
+
+```powershell
+$env:VISIONIQ_REAL_CLONE_TEST = "1"
+$env:VISIONIQ_REAL_CLONE_URL  = "https://dev.azure.com/<organization>/<project>/_git/<repository>"
+$env:VISIONIQ_REAL_CLONE_SHA  = "<40-hex commit>"
+# ADO_ORG_URL and ADO_READ_PAT must be set in this session as well
+python -m pytest tests/intelligence/test_defect_clone_review.py -k real -v
+```
+
+Without `VISIONIQ_REAL_CLONE_TEST=1` both tests are reported as **skipped**, never as passed.
+
+### Google Cloud (`visioniq-intelligence`)
+
+| Setting | Value |
+| --- | --- |
+| `ADO_READ_PAT` | The same setting the API uses; the Intelligence service did not have it before. Map a Secret Manager secret (a fixed version; the runtime service account needs *Secret Manager Secret Accessor* on it). **Recommended: give this service its own token with scope *Code: Read* only.** It clones and does nothing else in Azure DevOps, so it does not need the wider token the sync uses; each Cloud Run service maps its own secret, so the name stays the same. |
+| `ADO_ORG_URL` | The same value as on the API, for example `https://dev.azure.com/<organization>`. The read token is sent only to repositories under this address. |
+| `DEFECT_POLICY_FILE` | A path inside the container. **The image does not contain `config/`**, so the policy must be mounted, for example as a Secret Manager volume (`/app/config/defect-policy.json`). The same holds for the API's `PICKUP_POLICY_FILE`: without it ticket pickup is off. |
+| `DEFECT_WORK_DIR`, `DEFECT_REPO_CACHE_DIR` | By default Cloud Run's writable file system is in memory and counts against the instance's memory limit. Cloud Run can also mount a per-instance **ephemeral disk** (see Google Cloud's documentation on ephemeral disks for Cloud Run), which does not use memory: point both settings at it. Either way the storage is deleted when the instance stops and is not shared between instances, so a cache there only helps while an instance stays warm. |
+| `DEFECT_REPO_FETCH` | `commit`. A run then downloads one commit, not the repository's history, which is what makes a persistent cache unnecessary in the cloud. Add a persistent volume only if measured clone times justify it. |
+
+Egress: the service reaches `dev.azure.com` over HTTPS for the clone (the architecture's egress is
+"private ranges only", so public traffic leaves through the service's default route).
+
+Read-only checks for whoever manages the cloud project (they change nothing):
+
+```powershell
+$p = "gbr-mts-wgh-hkt-dev"; $r = "europe-west3"
+# Which image is deployed, and which settings and secrets it has (names only, no values)
+gcloud run services describe visioniq-intelligence --project $p --region $r --format "value(spec.template.spec.containers[0].image)"
+gcloud run services describe visioniq-intelligence --project $p --region $r --format "yaml(spec.template.spec.containers[0].env, spec.template.spec.volumes)"
+# The secret exists and has an enabled version
+gcloud secrets versions list <secret mapped to ADO_READ_PAT> --project $p --filter "state=ENABLED" --format "value(name)"
+```
+
+After a deployment, run the clone check once with the same image, settings and service account,
+for example as a one-off Cloud Run job whose command is
+`python -m app.defect.clone_check --repository <id> --base-sha <sha>`. Creating that job is a
+deployment step for the cloud manager; it writes nothing to Azure DevOps.
+
+### What a complete fix run on Cloud Run still needs
+
+Cloning works in the container. **Running the tests does not**, and installing git does not
+change that:
+
+- The `docker` runner starts a container per execution. A Cloud Run service has no Docker daemon
+  and must not get one (Docker-in-Docker, or a mounted socket, would give generated code the
+  service's own privileges).
+- The `local` runner executes the commands as the service itself, next to its credentials and
+  with its network. It is refused outside development, and must stay refused.
+
+The minimum safe integration (S11-02) is a third runner kind behind the existing `Runner`
+interface (`describe`, `environment_names`, `run(argv, tree, timeout, log)`), which hands each
+execution to a separate, short-lived sandbox and returns its exit code, report file and log:
+
+- one execution per sandbox, started from the policy's image pinned by digest;
+- no credentials, no service account that can reach VisionIQ's data, no outbound network;
+- only the exported tree as input (it has no `.git`) and the report and log as output;
+- the same time limit, and the result judged by the same code as today.
+
+A Cloud Run job or a Cloud Build private pool without an external address can provide this. It is
+not built. Until it is, a fix run in the cloud cannot get past its first test execution: with a
+`docker` runner the container cannot be started, and the run ends as `BLOCKED` with
+`reproduction_environment_error`; a `local` runner is refused outside development
+(`runner_not_allowed`). The complete flow runs where a Docker daemon exists: a developer machine,
+or a VM.
+
 ## How to try it locally
 
 This needs Git and Python with the repository's requirements. No Docker, database, Azure DevOps
@@ -350,10 +528,13 @@ test output and tokens are never logged. The events are listed in
   blocked, a timeout stopped the container, and a Git checkout was refused as a mount. No test
   suite of a real repository has run in it, and there is no automated test with a container.
 - **A real repository and a .NET test project.** The example policy's `dotnet test` recipe is
-  untested. It needs the JUnit logger package in the test project (decision D03).
-- **The service container.** The Intelligence image has no `git`, no runner and no policy file,
-  so the worker cannot run in Docker Compose or Cloud Run yet (S11-02: Cloud Build private pool
-  or a Cloud Run job).
+  untested against a real repository. It writes TRX, which is read natively, so the test project
+  needs no extra package.
+- **The service container.** The Intelligence image now has `git`, and Docker Compose mounts the
+  policy, so a repository can be cloned in the container (`python -m app.defect.clone_check`).
+  It still has **no test runner**: a complete fix run cannot run in Docker Compose or Cloud Run
+  yet. See [What a complete fix run on Cloud Run still needs](#what-a-complete-fix-run-on-cloud-run-still-needs)
+  (S11-02).
 - **The database, partly.** Not run against PostgreSQL: `FindOpenedAsync` and `MarkHeadAsync`
   for a pull request in `ado` mode, and `DeferAsync`. The history query
   (`sources.HISTORICAL_FIXES_SQL`) was run, but only against a scope with no history. Everything

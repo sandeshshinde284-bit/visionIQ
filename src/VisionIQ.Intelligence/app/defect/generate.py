@@ -98,8 +98,9 @@ def propose_test(
     context: EvidenceContext,
     policy: RepositoryPolicy,
     baseline_files: Collection[str],
+    tier: str | None = None,
 ) -> TestProposal | Declined:
-    outcome = gateway.generate(TaskKind.REPRODUCTION_TEST, context, ledger)
+    outcome = gateway.generate(TaskKind.REPRODUCTION_TEST, context, ledger, tier)
     if outcome.result is None:
         return Declined(outcome.reason or "llm_unavailable", "No model produced a test.", llm=True)
     output = outcome.result.output
@@ -154,9 +155,9 @@ def propose_test(
 
 
 def propose_patch(
-    gateway: ModelGateway, ledger: RunLedger, context: EvidenceContext
+    gateway: ModelGateway, ledger: RunLedger, context: EvidenceContext, tier: str | None = None
 ) -> PatchProposal | Declined:
-    outcome = gateway.generate(TaskKind.CODE_FIX, context, ledger)
+    outcome = gateway.generate(TaskKind.CODE_FIX, context, ledger, tier)
     if outcome.result is None:
         return Declined(outcome.reason or "llm_unavailable", "No model produced a patch.", llm=True)
     output = outcome.result.output
