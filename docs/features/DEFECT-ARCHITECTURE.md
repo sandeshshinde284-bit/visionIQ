@@ -269,6 +269,39 @@ API settings:
 the default without the variable is `off`. The other variables above are not in it; add the ones
 you need by hand.
 
+## Running against a real repository
+
+Added for the first live end-to-end run (14 November 2026). All of it is configuration; with the
+defaults nothing changes.
+
+| Need | Setting | What it does |
+| --- | --- | --- |
+| Clone a private repository | `DEFECT_REPO_READ_PAT` (scope *Code: Read*), `DEFECT_REPO_TOKEN_HOSTS` | Authenticates only the clone. The token goes to git through its environment as a host-scoped HTTP header: never on the command line, never in the clone's config, only over HTTPS to an approved host. |
+| Do not download the repository on every run | `DEFECT_REPO_CACHE_DIR` | One local bare mirror per repository. No network when the pinned commit is already there; otherwise only new commits are fetched. Each run still clones its own copy, so runs cannot affect each other or the mirror. |
+| A .NET repository without changes to it | recipe `--results-directory . --logger trx;LogFileName={junit}` | The report at `{junit}` may be JUnit XML or TRX (xUnit, NUnit, MSTest). Only `Passed` is a pass; an unclear outcome is an error. |
+| Cheaper models for simple fixes | `DEFECT_MODEL_SELECTION=by_complexity`, `DEFECT_MODEL_SIMPLE` / `_STANDARD` / `_COMPLEX` | See below. |
+
+### Model selection by complexity
+
+The routing table sends the two code tasks (reproduction test, fix) to Claude. With
+`DEFECT_MODEL_SELECTION=by_complexity`, code rates each run before any model is called:
+
+| Tier | When |
+| --- | --- |
+| simple | brief risk band `LOW`, 1 to `DEFECT_SIMPLE_MAX_FILES` files in scope, no restricted area |
+| complex | risk band `HIGH`, or a restricted area in scope, or `DEFECT_COMPLEX_MIN_FILES` files or more |
+| standard | everything else, including a run with no brief or an unresolved scope |
+
+Each tier names a provider and optionally a model (`gemini`, `claude:claude-haiku-5-5`, ...). A
+failed attempt is retried one tier up. If a tier's model returns an error, the usual route is
+tried once. A tier's provider must be enabled and allowed for the run's data classification, the
+same check as for any provider; a tier that is empty or not available follows the routing table.
+The model of every call is stored in `knowledge.llm_calls`; the tier and its reasons are in the
+logs (`fix_model_tier`, and `routing_reason=complexity_<tier>` on `llm_call`).
+
+Sending code tasks to Gemini is possible this way but is not benchmarked (see the routing table's
+note); measure it on real tickets before relying on it.
+
 ## How to try it locally
 
 This needs Git and Python with the repository's requirements. No Docker, database, Azure DevOps
@@ -350,7 +383,8 @@ test output and tokens are never logged. The events are listed in
   blocked, a timeout stopped the container, and a Git checkout was refused as a mount. No test
   suite of a real repository has run in it, and there is no automated test with a container.
 - **A real repository and a .NET test project.** The example policy's `dotnet test` recipe is
-  untested. It needs the JUnit logger package in the test project (decision D03).
+  untested against a real repository. It writes TRX, which is read natively, so the test project
+  needs no extra package.
 - **The service container.** The Intelligence image has no `git`, no runner and no policy file,
   so the worker cannot run in Docker Compose or Cloud Run yet (S11-02: Cloud Build private pool
   or a Cloud Run job).

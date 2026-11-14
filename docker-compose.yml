@@ -47,6 +47,11 @@ services:
     environment:
       PUBSUB_EMULATOR_HOST: pubsub:8085
       PUBSUB_PROJECT_ID: visioniq-local
+      # Where the emulator pushes events. Defaults are the services in this file. To run a service
+      # on the host instead (Intelligence needs that for the fix pipeline and for Google
+      # credentials), point its URL at the host, e.g. http://host.docker.internal:8000.
+      EVENTS_PUSH_BASE_URL_API: ${EVENTS_PUSH_BASE_URL_API:-http://api:5100}
+      EVENTS_PUSH_BASE_URL_INTELLIGENCE: ${EVENTS_PUSH_BASE_URL_INTELLIGENCE:-http://intelligence:8000}
     command: ["python", "-m", "app.events.emulator_setup"]
     restart: "no"
 
