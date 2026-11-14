@@ -27,15 +27,17 @@
         "benchmark_timeout_seconds": 600
       },
       // Allowlisted commands, as argv (never a shell line).
-      //   test_file  runs ONE test file and writes a JUnit XML report to {junit}  (required).
+      //   test_file  runs ONE test file and writes its report to {junit}  (required). The report
+      //              may be JUnit XML or TRX: "dotnet test --logger trx" needs no extra package.
       //              {test_path} is the file; {test_name} is its name without the extension,
-      //              for frameworks that select tests by class (as dotnet test does below; the
-      //              test project then needs the JunitXml.TestLogger package).
+      //              for frameworks that select tests by class (as dotnet test does below).
+      //              "--results-directory ." makes the TRX logger write {junit} relative to the
+      //              directory the command runs in (the workspace root).
       //   suite      runs the touched project's tests, report to {junit}          (optional)
       //   benchmark  writes {"metric", "unit", "value"} (lower is better) to {output} (optional)
       "recipes": {
-        "test_file": ["dotnet", "test", "tests/Demo.Tests", "--no-restore", "--filter", "FullyQualifiedName~{test_name}", "--logger", "junit;LogFilePath={junit}"],
-        "suite": ["dotnet", "test", "tests/Demo.Tests", "--no-restore", "--logger", "junit;LogFilePath={junit}"]
+        "test_file": ["dotnet", "test", "tests/Demo.Tests", "--filter", "FullyQualifiedName~{test_name}", "--results-directory", ".", "--logger", "trx;LogFileName={junit}"],
+        "suite": ["dotnet", "test", "tests/Demo.Tests", "--results-directory", ".", "--logger", "trx;LogFileName={junit}"]
       },
       // The first output line of each command is recorded in the execution manifest.
       "toolchain": { "dotnet": ["dotnet", "--version"] },

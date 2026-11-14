@@ -116,6 +116,14 @@ def build_fix_worker(settings: Settings, context: EventContext):
             bot_email=settings.defect_bot_email,
             artifact_base_uri=settings.defect_artifact_base_uri,
             production=production,
+            repo_access_token=(
+                settings.defect_repo_read_pat.get_secret_value()
+                if settings.defect_repo_read_pat
+                else None
+            ),
+            repo_token_hosts=tuple(
+                host.strip() for host in settings.defect_repo_token_hosts.split(",") if host.strip()
+            ),
         ),
         context,
     )

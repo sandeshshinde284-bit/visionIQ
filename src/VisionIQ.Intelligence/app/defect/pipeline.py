@@ -48,7 +48,7 @@ from app.defect.generate import (
 )
 from app.defect.performance import compare, measure_pairs
 from app.defect.policy import DefectPolicy, RepositoryPolicy, RunnerPolicy, matches, render
-from app.defect.results import CheckVerdict, Observation, classify, parse_junit, run_with_policy
+from app.defect.results import CheckVerdict, Observation, classify, parse_report, run_with_policy
 from app.defect.runner import Runner, RunResult, build_runner, store_log
 from app.defect.schema import (
     Attempt,
@@ -153,6 +153,9 @@ class FixSettings:
     # Prefix of a log's address in the result, e.g. "gs://bucket/fix-runs/". Empty: relative.
     artifact_base_uri: str = ""
     production: bool = False
+    # Read-only token for cloning a private repository, and the hosts it may be sent to.
+    repo_access_token: str | None = None
+    repo_token_hosts: tuple[str, ...] = ("dev.azure.com",)
 
 
 @dataclass(frozen=True)
@@ -301,6 +304,8 @@ class _FixRun:
                 self.settings.work_dir / str(request.run_id),
                 self.settings.bot_name,
                 self.settings.bot_email,
+                self.settings.repo_access_token,
+                self.settings.repo_token_hosts,
             )
         except WorkspaceError as error:
             self.limitations.append(
@@ -529,7 +534,7 @@ class _FixRun:
             run = self.runner.run(argv, root, min(timeout, remaining), log)
         outcome: Outcome
         if not benchmark:
-            outcome, signature = classify(run, parse_junit(output), test_id, expected)
+            outcome, signature = classify(run, parse_report(output), test_id, expected)
         elif run.error is not None:
             outcome, signature = "ENVIRONMENT_ERROR", run.error
         elif run.timed_out:

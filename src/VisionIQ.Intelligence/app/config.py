@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     defect_keep_workspaces: bool = False
     defect_bot_name: str = "VisionIQ Bot"
     defect_bot_email: str = "visioniq-bot@users.noreply.invalid"
+    # Read-only (Code: Read) token used ONLY to clone a private repository for a fix run, and the
+    # hosts it may be sent to. Without it only a local path or a public repository can be cloned.
+    defect_repo_read_pat: SecretStr | None = None
+    defect_repo_token_hosts: str = "dev.azure.com"
     # Per-run budget of a fix. The seconds cover the test runs as well as the model calls.
     defect_max_calls_per_run: int = Field(default=6, ge=1, le=30)
     defect_max_tokens_per_run: int = Field(default=400_000, ge=1_000, le=5_000_000)

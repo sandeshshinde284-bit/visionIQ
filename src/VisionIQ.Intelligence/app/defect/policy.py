@@ -106,7 +106,7 @@ class RepositoryPolicy(_Model):
     runner: RunnerPolicy = Field(default_factory=RunnerPolicy)
     # Allowlisted commands (argv, never a shell line). test_file runs one test file, named by
     # {test_path} or by {test_name} (the file name without its extension, for frameworks that
-    # filter by class), and writes a JUnit XML report to {junit}; suite runs the touched
+    # filter by class), and writes a JUnit XML or TRX report to {junit}; suite runs the touched
     # project's tests; benchmark writes {"metric", "unit", "value"} (lower is better) to {output}.
     recipes: dict[str, tuple[str, ...]]
     # Commands whose first output line is recorded as a tool version, e.g. {"python": [...]}.

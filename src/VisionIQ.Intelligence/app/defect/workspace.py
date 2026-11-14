@@ -13,6 +13,7 @@ A run can therefore never see what an earlier run left behind.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import os
@@ -25,6 +26,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 SHA = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 # What a model may name: plain relative paths, no traversal, no drive, no shell characters.
@@ -65,6 +67,31 @@ def _git_environment() -> dict[str, str]:
         LC_ALL="C",
     )
     return environment
+
+
+def clone_credentials(
+    source: str, access_token: str | None, token_hosts: Sequence[str]
+) -> dict[str, str]:
+    """Extra git environment that authenticates ONE clone of a private HTTPS repository.
+
+    The token is sent as an HTTP header through git's environment configuration: it is never on
+    the command line (visible in process lists), never written to the clone's config and never
+    used by a later command. It is sent only over HTTPS and only to an approved host, so a
+    source URL in the policy file cannot redirect it elsewhere. A local path needs no token.
+    """
+    if not access_token:
+        return {}
+    parts = urlsplit(source)
+    if parts.scheme != "https" or (parts.hostname or "").lower() not in {
+        host.lower() for host in token_hosts
+    }:
+        return {}
+    basic = base64.b64encode(f":{access_token}".encode()).decode("ascii")
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": f"http.{parts.scheme}://{parts.hostname}/.extraHeader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+    }
 
 
 def _remove_readonly(function, path, _error) -> None:
@@ -240,7 +267,12 @@ class Workspace:
         shutil.rmtree(self.root, onerror=_remove_readonly_quietly)
 
 
-def run_git(cwd: Path, arguments: Sequence[str], check: bool = True) -> str:
+def run_git(
+    cwd: Path,
+    arguments: Sequence[str],
+    check: bool = True,
+    extra_environment: Mapping[str, str] | None = None,
+) -> str:
     try:
         completed = subprocess.run(
             [
@@ -257,7 +289,7 @@ def run_git(cwd: Path, arguments: Sequence[str], check: bool = True) -> str:
                 *arguments,
             ],
             cwd=cwd,
-            env=_git_environment(),
+            env={**_git_environment(), **(extra_environment or {})},
             capture_output=True,
             timeout=GIT_TIMEOUT_SECONDS,
             check=False,
@@ -275,8 +307,13 @@ def prepare(
     root: Path,
     bot_name: str = "VisionIQ Bot",
     bot_email: str = "visioniq-bot@users.noreply.invalid",
+    access_token: str | None = None,
+    token_hosts: Sequence[str] = ("dev.azure.com",),
 ) -> Workspace:
     """Clone ``source`` into ``root`` with both trees at exactly ``base_sha``.
+
+    ``access_token`` (a read-only repository token) authenticates the clone of a private HTTPS
+    repository on one of ``token_hosts``; see :func:`clone_credentials`.
 
     The baseline must be a full commit SHA: a branch name moves, so a result measured against it
     could not be reproduced. A commit that is not in the repository is a reason code, not a guess.
@@ -290,7 +327,9 @@ def prepare(
     try:
         try:
             run_git(
-                root, ["clone", "--quiet", "--no-checkout", "--no-hardlinks", source, "candidate"]
+                root,
+                ["clone", "--quiet", "--no-checkout", "--no-hardlinks", source, "candidate"],
+                extra_environment=clone_credentials(source, access_token, token_hosts),
             )
         except WorkspaceError as error:
             raise WorkspaceError(REPOSITORY_UNAVAILABLE) from error

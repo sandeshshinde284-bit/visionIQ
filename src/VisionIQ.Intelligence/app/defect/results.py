@@ -3,7 +3,10 @@
 A red result only counts when the test failed with the failure that was predicted for the
 defect. A compile error, a missing module or a crashed runner is not red. A test that fails once
 and passes on a rerun is FLAKY, never PASS: reruns add information, they do not erase the first
-result. All of this is decided by code from the runner's JUnit report, not by a model.
+result. All of this is decided by code from the runner's test report, not by a model.
+
+Two report formats are read, detected from the file itself: JUnit XML (most frameworks) and TRX
+(what ``dotnet test --logger trx`` writes, so a .NET repository needs no extra package).
 """
 
 from __future__ import annotations
@@ -79,14 +82,28 @@ class Case:
         return " ".join(f"{self.kind} {text}".split())
 
 
-def parse_junit(path: Path) -> list[Case] | None:
-    """The test cases of a JUnit XML report, or None when there is no readable report."""
+# TRX outcomes that are not a failure. Anything else that is not "Passed" (Error, Timeout, Aborted,
+# PassedButRunAborted, an unknown value) is an error: an unclear result is never a pass.
+_TRX_STATUS: dict[str, CaseStatus] = {
+    "passed": "passed",
+    "failed": "failed",
+    "notexecuted": "skipped",
+    "inconclusive": "skipped",
+    "notrunnable": "skipped",
+    "pending": "skipped",
+}
+
+
+def parse_report(path: Path) -> list[Case] | None:
+    """The test cases of a JUnit XML or TRX report, or None when there is no readable report."""
     try:
         if not path.is_file() or path.stat().st_size > MAX_REPORT_BYTES:
             return None
         root = ElementTree.parse(path).getroot()
     except (OSError, ElementTree.ParseError):
         return None
+    if root.tag.rsplit("}", 1)[-1] == "TestRun":
+        return _trx_cases(root)
     cases: list[Case] = []
     for element in root.iter("testcase"):
         status: CaseStatus = "passed"
@@ -101,6 +118,43 @@ def parse_junit(path: Path) -> list[Case] | None:
         cases.append(
             Case(element.get("name", ""), element.get("classname", ""), status, kind, message, text)
         )
+    return cases
+
+
+# The name the pipeline has always used; both formats are read.
+parse_junit = parse_report
+
+
+def _trx_cases(root: ElementTree.Element) -> list[Case]:
+    """Cases of a Visual Studio TRX report (xUnit, NUnit and MSTest through ``dotnet test``).
+
+    A result names its test by id; the definition gives the class and method. xUnit writes the
+    method fully qualified and the other frameworks do not, so the class prefix is removed. The
+    arguments of a parameterised test stay on the name, as in a JUnit report.
+    """
+    namespace = root.tag[: root.tag.index("}") + 1] if root.tag.startswith("{") else ""
+    methods: dict[str, tuple[str, str]] = {}
+    for unit in root.iter(f"{namespace}UnitTest"):
+        method = unit.find(f"{namespace}TestMethod")
+        if method is not None:
+            methods[unit.get("id", "")] = (method.get("className", ""), method.get("name", ""))
+    cases: list[Case] = []
+    for result in root.iter(f"{namespace}UnitTestResult"):
+        test_name = result.get("testName", "")
+        classname, method_name = methods.get(result.get("testId", ""), ("", ""))
+        base = (method_name or test_name).split("(", 1)[0]
+        if classname and base.startswith(f"{classname}."):
+            base = base[len(classname) + 1 :]
+        elif not classname:
+            classname, _, base = base.rpartition(".")
+        arguments = test_name[test_name.index("(") :] if "(" in test_name else ""
+        status = _TRX_STATUS.get(result.get("outcome", "").lower(), "error")
+        message = text = ""
+        info = result.find(f"{namespace}Output/{namespace}ErrorInfo")
+        if info is not None:
+            message = (info.findtext(f"{namespace}Message") or "").strip()
+            text = info.findtext(f"{namespace}StackTrace") or ""
+        cases.append(Case(base + arguments, classname, status, "", message, text))
     return cases
 
 
