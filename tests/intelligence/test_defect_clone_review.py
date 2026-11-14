@@ -139,6 +139,7 @@ def service_configuration(**overrides) -> SimpleNamespace:
         "defect_repo_read_pat": SecretStr(SECRET),
         "defect_repo_token_hosts": "dev.azure.com, acme.visualstudio.com ,",
         "defect_repo_cache_dir": Path("/var/cache/visioniq"),
+        "defect_repo_fetch": "commit",
         "defect_artifact_dir": Path("/var/artifacts"),
         "defect_artifact_base_uri": "gs://bucket/fix-runs/",
         "defect_max_calls_per_run": 9,

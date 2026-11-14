@@ -175,6 +175,9 @@ class FixSettings:
     repo_token_hosts: tuple[str, ...] = ("dev.azure.com",)
     # A local mirror per repository, so only new commits are downloaded. None: clone every time.
     repo_cache_dir: Path | None = None
+    # "full": clone the repository. "commit": download only the pinned commit (falls back to a
+    # clone when the server does not hand out single commits).
+    repo_fetch: str = "full"
     # "fixed": the code tasks follow the routing table. "by_complexity": see app/defect/complexity.
     model_selection: str = "fixed"
     simple_max_files: int = 2
@@ -227,6 +230,7 @@ class FixSettings:
                 host.strip() for host in app.defect_repo_token_hosts.split(",") if host.strip()
             ),
             repo_cache_dir=app.defect_repo_cache_dir,
+            repo_fetch=app.defect_repo_fetch,
             model_selection=app.defect_model_selection,
             simple_max_files=app.defect_simple_max_files,
             complex_min_files=app.defect_complex_min_files,
@@ -386,6 +390,7 @@ class _FixRun:
                 self.settings.repo_access_token,
                 self.settings.repo_token_hosts,
                 self.settings.repo_cache_dir,
+                self.settings.repo_fetch,
             )
         except WorkspaceError as error:
             self.limitations.append(

@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     # A local mirror of each cloned repository: the first fix run downloads it, later runs only
     # fetch new commits. Every run still works on its own fresh copy. Unset: clone every time.
     defect_repo_cache_dir: Path | None = None
+    # How much of the repository a fix run downloads. "full" (default) clones it with its
+    # history. "commit" downloads only the commit the run is pinned to, which is all a run uses;
+    # if the server does not hand out a single commit, the repository is cloned as with "full".
+    defect_repo_fetch: Literal["full", "commit"] = "full"
     # Model selection by complexity for the two code tasks of a fix run (the reproduction test and
     # the fix). "fixed" (default) follows the routing table, as before. "by_complexity" rates each
     # run simple / standard / complex from its brief and sends the code tasks to that tier's model;
@@ -174,6 +178,7 @@ class Settings(BaseSettings):
         "claude_route",
         "claude_effort",
         "defect_model_selection",
+        "defect_repo_fetch",
         mode="before",
     )
     @classmethod

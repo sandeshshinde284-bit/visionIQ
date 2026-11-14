@@ -40,10 +40,12 @@ def check(repo: RepositoryPolicy, base_sha: str, settings: FixSettings, root: Pa
     parts = urlsplit(repo.source)
     where = parts.hostname or "a local path"
     token = "configured" if settings.repo_access_token else "not configured"
+    download = "the pinned commit only" if settings.repo_fetch == "commit" else "the repository"
     lines = [
         f"repository      {repo.repository_id} ({where})",
         f"read token      {token}",
         f"repository cache {'on' if settings.repo_cache_dir else 'off'}",
+        f"download        {download}",
     ]
     target = root / f"clone-check-{uuid.uuid4().hex}"
     started = time.monotonic()
@@ -56,15 +58,20 @@ def check(repo: RepositoryPolicy, base_sha: str, settings: FixSettings, root: Pa
                 access_token=settings.repo_access_token,
                 token_hosts=settings.repo_token_hosts,
                 cache_dir=settings.repo_cache_dir,
+                fetch=settings.repo_fetch,
             )
         except WorkspaceError as error:
             text = _WORKSPACE_TEXT.get(error.code, "The workspace could not be prepared.")
             return CloneCheck(False, (*lines, f"FAILED          {error.code}: {text}"), error.code)
         head = run_git(workspace.base, ["rev-parse", "HEAD"]).strip()
+        shallow = (
+            run_git(workspace.candidate, ["rev-parse", "--is-shallow-repository"]).strip() == "true"
+        )
         config = (workspace.candidate / ".git" / "config").read_text("utf-8", errors="replace")
         leaked = "extraheader" in config.lower() or "authorization" in config.lower()
         lines += [
             f"cloned in       {time.monotonic() - started:.1f} s",
+            f"history         {'none (single commit)' if shallow else 'full'}",
             f"checked out     {head}",
             f"commit matches  {'yes' if head == base_sha else 'NO'}",
             f"files           {len(workspace.files())}",

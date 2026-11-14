@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
+import structlog
+
 SHA = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 # What a model may name: plain relative paths, no traversal, no drive, no shell characters.
 SAFE_PATH = re.compile(r"^(?!.*(?:^|/)\.\.?(?:/|$))[A-Za-z0-9_.][A-Za-z0-9_./-]{0,399}$")
@@ -215,6 +217,66 @@ def update_cache(
             timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
         )
     return cache
+
+
+# Where a commit cache keeps each commit it holds, so git does not discard it.
+COMMIT_REF = "refs/visioniq/commits/"
+
+
+def update_commit_cache(
+    source: str, base_sha: str, cache_dir: Path, credentials: Mapping[str, str] | None = None
+) -> Path:
+    """A local store of single commits of ``source`` that contains ``base_sha``; returns its path.
+
+    Unlike :func:`update_cache` it never downloads history: each run adds only the one commit it
+    needs (git sends just what the store does not already have). A commit already stored needs
+    no network. It is kept apart from the full mirror, so the two modes cannot disturb each other.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache = cache_dir / f"{hashlib.sha256(source.encode()).hexdigest()[:24]}.commits.git"
+    ref = f"{COMMIT_REF}{base_sha}"
+    with _cache_lock(cache, GIT_NETWORK_TIMEOUT_SECONDS + GIT_TIMEOUT_SECONDS):
+        if cache.exists():
+            intact = run_git(cache, ["rev-parse", "--is-bare-repository"], check=False).strip()
+            if intact != "true":
+                shutil.rmtree(cache, onerror=_remove_readonly)
+        if not cache.exists():
+            run_git(cache_dir, ["init", "--quiet", "--bare", cache.name])
+        stored = run_git(cache, ["rev-parse", "--verify", "--quiet", ref], check=False).strip()
+        if stored == base_sha:
+            return cache
+        run_git(
+            cache,
+            ["fetch", "--quiet", "--depth", "1", source, f"+{base_sha}:{ref}"],
+            extra_environment=credentials,
+            timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+        )
+    return cache
+
+
+def _fetch_commit(
+    root: Path,
+    source: str,
+    base_sha: str,
+    credentials: Mapping[str, str],
+    cache_dir: Path | None,
+) -> None:
+    """Make ``root/candidate`` a repository that holds exactly the pinned commit, no history.
+
+    A fix run needs the files of one commit and the commit it adds on top; it never reads
+    history. Fetching that commit alone downloads far less than a clone of the repository.
+    """
+    run_git(root, ["init", "--quiet", "candidate"])
+    origin, wanted = source, base_sha
+    if cache_dir is not None and _is_remote(source):
+        origin = str(update_commit_cache(source, base_sha, cache_dir, credentials))
+        wanted, credentials = f"{COMMIT_REF}{base_sha}", {}  # from the local store: no token
+    run_git(
+        root / "candidate",
+        ["fetch", "--quiet", "--depth", "1", origin, wanted],
+        extra_environment=credentials,
+        timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+    )
 
 
 def _remove_readonly(function, path, _error) -> None:
@@ -439,8 +501,13 @@ def prepare(
     access_token: str | None = None,
     token_hosts: Sequence[str] = ("dev.azure.com",),
     cache_dir: Path | None = None,
+    fetch: str = "full",
 ) -> Workspace:
     """Clone ``source`` into ``root`` with both trees at exactly ``base_sha``.
+
+    ``fetch="commit"`` downloads only that commit instead of the repository's history. If the
+    server does not hand out a single commit, the repository is cloned as with ``"full"``, so
+    the mode can only make a run faster, never make it fail.
 
     ``access_token`` (a read-only repository token) authenticates the clone of a private HTTPS
     repository on one of ``token_hosts``; see :func:`clone_credentials`. With ``cache_dir`` a
@@ -459,16 +526,31 @@ def prepare(
     try:
         try:
             credentials = clone_credentials(source, access_token, token_hosts)
-            origin = source
-            if cache_dir is not None and _is_remote(source):
-                origin = str(update_cache(source, base_sha, cache_dir, credentials))
-                credentials = {}  # the copy is made from the local mirror: no network, no token
-            run_git(
-                root,
-                ["clone", "--quiet", "--no-checkout", "--no-hardlinks", origin, "candidate"],
-                extra_environment=credentials,
-                timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
-            )
+            fetched = False
+            if fetch == "commit":
+                try:
+                    _fetch_commit(root, source, base_sha, credentials, cache_dir)
+                    fetched = True
+                except WorkspaceError as error:
+                    if error.cause in (GIT_NOT_INSTALLED, REPOSITORY_TIMEOUT):
+                        raise  # cloning the whole repository would fail the same way, later
+                    # Any other refusal: the server may not hand out single commits. Start
+                    # again with a clone of the repository, exactly as fetch="full" does.
+                    structlog.get_logger().warning(
+                        "fix_commit_fetch_fallback", cause=error.cause or "refused"
+                    )
+                    shutil.rmtree(root / "candidate", onerror=_remove_readonly_quietly)
+            if not fetched:
+                origin = source
+                if cache_dir is not None and _is_remote(source):
+                    origin = str(update_cache(source, base_sha, cache_dir, credentials))
+                    credentials = {}  # copied from the local mirror: no network, no token
+                run_git(
+                    root,
+                    ["clone", "--quiet", "--no-checkout", "--no-hardlinks", origin, "candidate"],
+                    extra_environment=credentials,
+                    timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+                )
         except WorkspaceError as error:
             # The precise cause when git's message made it clear, else the general code.
             raise WorkspaceError(error.cause or REPOSITORY_UNAVAILABLE) from error
