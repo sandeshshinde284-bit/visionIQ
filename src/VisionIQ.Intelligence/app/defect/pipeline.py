@@ -180,6 +180,15 @@ class FixSettings:
     simple_max_files: int = 2
     complex_min_files: int = 6
 
+    @staticmethod
+    def local_runner_refused(app: Any) -> bool:
+        """Whether the local runner (generated code run with no isolation) is refused.
+
+        It is allowed only on a developer machine that asked for it: never when APP_ENV is
+        production, and not unless DEFECT_ALLOW_LOCAL_RUNNER is true.
+        """
+        return app.app_env == "production" or not app.defect_allow_local_runner
+
     @classmethod
     def from_app(
         cls,
@@ -187,14 +196,17 @@ class FixSettings:
         work_dir: Path,
         artifact_dir: Path | None = None,
         *,
-        production: bool = False,
+        production: bool | None = None,
         keep_workspace: bool | None = None,
     ) -> FixSettings:
         """The fix settings of the service configuration (``app.config.Settings``).
 
         The background worker and the command line both build their settings here, so a new
-        setting cannot reach one and be missed by the other.
+        setting, and the decision whether the local runner is refused, cannot reach one and be
+        missed by the other. ``production`` overrides that decision only in tests.
         """
+        if production is None:
+            production = cls.local_runner_refused(app)
         token = app.defect_repo_read_pat
         return cls(
             work_dir=work_dir / "work",
@@ -301,14 +313,16 @@ class _FixRun:
         self._toolchain: dict[str, str] | None = None
         # The export the last execution ran in (see _run).
         self._stage: str | None = None
+        # Model selection by complexity: rated once, when the scope is known, and kept for the
+        # whole run. It is NOT part of a candidate: clearing a candidate between fix attempts
+        # must not lose it, or a retry would not move one tier up.
+        self.complexity: Complexity | None = None
         self._clear_candidate()
 
     def _clear_candidate(self) -> None:
         """A result describes one proposal: the last. Earlier ones stay in ``attempts``."""
         self.patch: Patch | None = None
         self.candidate_sha: str | None = None
-        # Set once the scope is known, and only when models are selected by complexity.
-        self.complexity: Complexity | None = None
         self.candidate_test: CheckEvidence | None = None
         self.suite: CheckEvidence | None = None
         self.regression = Regression(

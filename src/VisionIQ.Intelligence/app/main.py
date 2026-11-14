@@ -82,7 +82,7 @@ def build_fix_worker(settings: Settings, context: EventContext):
     policy = load_policy(settings.defect_policy_file)
     # Refused unless it was allowed on purpose: a forgotten APP_ENV must not be enough to run
     # model-written code on the host.
-    production = settings.app_env == "production" or not settings.defect_allow_local_runner
+    production = FixSettings.local_runner_refused(settings)
     if production and any(repo.runner.kind == "local" for repo in policy.repositories):
         raise ValueError(
             "The local runner has no network isolation. Use a docker runner, or set "
@@ -103,7 +103,7 @@ def build_fix_worker(settings: Settings, context: EventContext):
         sources_for,
         build_gateway(settings),
         policy,
-        FixSettings.from_app(settings, work_dir, production=production),
+        FixSettings.from_app(settings, work_dir),
         context,
     )
 

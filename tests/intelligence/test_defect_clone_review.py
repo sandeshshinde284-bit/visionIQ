@@ -151,6 +151,8 @@ def service_configuration(**overrides) -> SimpleNamespace:
         "defect_simple_max_files": 3,
         "defect_complex_min_files": 9,
         "llm_data_classification": "RESTRICTED",
+        "app_env": "development",
+        "defect_allow_local_runner": True,
     }
     return SimpleNamespace(**{**values, **overrides})
 
@@ -204,9 +206,47 @@ def test_the_worker_and_the_command_line_do_not_build_settings_by_hand() -> None
     worker = (app / "main.py").read_text("utf-8")
     command_line = (app / "defect" / "cli.py").read_text("utf-8")
 
-    assert "FixSettings.from_app(settings, work_dir, production=production)" in worker
+    assert "FixSettings.from_app(settings, work_dir)" in worker
     assert "FixSettings(" not in worker
     assert "FixSettings.from_app(get_settings()" in command_line
+
+
+@pytest.mark.parametrize(
+    ("app_env", "allowed", "refused"),
+    [
+        ("development", True, False),  # a developer machine that asked for it: the only case
+        ("development", False, True),  # the default
+        ("production", True, True),  # never in production, whatever the flag says
+        ("production", False, True),
+    ],
+)
+def test_the_local_runner_is_refused_unless_a_developer_machine_allowed_it(
+    tmp_path: Path, app_env: str, allowed: bool, refused: bool
+) -> None:
+    app = service_configuration(app_env=app_env, defect_allow_local_runner=allowed)
+
+    assert FixSettings.local_runner_refused(app) is refused
+    assert FixSettings.from_app(app, tmp_path).production is refused
+
+
+def test_the_live_command_line_refuses_the_local_runner_like_the_worker_does(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from app.defect.policy import RunnerPolicy
+    from app.defect.runner import build_runner
+
+    monkeypatch.setattr(
+        cli, "get_settings", lambda: service_configuration(defect_allow_local_runner=False)
+    )
+
+    live = cli._fix_settings(tmp_path, tmp_path / "out", keep_workspace=False, live=True)
+
+    assert live.production is True
+    with pytest.raises(ValueError, match="no network isolation"):
+        build_runner(RunnerPolicy(kind="local"), live.production)
+    # An offline demo runs prepared answers only and keeps the local runner available.
+    offline = cli._fix_settings(tmp_path, tmp_path / "out", keep_workspace=False, live=False)
+    assert offline.production is False
 
 
 def test_a_ticket_file_can_state_its_risk_band_for_model_selection() -> None:

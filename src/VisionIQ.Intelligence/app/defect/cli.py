@@ -80,7 +80,10 @@ class FileSources:
 def _fix_settings(root: Path, out: Path, keep_workspace: bool, live: bool) -> FixSettings:
     """With live models the service configuration applies (the read token for a private
     repository, the repository cache, model selection, budgets), exactly as for the background
-    worker. An offline demo needs no configuration and keeps the built-in defaults."""
+    worker. That includes the runner decision: a policy with the local runner is refused unless
+    DEFECT_ALLOW_LOCAL_RUNNER=true on a developer machine, because a live model's code would run
+    with no isolation. An offline demo runs prepared answers only, needs no configuration and
+    keeps the built-in defaults."""
     if live:
         return FixSettings.from_app(get_settings(), root, out, keep_workspace=keep_workspace)
     return FixSettings(work_dir=root / "work", artifact_dir=out, keep_workspace=keep_workspace)

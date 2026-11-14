@@ -6,7 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 from brief_support import ScriptedProvider
-from defect_support import SAFE_FIX, TEST_ANSWER, FakeFixSources, honest
+from defect_support import (
+    SAFE_FIX,
+    TEST_ANSWER,
+    TEST_PATH,
+    UNSAFE_FIX,
+    FakeFixSources,
+    fix,
+    honest,
+)
 from pydantic import ValidationError
 from test_config import settings as app_settings
 from test_defect_pipeline import outcome
@@ -194,6 +202,50 @@ def test_a_failed_attempt_is_retried_one_tier_up(tmp_path: Path) -> None:
     assert result.verdict == "VERIFIED"
     assert kinds(cheap) == ["reproduction_test", "code_fix"]  # attempt 1, then the fix
     assert kinds(middle) == ["reproduction_test"]  # attempt 2 of the test, one tier up
+    assert usual.tasks == []
+
+
+def test_a_failed_fix_is_retried_one_tier_up(tmp_path: Path) -> None:
+    """The rating belongs to the run: clearing a candidate between fix attempts keeps it."""
+    usual = model("claude", "opus")
+    cheap = model("claude", "haiku", TEST_ANSWER, UNSAFE_FIX)  # the first fix fails its checks
+    middle = model("claude", "sonnet", SAFE_FIX)
+
+    result = outcome(
+        tmp_path,
+        tiered(usual, simple=cheap, standard=middle),
+        honest,
+        BriefedSources(),
+        model_selection="by_complexity",
+    ).result
+
+    assert result.verdict == "VERIFIED" and result.patch.iteration == 2
+    assert kinds(cheap) == ["reproduction_test", "code_fix"]
+    assert kinds(middle) == ["code_fix"]  # fix attempt 2, one tier up
+    assert usual.tasks == []  # never the default route
+
+
+def test_three_fix_attempts_climb_through_all_three_tiers(tmp_path: Path) -> None:
+    weaken = fix("def test_captured_payment_is_not_retried():\n    assert True\n", TEST_PATH)
+    usual = model("claude", "default")
+    cheap = model("claude", "haiku", TEST_ANSWER, weaken)  # attempt 1: rejected by the guardrails
+    middle = model("claude", "sonnet", UNSAFE_FIX)  # attempt 2: fails its checks
+    strong = model("claude", "opus", SAFE_FIX)  # attempt 3: verified
+
+    result = outcome(
+        tmp_path,
+        tiered(usual, simple=cheap, standard=middle, complex=strong),
+        honest,
+        BriefedSources(),
+        model_selection="by_complexity",
+    ).result
+
+    assert result.verdict == "VERIFIED" and result.patch.iteration == 3
+    assert (kinds(cheap), kinds(middle), kinds(strong)) == (
+        ["reproduction_test", "code_fix"],
+        ["code_fix"],
+        ["code_fix"],
+    )
     assert usual.tasks == []
 
 
