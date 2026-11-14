@@ -20,6 +20,18 @@ SCHEMA_VERSION = 1
 BriefState = Literal["PUBLISHED", "PARTIAL", "BLOCKED"]
 RiskBand = Literal["LOW", "MODERATE", "HIGH", "INSUFFICIENT_DATA"]
 AdviceKind = Literal["RISK", "DO", "DONT", "APPROACH"]
+# ENH-01: a defect gets a brief; an enhancement gets guidance in eight fixed sections (8.5).
+BriefKind = Literal["defect", "enhancement"]
+GuidanceSectionCode = Literal[
+    "acceptance_criteria_gaps",
+    "contracts_and_apis",
+    "deployment_and_migration_risk",
+    "related_past_changes",
+    "do_and_dont",
+    "recommended_sequence",
+    "tests_to_add",
+    "reviewer_decisions",
+]
 # What checks say about the advice. A new brief only ever has these two: engineers' ratings
 # (workflow.advice_feedback) are a separate dimension and never make advice "correct" (8.10).
 EvidenceState = Literal["UNVERIFIED", "DISPUTED"]
@@ -95,6 +107,21 @@ class Advice(_Model):
     evidence_ids: list[str] = Field(min_length=1)
     support: list[Support] = Field(min_length=1)
     evidence_state: EvidenceState = "UNVERIFIED"
+    # ENH-01: the guidance section of an enhancement's item; None in a defect brief.
+    section: GuidanceSectionCode | None = None
+
+
+class GuidanceSection(_Model):
+    """8.5: one of the eight sections of enhancement guidance.
+
+    ``missing`` means no item survived the evidence check for it: it is reported as missing and
+    never filled with a guess.
+    """
+
+    section: GuidanceSectionCode
+    title: str
+    status: Literal["covered", "missing"]
+    advice_ids: list[str] = Field(default_factory=list)
 
 
 class DisagreementNote(_Model):
@@ -138,12 +165,16 @@ class Brief(_Model):
     brief_id: uuid.UUID
     run_id: uuid.UUID
     ticket: TicketRef
+    # ENH-01: what the ticket is, as the pickup policy classed it. A defect brief has no guidance.
+    kind: BriefKind = "defect"
     state: BriefState
     reason_codes: list[str] = Field(default_factory=list)
     snapshot_id: str | None = None
     predicted_scope: list[ScopeItem] = Field(default_factory=list)
     risk: Risk
     advice: list[Advice] = Field(default_factory=list)
+    # ENH-01: for an enhancement, all eight sections in order, each covered or missing.
+    guidance: list[GuidanceSection] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     disagreements: list[DisagreementNote] = Field(default_factory=list)
     # S10-10: what the brief could not establish, said plainly.
