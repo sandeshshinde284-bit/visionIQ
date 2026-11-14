@@ -47,6 +47,11 @@ jobs:
         run: docker build -f src/VisionIQ.Api/Dockerfile -t visioniq-api:ci .
       - name: Build Intelligence runtime image
         run: docker build -f src/VisionIQ.Intelligence/Dockerfile -t visioniq-intelligence:ci .
+      - name: Intelligence image has git, the clone check, and a non-root user (DEF-01)
+        run: |
+          docker run --rm --entrypoint git visioniq-intelligence:ci --version
+          test "$(docker run --rm --entrypoint id visioniq-intelligence:ci -u)" = "10001"
+          docker run --rm --entrypoint python visioniq-intelligence:ci -c "import app.defect.clone_check"
       - name: Build migration image
         run: docker build -f db/Dockerfile -t visioniq-db-migrate:ci .
       - name: Build ADO webhook host image (no network ingress deployed)
