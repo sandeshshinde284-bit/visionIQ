@@ -22,6 +22,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,8 @@ BASELINE_NOT_PINNED = "baseline_not_pinned"
 BASELINE_NOT_FOUND = "baseline_not_found"
 REPOSITORY_UNAVAILABLE = "repository_unavailable"
 GIT_TIMEOUT_SECONDS = 300
+# Downloading a large repository for the first time takes longer than any local git command.
+GIT_NETWORK_TIMEOUT_SECONDS = 1800
 
 Tree = Literal["base", "candidate"]
 
@@ -92,6 +95,72 @@ def clone_credentials(
         "GIT_CONFIG_KEY_0": f"http.{parts.scheme}://{parts.hostname}/.extraHeader",
         "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
     }
+
+
+def _is_remote(source: str) -> bool:
+    """True for a URL that is downloaded over the network (a local path is not cached)."""
+    return urlsplit(source).scheme in {"https", "http", "ssh", "git"}
+
+
+@contextlib.contextmanager
+def _cache_lock(cache: Path, timeout_seconds: float):
+    """One process at a time updates a repository's mirror. A lock left by a crashed run is
+    taken over once it is older than the longest an update may take."""
+    lock = cache.with_name(cache.name + ".lock")
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            lock.mkdir()
+            break
+        except FileExistsError:
+            with contextlib.suppress(OSError):
+                if time.time() - lock.stat().st_mtime > timeout_seconds:
+                    lock.rmdir()
+                    continue
+            if time.monotonic() > deadline:
+                raise WorkspaceError(REPOSITORY_UNAVAILABLE) from None
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            lock.rmdir()
+
+
+def update_cache(
+    source: str, base_sha: str, cache_dir: Path, credentials: Mapping[str, str] | None = None
+) -> Path:
+    """A local bare mirror of ``source`` that contains ``base_sha``; returns its path.
+
+    The first run downloads the repository once. A later run uses no network at all when its
+    commit is already in the mirror, and otherwise fetches only what is new. Runs never work in
+    the mirror: each clones its own copy from it, so one run cannot affect another. A damaged
+    mirror is rebuilt; a mirror is never deleted because the network is unavailable.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache = cache_dir / f"{hashlib.sha256(source.encode()).hexdigest()[:24]}.git"
+    with _cache_lock(cache, GIT_NETWORK_TIMEOUT_SECONDS + GIT_TIMEOUT_SECONDS):
+        if cache.exists():
+            intact = run_git(cache, ["rev-parse", "--is-bare-repository"], check=False).strip()
+            if intact != "true":
+                shutil.rmtree(cache, onerror=_remove_readonly)
+        if cache.exists():
+            if run_git(cache, ["cat-file", "-t", base_sha], check=False).strip() == "commit":
+                return cache
+            run_git(
+                cache,
+                ["fetch", "--quiet", "--prune", source, "+refs/heads/*:refs/heads/*"],
+                extra_environment=credentials,
+                timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+            )
+            return cache
+        run_git(
+            cache_dir,
+            ["clone", "--quiet", "--bare", source, cache.name],
+            extra_environment=credentials,
+            timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
+        )
+    return cache
 
 
 def _remove_readonly(function, path, _error) -> None:
@@ -272,6 +341,7 @@ def run_git(
     arguments: Sequence[str],
     check: bool = True,
     extra_environment: Mapping[str, str] | None = None,
+    timeout_seconds: float = GIT_TIMEOUT_SECONDS,
 ) -> str:
     try:
         completed = subprocess.run(
@@ -291,7 +361,7 @@ def run_git(
             cwd=cwd,
             env={**_git_environment(), **(extra_environment or {})},
             capture_output=True,
-            timeout=GIT_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -309,11 +379,14 @@ def prepare(
     bot_email: str = "visioniq-bot@users.noreply.invalid",
     access_token: str | None = None,
     token_hosts: Sequence[str] = ("dev.azure.com",),
+    cache_dir: Path | None = None,
 ) -> Workspace:
     """Clone ``source`` into ``root`` with both trees at exactly ``base_sha``.
 
     ``access_token`` (a read-only repository token) authenticates the clone of a private HTTPS
-    repository on one of ``token_hosts``; see :func:`clone_credentials`.
+    repository on one of ``token_hosts``; see :func:`clone_credentials`. With ``cache_dir`` a
+    remote repository is downloaded once into a local mirror and only new commits are fetched
+    afterwards; see :func:`update_cache`.
 
     The baseline must be a full commit SHA: a branch name moves, so a result measured against it
     could not be reproduced. A commit that is not in the repository is a reason code, not a guess.
@@ -326,10 +399,16 @@ def prepare(
     workspace = Workspace(root, base_sha, bot_name, bot_email)
     try:
         try:
+            credentials = clone_credentials(source, access_token, token_hosts)
+            origin = source
+            if cache_dir is not None and _is_remote(source):
+                origin = str(update_cache(source, base_sha, cache_dir, credentials))
+                credentials = {}  # the copy is made from the local mirror: no network, no token
             run_git(
                 root,
-                ["clone", "--quiet", "--no-checkout", "--no-hardlinks", source, "candidate"],
-                extra_environment=clone_credentials(source, access_token, token_hosts),
+                ["clone", "--quiet", "--no-checkout", "--no-hardlinks", origin, "candidate"],
+                extra_environment=credentials,
+                timeout_seconds=GIT_NETWORK_TIMEOUT_SECONDS,
             )
         except WorkspaceError as error:
             raise WorkspaceError(REPOSITORY_UNAVAILABLE) from error

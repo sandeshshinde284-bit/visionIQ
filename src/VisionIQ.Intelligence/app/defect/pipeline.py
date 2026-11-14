@@ -37,6 +37,7 @@ from app.brief.history import TicketText
 from app.defect import gates as gate_rules
 from app.defect import guardrails, report
 from app.defect import regression as regression_rules
+from app.defect.complexity import Complexity, assess, tier_for_attempt
 from app.defect.generate import (
     REPRODUCTION_UNAVAILABLE,
     TEST_INVALID,
@@ -156,6 +157,12 @@ class FixSettings:
     # Read-only token for cloning a private repository, and the hosts it may be sent to.
     repo_access_token: str | None = None
     repo_token_hosts: tuple[str, ...] = ("dev.azure.com",)
+    # A local mirror per repository, so only new commits are downloaded. None: clone every time.
+    repo_cache_dir: Path | None = None
+    # "fixed": the code tasks follow the routing table. "by_complexity": see app/defect/complexity.
+    model_selection: str = "fixed"
+    simple_max_files: int = 2
+    complex_min_files: int = 6
 
 
 @dataclass(frozen=True)
@@ -244,6 +251,8 @@ class _FixRun:
         """A result describes one proposal: the last. Earlier ones stay in ``attempts``."""
         self.patch: Patch | None = None
         self.candidate_sha: str | None = None
+        # Set once the scope is known, and only when models are selected by complexity.
+        self.complexity: Complexity | None = None
         self.candidate_test: CheckEvidence | None = None
         self.suite: CheckEvidence | None = None
         self.regression = Regression(
@@ -306,6 +315,7 @@ class _FixRun:
                 self.settings.bot_email,
                 self.settings.repo_access_token,
                 self.settings.repo_token_hosts,
+                self.settings.repo_cache_dir,
             )
         except WorkspaceError as error:
             self.limitations.append(
@@ -318,6 +328,7 @@ class _FixRun:
             )
         files = self.workspace.files()
         code = self._context_files(ticket, files)
+        self._rate_complexity(code)
         described = self.runner.describe()
         _log().info(
             "fix_workspace_ready",
@@ -352,6 +363,34 @@ class _FixRun:
         return self._finish("BLOCKED", "BLOCKED")
 
     # ---- Context -------------------------------------------------------------------------
+
+    def _rate_complexity(self, code: Sequence[CodeFile]) -> None:
+        """Model selection by complexity: rate the run once, from its scope and its brief."""
+        if self.settings.model_selection != "by_complexity":
+            return
+        repo, _ = self._ready()
+        ticket = self.request.ticket
+        areas = [
+            str(area.area)
+            for area in repo.restricted_areas
+            if any(matches(file.path, area.patterns) for file in code)
+        ]
+        self.complexity = assess(
+            len(code),
+            self.sources.brief_risk_band(ticket.project, ticket.id),
+            areas,
+            self.settings.simple_max_files,
+            self.settings.complex_min_files,
+        )
+        _log().info(
+            "fix_model_tier", tier=self.complexity.tier, reasons=list(self.complexity.reasons)
+        )
+
+    def _tier(self, attempt: int) -> str | None:
+        """The model tier of the ``attempt``-th try; None when the routing table decides."""
+        if self.complexity is None:
+            return None
+        return tier_for_attempt(self.complexity.tier, attempt)
 
     def _context_files(self, ticket: TicketText, files: Sequence[str]) -> list[CodeFile]:
         """The source files a model is shown: those the brief predicted or the ticket names."""
@@ -631,6 +670,7 @@ class _FixRun:
                 context_for(ticket.title, ticket.text, facts, context_code, feedback),
                 repo,
                 set(files),
+                self._tier(attempt),
             )
             if isinstance(proposal, Declined):
                 # The code only: an "unavailable" reason is model text and is not logged.
@@ -776,6 +816,7 @@ class _FixRun:
                 self.gateway,
                 self.ledger,
                 context_for(ticket.title, ticket.text, facts, context_code, feedback),
+                self._tier(iteration),
             )
             if isinstance(proposal, Declined):
                 _log().warning("fix_patch_declined", iteration=iteration, reason=proposal.code)

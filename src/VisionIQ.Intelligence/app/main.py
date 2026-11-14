@@ -124,6 +124,10 @@ def build_fix_worker(settings: Settings, context: EventContext):
             repo_token_hosts=tuple(
                 host.strip() for host in settings.defect_repo_token_hosts.split(",") if host.strip()
             ),
+            repo_cache_dir=settings.defect_repo_cache_dir,
+            model_selection=settings.defect_model_selection,
+            simple_max_files=settings.defect_simple_max_files,
+            complex_min_files=settings.defect_complex_min_files,
         ),
         context,
     )

@@ -35,10 +35,23 @@ class FixSources(Protocol):
         """The files the ticket's latest brief predicted (BRF-03); empty when there is none."""
         ...
 
+    def brief_risk_band(self, project_id: str, ticket_id: str) -> str | None:
+        """The risk band of the ticket's latest brief (LOW, MODERATE, HIGH, INSUFFICIENT_DATA);
+        None when there is none. Only read when models are selected by complexity."""
+        ...
+
     def historical_fixes(self, ticket: TicketText, paths: Sequence[str]) -> list[HistoricalFix]:
         """Past fixes that changed one of ``paths`` (full repository paths, not file names)."""
         ...
 
+
+BRIEF_RISK_BAND_SQL = """
+SELECT risk_band
+FROM knowledge.briefs
+WHERE project_id = %(project)s AND ticket_id = %(ticket)s AND state <> 'BLOCKED'
+ORDER BY created_at DESC
+LIMIT 1
+"""
 
 BRIEF_SCOPE_SQL = """
 SELECT document -> 'predicted_scope'
@@ -90,6 +103,13 @@ class PostgresFixSources:
         return tuple(
             str(item["path"]) for item in row[0] if isinstance(item, dict) and "path" in item
         )
+
+    def brief_risk_band(self, project_id: str, ticket_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                BRIEF_RISK_BAND_SQL, {"project": project_id, "ticket": ticket_id}
+            ).fetchone()
+        return str(row[0]) if row is not None and row[0] else None
 
     def historical_fixes(self, ticket: TicketText, paths: Sequence[str]) -> list[HistoricalFix]:
         names = sorted({path.replace("\\", "/").lstrip("/").lower() for path in paths} - {""})
