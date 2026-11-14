@@ -1,0 +1,36 @@
+# TEMPORARY (ENH-01 development): reports failing API tests as annotations. Removed before merge.
+name: tmp ENH-01 dotnet debug
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Run API tests
+        run: dotnet test tests/VisionIQ.Api.Tests/VisionIQ.Api.Tests.csproj --configuration Release --logger "trx;LogFileName=api.trx" --results-directory out > out.txt 2>&1 || true
+      - name: Report failures as annotations
+        run: |
+          python3 - <<'PY'
+          import glob, re, xml.etree.ElementTree as ET
+          def esc(text): return text.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+          files = glob.glob('out/**/*.trx', recursive=True)
+          if not files:
+              tail = open('out.txt', encoding='utf-8', errors='replace').read()
+              errors = [l for l in tail.splitlines() if ' error ' in l][:12]
+              print('::error title=no test report (build failed?)::' + esc('\n'.join(errors) or tail[-3000:]))
+          for path in files:
+              root = ET.parse(path).getroot()
+              ns = {'t': root.tag.split('}')[0].strip('{')}
+              results = root.findall('.//t:UnitTestResult', ns)
+              failed = [r for r in results if r.get('outcome') != 'Passed' and r.get('outcome') != 'NotExecuted']
+              print(f'::notice title=summary::{len(results)} results, {len(failed)} not passed')
+              for r in failed[:9]:
+                  message = r.findtext('.//t:Message', default='', namespaces=ns)
+                  stack = r.findtext('.//t:StackTrace', default='', namespaces=ns)
+                  print(f"::error title={esc(r.get('testName', '?'))[:200]}::" + esc((message + '\n' + stack)[:2500]))
+          PY

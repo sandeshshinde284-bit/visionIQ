@@ -91,7 +91,7 @@ public sealed class PickupProcessor(
             eventing.TenantId,
             new AnalysisRequestedV1(
                 project.ProjectId, pickup.TicketId, pickup.TicketRevision, project.RepositoryId, baseCommit,
-                AnalysisMode.Brief, project.SecurityScopeId),
+                AnalysisMode.Brief, project.SecurityScopeId, TicketPickup.KindCode(pickup.Kind)),
             pickup.TraceId,
             TicketPickup.TriggerCode(pickup.Trigger),
             TicketPickup.KindCode(pickup.Kind),

@@ -51,6 +51,32 @@ public sealed class EventContractTests
     }
 
     [Fact]
+    public void A_request_says_what_kind_of_ticket_it_is_and_an_older_one_is_a_defect()
+    {
+        // ENH-01: the pickup policy decides the kind; Intelligence writes a brief or enhancement guidance from it.
+        EventEnvelope Request(string kind)
+        {
+            var runId = Guid.NewGuid();
+            return EventEnvelope.Create(
+                EventContracts.AnalysisRequested, "visioniq-dev", runId.ToString(), "4bf92f3577b34da6a3ce929d0e0e4736", runId,
+                "12", new AnalysisRequestedV1(
+                    "VisionIQ-Demo", "4711", 12, "demo-repo", new string('a', 40), AnalysisMode.Brief, "project:VisionIQ-Demo", kind));
+        }
+
+        var enhancement = Request(AnalysisRequestedV1.Enhancement);
+        EventContracts.Validate(enhancement);
+        AssertMatchesSchema(enhancement);
+        Assert.Contains(
+            "\"ticket_kind\":\"enhancement\"", System.Text.Encoding.UTF8.GetString(enhancement.ToUtf8Json()), StringComparison.Ordinal);
+
+        // An event written before the field existed has no ticket_kind and is read as a defect.
+        var older = EventEnvelope.Parse(File.ReadAllBytes(FixturePath("valid", "analysis.requested.v1.json")));
+        Assert.Equal(AnalysisRequestedV1.Defect, older.ReadData<AnalysisRequestedV1>().TicketKind);
+
+        Assert.Throws<EventContractException>(() => EventContracts.Validate(Request("story")));
+    }
+
+    [Fact]
     public void Analysis_completed_states_serialize_in_contract_casing()
     {
         var envelope = EventEnvelope.Parse(File.ReadAllBytes(FixturePath("valid", "analysis.completed.v1.json")));

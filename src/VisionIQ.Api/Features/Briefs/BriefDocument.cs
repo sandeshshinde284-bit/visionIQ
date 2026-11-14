@@ -18,9 +18,18 @@ public sealed record BriefDocument(
     IReadOnlyList<BriefEvidence>? Evidence = null,
     IReadOnlyList<BriefDisagreement>? Disagreements = null,
     IReadOnlyList<string>? Limitations = null,
-    IReadOnlyList<BriefInjectionFlag>? InjectionFlags = null)
+    IReadOnlyList<BriefInjectionFlag>? InjectionFlags = null,
+    string? Kind = null,
+    IReadOnlyList<BriefGuidanceSection>? Guidance = null)
 {
     public const int SupportedSchemaVersion = 1;
+
+    /// <summary>
+    /// ENH-01: true for an enhancement, whose advice is shown in the eight sections of master design 8.5. A brief
+    /// written before the field existed has no kind and is a defect brief.
+    /// </summary>
+    public bool IsEnhancementGuidance =>
+        string.Equals(Kind, "enhancement", StringComparison.Ordinal) && Guidance is { Count: > 0 };
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -54,7 +63,12 @@ public sealed record BriefRiskFactor(
 public sealed record BriefScopeItem(string Path, string Basis, string Confidence);
 
 public sealed record BriefAdvice(
-    string AdviceId, string Kind, string Statement, IReadOnlyList<string>? EvidenceIds = null, string EvidenceState = "UNVERIFIED");
+    string AdviceId, string Kind, string Statement, IReadOnlyList<string>? EvidenceIds = null, string EvidenceState = "UNVERIFIED",
+    string? Section = null);
+
+/// <summary>ENH-01: one of the eight guidance sections; it has no advice ids when nothing supported it.</summary>
+public sealed record BriefGuidanceSection(
+    string Section, string Title, string Status, IReadOnlyList<string>? AdviceIds = null);
 
 public sealed record BriefEvidence(
     string Id, string Kind, string Title, string? Url, string Relevance, IReadOnlyList<string>? Notes = null);

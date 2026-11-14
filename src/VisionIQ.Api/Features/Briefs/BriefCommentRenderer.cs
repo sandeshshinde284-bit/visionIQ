@@ -55,7 +55,10 @@ public static class BriefCommentRenderer
             "PARTIAL" => "Partial",
             _ => "Blocked",
         };
-        html.Append("<div><b>VisionIQ brief</b> &middot; ").Append(status);
+        // ENH-01: an enhancement gets guidance in eight sections instead of a flat advice list.
+        var guidance = brief is { IsEnhancementGuidance: true };
+        html.Append("<div><b>").Append(guidance ? "VisionIQ enhancement guidance" : "VisionIQ brief")
+            .Append("</b> &middot; ").Append(status);
         if (brief is not null)
         {
             html.Append(" &middot; Risk: <b>").Append(Encode(RiskLabel(brief.Risk.Band))).Append("</b>");
@@ -77,7 +80,15 @@ public static class BriefCommentRenderer
         }
 
         AppendRisk(html, brief.Risk);
-        AppendAdvice(html, brief);
+        if (guidance)
+        {
+            AppendGuidance(html, brief);
+        }
+        else
+        {
+            AppendAdvice(html, brief);
+        }
+
         AppendScope(html, brief.PredictedScope ?? []);
         AppendEvidence(html, brief.Evidence ?? []);
         AppendLimits(html, brief);
@@ -135,21 +146,74 @@ public static class BriefCommentRenderer
         html.Append("<p><b>Advice</b></p><ul>");
         foreach (var item in advice)
         {
-            html.Append("<li><b>").Append(Encode(item.AdviceId)).Append("</b> [").Append(KindLabel(item.Kind)).Append("] ")
-                .Append(Encode(item.Statement)).Append(" <i>Source: ");
-            var sources = (item.EvidenceIds ?? []).Select(id =>
-                evidence.TryGetValue(id, out var source) ? Link(source.Url, id) : Encode(id));
-            html.Append(string.Join(", ", sources)).Append("</i>");
-            foreach (var dispute in disputes[item.AdviceId])
-            {
-                html.Append("<br><i>A second review found this ").Append(Encode(dispute.Verdict)).Append(": ")
-                    .Append(Encode(dispute.Reason)).Append("</i>");
-            }
-
-            html.Append("</li>");
+            AppendItem(html, item, evidence, disputes);
         }
 
         html.Append("</ul>");
+    }
+
+    /// <summary>
+    /// ENH-01: the eight sections of master design 8.5, numbered and in order. A section nothing supported is shown
+    /// as missing: it is never filled in, and never dropped, so the engineer sees what the history does not cover.
+    /// </summary>
+    private static void AppendGuidance(StringBuilder html, BriefDocument brief)
+    {
+        var advice = (brief.Advice ?? []).ToDictionary(a => a.AdviceId, StringComparer.Ordinal);
+        var evidence = (brief.Evidence ?? []).ToDictionary(e => e.Id, StringComparer.Ordinal);
+        var disputes = (brief.Disagreements ?? []).ToLookup(d => d.AdviceId, StringComparer.Ordinal);
+        var sections = brief.Guidance ?? [];
+        var body = new StringBuilder();
+        var number = 0;
+        var covered = 0;
+        foreach (var section in sections)
+        {
+            number++;
+            var items = (section.AdviceIds ?? []).Where(advice.ContainsKey).Select(id => advice[id]).ToList();
+            body.Append("<p><b>").Append(number.ToString(CultureInfo.InvariantCulture)).Append(". ")
+                .Append(Encode(section.Title)).Append("</b>");
+            if (items.Count == 0)
+            {
+                body.Append(" &mdash; <i>missing</i></p>");
+                continue;
+            }
+
+            covered++;
+            body.Append("</p><ul>");
+            foreach (var item in items)
+            {
+                AppendItem(body, item, evidence, disputes);
+            }
+
+            body.Append("</ul>");
+        }
+
+        html.Append("<p><b>Guidance</b> &mdash; ").Append(covered.ToString(CultureInfo.InvariantCulture)).Append(" of ")
+            .Append(sections.Count.ToString(CultureInfo.InvariantCulture))
+            .Append(" sections are supported by the history found.");
+        if (covered < sections.Count)
+        {
+            html.Append(" A section marked <i>missing</i> has no supporting evidence: VisionIQ does not fill it with a guess.");
+        }
+
+        html.Append("</p>").Append(body);
+    }
+
+    private static void AppendItem(
+        StringBuilder html, BriefAdvice item, Dictionary<string, BriefEvidence> evidence,
+        ILookup<string, BriefDisagreement> disputes)
+    {
+        html.Append("<li><b>").Append(Encode(item.AdviceId)).Append("</b> [").Append(KindLabel(item.Kind)).Append("] ")
+            .Append(Encode(item.Statement)).Append(" <i>Source: ");
+        var sources = (item.EvidenceIds ?? []).Select(id =>
+            evidence.TryGetValue(id, out var source) ? Link(source.Url, id) : Encode(id));
+        html.Append(string.Join(", ", sources)).Append("</i>");
+        foreach (var dispute in disputes[item.AdviceId])
+        {
+            html.Append("<br><i>A second review found this ").Append(Encode(dispute.Verdict)).Append(": ")
+                .Append(Encode(dispute.Reason)).Append("</i>");
+        }
+
+        html.Append("</li>");
     }
 
     private static void AppendScope(StringBuilder html, IReadOnlyList<BriefScopeItem> scope)

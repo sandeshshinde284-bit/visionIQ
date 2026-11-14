@@ -11,7 +11,8 @@ public sealed record AnalysisRequestBody(
     string RepositoryId,
     string BaseCommitSha,
     AnalysisMode AnalysisMode,
-    string SecurityScopeId);
+    string SecurityScopeId,
+    string? TicketKind = null);
 
 public sealed record AnalysisRequestAccepted(Guid RunId, Guid EventId, string TraceId);
 
@@ -37,7 +38,7 @@ public static class AnalysisRequestEndpoints
         var traceId = Activity.Current?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         var data = new AnalysisRequestedV1(
             body.ProjectId, body.TicketId, body.TicketRevision, body.RepositoryId, body.BaseCommitSha,
-            body.AnalysisMode, body.SecurityScopeId);
+            body.AnalysisMode, body.SecurityScopeId, body.TicketKind ?? AnalysisRequestedV1.Defect);
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
