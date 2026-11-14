@@ -11,7 +11,15 @@ public sealed record AnalysisRequestedV1(
     string RepositoryId,
     string BaseCommitSha,
     AnalysisMode AnalysisMode,
-    string SecurityScopeId);
+    string SecurityScopeId,
+    // ENH-01: what the pickup policy classed the ticket as ("defect" or "enhancement"), so Intelligence writes a
+    // brief or enhancement guidance. Optional in the contract: an event without it is a defect, as before.
+    string TicketKind = AnalysisRequestedV1.Defect)
+{
+    public const string Defect = "defect";
+
+    public const string Enhancement = "enhancement";
+}
 
 public enum AnalysisMode
 {
@@ -85,6 +93,8 @@ public static partial class EventContracts
         Require(CommitSha().IsMatch(data.BaseCommitSha ?? string.Empty), "data/base_commit_sha");
         Require(Enum.IsDefined(data.AnalysisMode), "data/analysis_mode");
         Require(Scope().IsMatch(data.SecurityScopeId ?? string.Empty), "data/security_scope_id");
+        Require(
+            data.TicketKind is AnalysisRequestedV1.Defect or AnalysisRequestedV1.Enhancement, "data/ticket_kind");
     }
 
     private static void ValidateAnalysisCompleted(EventEnvelope envelope)

@@ -57,6 +57,9 @@ class AnalysisRequestedV1(BaseModel):
     base_commit_sha: str
     analysis_mode: Literal["brief", "deep"]
     security_scope_id: str
+    # ENH-01: what the pickup policy classed the ticket as. Optional: a request without it
+    # (an older producer, or one in flight during an upgrade) is a defect, as before.
+    ticket_kind: Literal["defect", "enhancement"] = "defect"
 
 
 class AnalysisCompletedV1(BaseModel):
