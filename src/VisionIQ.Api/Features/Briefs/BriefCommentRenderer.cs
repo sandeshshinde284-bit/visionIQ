@@ -93,9 +93,10 @@ public static class BriefCommentRenderer
         }
 
         AppendRisk(html, brief.Risk);
+        var canRateAdvice = brief.Advice is { Count: > 0 };
         if (guidance)
         {
-            AppendGuidance(html, brief);
+            canRateAdvice = AppendGuidance(html, brief);
         }
         else
         {
@@ -105,7 +106,7 @@ public static class BriefCommentRenderer
         AppendScope(html, brief.PredictedScope ?? []);
         AppendEvidence(html, brief.Evidence ?? []);
         AppendLimits(html, brief);
-        if (brief.Advice is { Count: > 0 })
+        if (canRateAdvice)
         {
             html.Append("<p><b>Rate the advice</b> by replying on this ticket, one line per item: ")
                 .Append("<code>ADV-001 accepted</code>, <code>ADV-002 rejected: why</code>, ")
@@ -169,7 +170,7 @@ public static class BriefCommentRenderer
     /// ENH-01: the eight sections of master design 8.5, numbered and in order. A section nothing supported is shown
     /// as missing: it is never filled in, and never dropped, so the engineer sees what the history does not cover.
     /// </summary>
-    private static void AppendGuidance(StringBuilder html, BriefDocument brief)
+    private static bool AppendGuidance(StringBuilder html, BriefDocument brief)
     {
         // Stored documents may be incomplete or malformed. Never let them reorder sections,
         // attach an advice item to another section, or claim unsupported advice as covered.
@@ -227,6 +228,7 @@ public static class BriefCommentRenderer
         }
 
         html.Append("</p>").Append(body);
+        return covered > 0;
     }
 
     private static void AppendItem(
