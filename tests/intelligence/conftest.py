@@ -62,6 +62,7 @@ ISOLATED_MODULES = frozenset(
         "test_snapshots_db",
         "test_lessons_indexed_db",
         "test_brief_pipeline_db",
+        "test_enhancement_guidance_db",
     }
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]

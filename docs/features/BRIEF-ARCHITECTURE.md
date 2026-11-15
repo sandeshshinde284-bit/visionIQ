@@ -25,6 +25,10 @@ engineer can rate each piece by replying on the ticket.
 
 ## The whole flow
 
+> **Enhancements (ENH-01).** A ticket the pickup policy classes as an enhancement goes through
+> this same flow and gets guidance in the eight sections of design §8.5 instead of a flat advice
+> list: see [ENH-01](ENH-01-enhancement-guidance/README.md).
+
 ```
  Azure DevOps                  VisionIQ.Api (.NET, workflow schema)                Intelligence (Python, knowledge schema)
  ────────────                  ────────────────────────────────────                ───────────────────────────────────────
