@@ -298,6 +298,7 @@ public sealed class BriefCommentRendererTests
         Assert.Contains("VisionIQ enhancement guidance", html, StringComparison.Ordinal);
         Assert.Contains("0 of 8 sections", html, StringComparison.Ordinal);
         Assert.DoesNotContain("<p><b>Advice</b></p>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rate the advice", html, StringComparison.Ordinal);
     }
 
     [Fact]
