@@ -245,12 +245,13 @@ def _folder(path: str) -> str:
 def file_dependents(rows: Sequence[tuple], repository_id: str) -> list[Dependents]:
     """Group FILE_DEPENDENTS_SQL rows by the file that is referred to.
 
-    Rows of the ticket's own repository are preferred when there are any (two repositories can
-    hold the same path). A source file matched through several nested project files belongs to
-    the innermost one.
+    Only edges recorded for the requested repository are eligible: matching file paths
+    in another repository must not be substituted. A source file matched through several
+    nested project files belongs to the innermost one.
     """
-    own = [row for row in rows if row[3] == repository_id]
-    rows = own or list(rows)
+    # File paths are not globally unique. Never return another repository's graph edges
+    # when the requested repository has no matching evidence.
+    rows = [row for row in rows if row[3] == repository_id]
     innermost: dict[str, str] = {}
     for path, target, *_ in rows:
         best = innermost.get(path)
