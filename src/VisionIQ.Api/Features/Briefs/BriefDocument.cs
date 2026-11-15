@@ -25,11 +25,11 @@ public sealed record BriefDocument(
     public const int SupportedSchemaVersion = 1;
 
     /// <summary>
-    /// ENH-01: true for an enhancement, whose advice is shown in the eight sections of master design 8.5. A brief
-    /// written before the field existed has no kind and is a defect brief.
+    /// ENH-01: true for an enhancement even when its stored guidance is missing or malformed, so it
+    /// is never accidentally rendered as an ordinary defect brief.
     /// </summary>
     public bool IsEnhancementGuidance =>
-        string.Equals(Kind, "enhancement", StringComparison.Ordinal) && Guidance is { Count: > 0 };
+        string.Equals(Kind, "enhancement", StringComparison.Ordinal);
 
     private static readonly JsonSerializerOptions Json = new()
     {
