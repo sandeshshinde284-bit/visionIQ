@@ -355,7 +355,7 @@ class PostgresBriefSources:
             if paths:
                 rows = connection.execute(
                     FILE_DEPENDENTS_SQL,
-                    {"scopes": self._scopes, "paths": list(paths), "repository": repository_id}
+                    {"scopes": self._scopes, "paths": list(paths), "repository": repository_id},
                 ).fetchall()
                 found.extend(file_dependents(rows, repository_id))
             if repository_id:
