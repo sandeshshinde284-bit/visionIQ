@@ -26,6 +26,19 @@ public static class BriefCommentRenderer
     private const int MaxEvidence = 12;
     private const int MaxScope = 8;
 
+    // The order and labels are contract-owned, not taken from the stored model document.
+    private static readonly (string Code, string Title)[] EnhancementSections =
+    [
+        ("acceptance_criteria_gaps", "Acceptance-criteria gaps"),
+        ("contracts_and_apis", "Contracts and APIs touched"),
+        ("deployment_and_migration_risk", "Deployment and migration risk"),
+        ("related_past_changes", "Related past changes"),
+        ("do_and_dont", "Do / don't"),
+        ("recommended_sequence", "Recommended sequence"),
+        ("tests_to_add", "Tests to add"),
+        ("reviewer_decisions", "Reviewer decisions"),
+    ];
+
     private static readonly Dictionary<string, string> Reasons = new(StringComparer.Ordinal)
     {
         ["ticket_not_readable"] = "the ticket is not in the knowledge base under this project's access scope yet",
@@ -158,19 +171,37 @@ public static class BriefCommentRenderer
     /// </summary>
     private static void AppendGuidance(StringBuilder html, BriefDocument brief)
     {
-        var advice = (brief.Advice ?? []).ToDictionary(a => a.AdviceId, StringComparer.Ordinal);
-        var evidence = (brief.Evidence ?? []).ToDictionary(e => e.Id, StringComparer.Ordinal);
+        // Stored documents may be incomplete or malformed. Never let them reorder sections,
+        // attach an advice item to another section, or claim unsupported advice as covered.
+        var advice = (brief.Advice ?? [])
+            .Where(a => !string.IsNullOrWhiteSpace(a.AdviceId))
+            .GroupBy(a => a.AdviceId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var evidence = (brief.Evidence ?? [])
+            .Where(e => !string.IsNullOrWhiteSpace(e.Id))
+            .GroupBy(e => e.Id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         var disputes = (brief.Disagreements ?? []).ToLookup(d => d.AdviceId, StringComparer.Ordinal);
-        var sections = brief.Guidance ?? [];
+        var sections = (brief.Guidance ?? [])
+            .Where(s => !string.IsNullOrWhiteSpace(s.Section))
+            .GroupBy(s => s.Section, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         var body = new StringBuilder();
-        var number = 0;
         var covered = 0;
-        foreach (var section in sections)
+        for (var index = 0; index < EnhancementSections.Length; index++)
         {
-            number++;
-            var items = (section.AdviceIds ?? []).Where(advice.ContainsKey).Select(id => advice[id]).ToList();
-            body.Append("<p><b>").Append(number.ToString(CultureInfo.InvariantCulture)).Append(". ")
-                .Append(Encode(section.Title)).Append("</b>");
+            var (code, title) = EnhancementSections[index];
+            sections.TryGetValue(code, out var section);
+            var items = (section?.AdviceIds ?? [])
+                .Distinct(StringComparer.Ordinal)
+                .Where(id => advice.TryGetValue(id, out var item)
+                    && string.Equals(item.Section, code, StringComparison.Ordinal)
+                    && item.EvidenceIds is { Count: > 0 }
+                    && item.EvidenceIds.All(evidence.ContainsKey))
+                .Select(id => advice[id])
+                .ToList();
+            body.Append("<p><b>").Append((index + 1).ToString(CultureInfo.InvariantCulture)).Append(". ")
+                .Append(Encode(title)).Append("</b>");
             if (items.Count == 0)
             {
                 body.Append(" &mdash; <i>missing</i></p>");
@@ -187,10 +218,10 @@ public static class BriefCommentRenderer
             body.Append("</ul>");
         }
 
-        html.Append("<p><b>Guidance</b> &mdash; ").Append(covered.ToString(CultureInfo.InvariantCulture)).Append(" of ")
-            .Append(sections.Count.ToString(CultureInfo.InvariantCulture))
+        html.Append("<p><b>Guidance</b> &mdash; ").Append(covered.ToString(CultureInfo.InvariantCulture))
+            .Append(" of ").Append(EnhancementSections.Length.ToString(CultureInfo.InvariantCulture))
             .Append(" sections are supported by the history found.");
-        if (covered < sections.Count)
+        if (covered < EnhancementSections.Length)
         {
             html.Append(" A section marked <i>missing</i> has no supporting evidence: VisionIQ does not fill it with a guess.");
         }
