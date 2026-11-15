@@ -218,6 +218,7 @@ JOIN evidence.graph_assertions AS a
 JOIN evidence.graph_nodes AS source
   ON source.node_key = a.from_node_key AND source.node_kind = 'file'
 {_SCAN_READABLE}
+WHERE i.repository_id = %(repository)s
 ORDER BY 1, 2, 3
 LIMIT 500
 """
@@ -353,7 +354,8 @@ class PostgresBriefSources:
         with self._connect() as connection:
             if paths:
                 rows = connection.execute(
-                    FILE_DEPENDENTS_SQL, {"scopes": self._scopes, "paths": list(paths)}
+                    FILE_DEPENDENTS_SQL,
+                    {"scopes": self._scopes, "paths": list(paths), "repository": repository_id}
                 ).fetchall()
                 found.extend(file_dependents(rows, repository_id))
             if repository_id:
