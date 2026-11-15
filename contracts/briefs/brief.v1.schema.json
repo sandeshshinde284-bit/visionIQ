@@ -36,6 +36,28 @@
           "title": "Kind",
           "type": "string"
         },
+        "section": {
+          "anyOf": [
+            {
+              "enum": [
+                "acceptance_criteria_gaps",
+                "contracts_and_apis",
+                "deployment_and_migration_risk",
+                "related_past_changes",
+                "do_and_dont",
+                "recommended_sequence",
+                "tests_to_add",
+                "reviewer_decisions"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
+        },
         "statement": {
           "maxLength": 1000,
           "minLength": 1,
@@ -251,6 +273,52 @@
         "routing_revision"
       ],
       "title": "Generation",
+      "type": "object"
+    },
+    "GuidanceSection": {
+      "additionalProperties": false,
+      "description": "8.5: one of the eight sections of enhancement guidance.\n\n``missing`` means no item survived the evidence check for it: it is reported as missing and\nnever filled with a guess.",
+      "properties": {
+        "advice_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Advice Ids",
+          "type": "array"
+        },
+        "section": {
+          "enum": [
+            "acceptance_criteria_gaps",
+            "contracts_and_apis",
+            "deployment_and_migration_risk",
+            "related_past_changes",
+            "do_and_dont",
+            "recommended_sequence",
+            "tests_to_add",
+            "reviewer_decisions"
+          ],
+          "title": "Section",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "missing"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "section",
+        "title",
+        "status"
+      ],
+      "title": "GuidanceSection",
       "type": "object"
     },
     "InjectionFlag": {
@@ -529,12 +597,28 @@
     "generation": {
       "$ref": "#/$defs/Generation"
     },
+    "guidance": {
+      "items": {
+        "$ref": "#/$defs/GuidanceSection"
+      },
+      "title": "Guidance",
+      "type": "array"
+    },
     "injection_flags": {
       "items": {
         "$ref": "#/$defs/InjectionFlag"
       },
       "title": "Injection Flags",
       "type": "array"
+    },
+    "kind": {
+      "default": "defect",
+      "enum": [
+        "defect",
+        "enhancement"
+      ],
+      "title": "Kind",
+      "type": "string"
     },
     "limitations": {
       "items": {

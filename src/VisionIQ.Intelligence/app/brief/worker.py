@@ -64,7 +64,15 @@ def claim(connection: psycopg.Connection, batch: int = 1) -> list[ClaimedRequest
         rows = connection.execute(CLAIM_SQL, {"lease": LEASE_SECONDS, "batch": batch}).fetchall()
     return [
         ClaimedRequest(
-            BriefRequest(run_id, project_id, ticket_id, revision),
+            BriefRequest(
+                run_id,
+                project_id,
+                ticket_id,
+                revision,
+                # ENH-01: optional in the event; a request without it is a defect, as before.
+                ticket_kind=str((event.get("data") or {}).get("ticket_kind") or "defect"),
+                repository_id=str((event.get("data") or {}).get("repository_id") or ""),
+            ),
             scope,
             tenant,
             EventEnvelope.model_validate(event),

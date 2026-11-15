@@ -58,6 +58,8 @@ class OfflineProvider:
             output: dict = {"verdicts": self._verdicts(context)}
         elif task.kind is TaskKind.BRIEF_DRAFT:
             output = self._draft(context)
+        elif task.kind is TaskKind.ENHANCEMENT_APPROACH:
+            output = self._guidance(context)
         elif task.kind in (TaskKind.REPRODUCTION_TEST, TaskKind.CODE_FIX):
             output = self._scripted(task.kind)
         else:
@@ -136,6 +138,33 @@ class OfflineProvider:
             if len(advice) == MAX_ADVICE:
                 break
         limitations = ["Advice was assembled without a language model (offline mode)."]
+        return {"advice": advice, "limitations": limitations}
+
+    @staticmethod
+    def _guidance(context: EvidenceContext) -> dict:
+        """ENH-01 without a model: what the history itself shows, in the two sections it can
+        speak to. Every other section stays empty and is reported as missing."""
+        advice: list[dict] = []
+        for item in context.evidence:
+            quote = _quote(item.text)
+            if item.relevance != "strong" or item.kind == "code_dependency" or not quote:
+                continue
+            title = item.title.strip() or item.kind
+            if _reverted(item):
+                section, kind = "do_and_dont", "DONT"
+                statement = f'Do not repeat the change recorded for "{title}": it was reverted.'
+            else:
+                section, kind = "related_past_changes", "APPROACH"
+                statement = f'An earlier change in this area is recorded as "{title}".'
+            advice.append(
+                {
+                    "section": section,
+                    "kind": kind,
+                    "statement": statement,
+                    "support": [{"evidence_id": item.evidence_id, "quote": quote}],
+                }
+            )
+        limitations = ["Guidance was assembled without a language model (offline mode)."]
         return {"advice": advice, "limitations": limitations}
 
     @staticmethod

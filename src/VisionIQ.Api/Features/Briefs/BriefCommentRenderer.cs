@@ -26,6 +26,19 @@ public static class BriefCommentRenderer
     private const int MaxEvidence = 12;
     private const int MaxScope = 8;
 
+    // The order and labels are contract-owned, not taken from the stored model document.
+    private static readonly (string Code, string Title)[] EnhancementSections =
+    [
+        ("acceptance_criteria_gaps", "Acceptance-criteria gaps"),
+        ("contracts_and_apis", "Contracts and APIs touched"),
+        ("deployment_and_migration_risk", "Deployment and migration risk"),
+        ("related_past_changes", "Related past changes"),
+        ("do_and_dont", "Do / don't"),
+        ("recommended_sequence", "Recommended sequence"),
+        ("tests_to_add", "Tests to add"),
+        ("reviewer_decisions", "Reviewer decisions"),
+    ];
+
     private static readonly Dictionary<string, string> Reasons = new(StringComparer.Ordinal)
     {
         ["ticket_not_readable"] = "the ticket is not in the knowledge base under this project's access scope yet",
@@ -55,7 +68,10 @@ public static class BriefCommentRenderer
             "PARTIAL" => "Partial",
             _ => "Blocked",
         };
-        html.Append("<div><b>VisionIQ brief</b> &middot; ").Append(status);
+        // ENH-01: an enhancement gets guidance in eight sections instead of a flat advice list.
+        var guidance = brief is { IsEnhancementGuidance: true };
+        html.Append("<div><b>").Append(guidance ? "VisionIQ enhancement guidance" : "VisionIQ brief")
+            .Append("</b> &middot; ").Append(status);
         if (brief is not null)
         {
             html.Append(" &middot; Risk: <b>").Append(Encode(RiskLabel(brief.Risk.Band))).Append("</b>");
@@ -77,11 +93,20 @@ public static class BriefCommentRenderer
         }
 
         AppendRisk(html, brief.Risk);
-        AppendAdvice(html, brief);
+        var canRateAdvice = brief.Advice is { Count: > 0 };
+        if (guidance)
+        {
+            canRateAdvice = AppendGuidance(html, brief);
+        }
+        else
+        {
+            AppendAdvice(html, brief);
+        }
+
         AppendScope(html, brief.PredictedScope ?? []);
         AppendEvidence(html, brief.Evidence ?? []);
         AppendLimits(html, brief);
-        if (brief.Advice is { Count: > 0 })
+        if (canRateAdvice)
         {
             html.Append("<p><b>Rate the advice</b> by replying on this ticket, one line per item: ")
                 .Append("<code>ADV-001 accepted</code>, <code>ADV-002 rejected: why</code>, ")
@@ -135,21 +160,93 @@ public static class BriefCommentRenderer
         html.Append("<p><b>Advice</b></p><ul>");
         foreach (var item in advice)
         {
-            html.Append("<li><b>").Append(Encode(item.AdviceId)).Append("</b> [").Append(KindLabel(item.Kind)).Append("] ")
-                .Append(Encode(item.Statement)).Append(" <i>Source: ");
-            var sources = (item.EvidenceIds ?? []).Select(id =>
-                evidence.TryGetValue(id, out var source) ? Link(source.Url, id) : Encode(id));
-            html.Append(string.Join(", ", sources)).Append("</i>");
-            foreach (var dispute in disputes[item.AdviceId])
-            {
-                html.Append("<br><i>A second review found this ").Append(Encode(dispute.Verdict)).Append(": ")
-                    .Append(Encode(dispute.Reason)).Append("</i>");
-            }
-
-            html.Append("</li>");
+            AppendItem(html, item, evidence, disputes);
         }
 
         html.Append("</ul>");
+    }
+
+    /// <summary>
+    /// ENH-01: the eight sections of master design 8.5, numbered and in order. A section nothing supported is shown
+    /// as missing: it is never filled in, and never dropped, so the engineer sees what the history does not cover.
+    /// </summary>
+    private static bool AppendGuidance(StringBuilder html, BriefDocument brief)
+    {
+        // Stored documents may be incomplete or malformed. Never let them reorder sections,
+        // attach an advice item to another section, or claim unsupported advice as covered.
+        var advice = (brief.Advice ?? [])
+            .Where(a => !string.IsNullOrWhiteSpace(a.AdviceId))
+            .GroupBy(a => a.AdviceId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var evidence = (brief.Evidence ?? [])
+            .Where(e => !string.IsNullOrWhiteSpace(e.Id))
+            .GroupBy(e => e.Id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var disputes = (brief.Disagreements ?? []).ToLookup(d => d.AdviceId, StringComparer.Ordinal);
+        var sections = (brief.Guidance ?? [])
+            .Where(s => !string.IsNullOrWhiteSpace(s.Section))
+            .GroupBy(s => s.Section, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var body = new StringBuilder();
+        var covered = 0;
+        for (var index = 0; index < EnhancementSections.Length; index++)
+        {
+            var (code, title) = EnhancementSections[index];
+            sections.TryGetValue(code, out var section);
+            var items = (section?.AdviceIds ?? [])
+                .Distinct(StringComparer.Ordinal)
+                .Where(id => advice.TryGetValue(id, out var item)
+                    && string.Equals(item.Section, code, StringComparison.Ordinal)
+                    && item.EvidenceIds is { Count: > 0 }
+                    && item.EvidenceIds.All(evidence.ContainsKey))
+                .Select(id => advice[id])
+                .ToList();
+            body.Append("<p><b>").Append((index + 1).ToString(CultureInfo.InvariantCulture)).Append(". ")
+                .Append(Encode(title)).Append("</b>");
+            if (items.Count == 0)
+            {
+                body.Append(" &mdash; <i>missing</i></p>");
+                continue;
+            }
+
+            covered++;
+            body.Append("</p><ul>");
+            foreach (var item in items)
+            {
+                AppendItem(body, item, evidence, disputes);
+            }
+
+            body.Append("</ul>");
+        }
+
+        html.Append("<p><b>Guidance</b> &mdash; ").Append(covered.ToString(CultureInfo.InvariantCulture))
+            .Append(" of ").Append(EnhancementSections.Length.ToString(CultureInfo.InvariantCulture))
+            .Append(" sections are supported by the history found.");
+        if (covered < EnhancementSections.Length)
+        {
+            html.Append(" A section marked <i>missing</i> has no supporting evidence: VisionIQ does not fill it with a guess.");
+        }
+
+        html.Append("</p>").Append(body);
+        return covered > 0;
+    }
+
+    private static void AppendItem(
+        StringBuilder html, BriefAdvice item, Dictionary<string, BriefEvidence> evidence,
+        ILookup<string, BriefDisagreement> disputes)
+    {
+        html.Append("<li><b>").Append(Encode(item.AdviceId)).Append("</b> [").Append(KindLabel(item.Kind)).Append("] ")
+            .Append(Encode(item.Statement)).Append(" <i>Source: ");
+        var sources = (item.EvidenceIds ?? []).Select(id =>
+            evidence.TryGetValue(id, out var source) ? Link(source.Url, id) : Encode(id));
+        html.Append(string.Join(", ", sources)).Append("</i>");
+        foreach (var dispute in disputes[item.AdviceId])
+        {
+            html.Append("<br><i>A second review found this ").Append(Encode(dispute.Verdict)).Append(": ")
+                .Append(Encode(dispute.Reason)).Append("</i>");
+        }
+
+        html.Append("</li>");
     }
 
     private static void AppendScope(StringBuilder html, IReadOnlyList<BriefScopeItem> scope)

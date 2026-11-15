@@ -27,7 +27,8 @@
         "repository_id": { "$ref": "envelope.v1.schema.json#/$defs/identifier" },
         "base_commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
         "analysis_mode": { "enum": ["brief", "deep"] },
-        "security_scope_id": { "$ref": "envelope.v1.schema.json#/$defs/scope" }
+        "security_scope_id": { "$ref": "envelope.v1.schema.json#/$defs/scope" },
+        "ticket_kind": { "enum": ["defect", "enhancement"] }
       },
       "additionalProperties": false
     }

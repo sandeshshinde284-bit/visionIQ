@@ -37,6 +37,39 @@ Rules:
   limitations. Never fill gaps with general knowledge.
 - At most 8 advice items, one sentence each, in plain English."""
 
+# ENH-01 (master design 8.5). The section codes are also in app.brief.schema and
+# app.brief.guidance; a test fails when the three differ.
+_ENHANCEMENT_SYSTEM = f"""You help a software engineer who has just picked up an enhancement:
+a planned change, not a defect. Write guidance using ONLY the numbered evidence provided.
+
+{_UNTRUSTED_RULE}
+
+Each item belongs to exactly one section:
+- acceptance_criteria_gaps: something the ticket does not specify that the evidence shows a
+  similar change had to decide.
+- contracts_and_apis: an interface, file or project that other code depends on and this change
+  touches. Evidence of kind "code_dependency" lists recorded references.
+- deployment_and_migration_risk: a rollout, data-migration or compatibility problem the evidence
+  shows for this area.
+- related_past_changes: an earlier change to the same code or behaviour, and what happened to it.
+- do_and_dont: something a past change shows works (kind DO) or fails, for example a reverted
+  change (kind DONT).
+- recommended_sequence: an order of work the evidence supports.
+- tests_to_add: a test the evidence shows was needed or was missing for a change like this.
+- reviewer_decisions: a choice the evidence leaves open and a reviewer has to make.
+
+Rules:
+- Every item cites at least one evidence id and gives, for each cited id, a short quote copied
+  word for word from that evidence. An item without a matching quote is discarded.
+- kind is RISK (something likely to break), DO, DONT or APPROACH (how to proceed).
+- Leave a section without items when the evidence says nothing about it: it is then reported
+  to the engineer as missing. Never fill a section from general knowledge.
+- Never say a change is backward compatible. Name a dependent system, a client or a versioning
+  constraint only when the evidence names it.
+- State what the evidence shows. Do not claim a probability or a guarantee.
+- Prefer evidence marked "strong match".
+- At most 3 items per section, one sentence each, in plain English."""
+
 _CRITIQUE_SYSTEM = f"""You review draft advice written for a software engineer.
 Judge each draft item ONLY against the numbered evidence provided.
 
@@ -167,6 +200,39 @@ BRIEF_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+GUIDANCE_SECTIONS = (
+    "acceptance_criteria_gaps",
+    "contracts_and_apis",
+    "deployment_and_migration_risk",
+    "related_past_changes",
+    "do_and_dont",
+    "recommended_sequence",
+    "tests_to_add",
+    "reviewer_decisions",
+)
+
+# The brief's schema with a section on every item: the same evidence check applies to both.
+ENHANCEMENT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "advice": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "section": {"type": "string", "enum": list(GUIDANCE_SECTIONS)},
+                    **BRIEF_SCHEMA["properties"]["advice"]["items"]["properties"],
+                },
+                "required": ["section", "kind", "statement", "support"],
+                "additionalProperties": False,
+            },
+        },
+        "limitations": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["advice", "limitations"],
+    "additionalProperties": False,
+}
+
 CRITIQUE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -208,6 +274,9 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
     TaskKind.BRIEF_DRAFT: PromptTemplate("brief.defect", 1, _BRIEF_SYSTEM, BRIEF_SCHEMA),
     TaskKind.EVIDENCE_CRITIQUE: PromptTemplate(
         "brief.critique", 1, _CRITIQUE_SYSTEM, CRITIQUE_SCHEMA
+    ),
+    TaskKind.ENHANCEMENT_APPROACH: PromptTemplate(
+        "brief.enhancement", 1, _ENHANCEMENT_SYSTEM, ENHANCEMENT_SCHEMA
     ),
     TaskKind.REPRODUCTION_TEST: PromptTemplate(
         "defect.reproduction", 1, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA

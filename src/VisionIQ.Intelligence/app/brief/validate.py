@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -136,17 +136,30 @@ def _unsafe(statement: str, evidence: Mapping[str, EvidenceText]) -> bool:
     return any(link.rstrip(".,;)/").casefold() not in known for link in _URL.findall(statement))
 
 
-def validate(draft: Mapping[str, Any], evidence: Mapping[str, EvidenceText]) -> ValidationResult:
-    """Keep the supported advice of a model draft, in order, and number it ADV-001, ADV-002..."""
+def validate(
+    draft: Mapping[str, Any],
+    evidence: Mapping[str, EvidenceText],
+    sections: Collection[str] | None = None,
+    limit: int = MAX_ADVICE,
+    per_section: int | None = None,
+) -> ValidationResult:
+    """Keep the supported advice of a model draft, in order, and number it ADV-001, ADV-002...
+
+    With ``sections`` (ENH-01) every item must name one of them; an item without a known section
+    is malformed, and at most ``per_section`` items are kept for each.
+    """
     result = ValidationResult()
     seen: set[str] = set()
+    kept_in: Counter[str] = Counter()
     for item in draft.get("advice", []):
         if not isinstance(item, Mapping):
             result.removed[MALFORMED] += 1
             continue
         kind, statement = item.get("kind"), item.get("statement")
+        section = item.get("section") if sections is not None else None
         if (
-            kind not in _KINDS
+            (sections is not None and section not in sections)
+            or kind not in _KINDS
             or not isinstance(statement, str)
             or not statement.strip()
             or len(statement) > MAX_STATEMENT_CHARS
@@ -185,9 +198,13 @@ def validate(draft: Mapping[str, Any], evidence: Mapping[str, EvidenceText]) -> 
         if key in seen:
             result.removed[DUPLICATE] += 1
             continue
-        if len(result.advice) >= MAX_ADVICE:
+        if len(result.advice) >= limit or (
+            per_section is not None and section is not None and kept_in[section] >= per_section
+        ):
             result.removed[OVER_LIMIT] += 1
             continue
+        if section is not None:
+            kept_in[section] += 1
         seen.add(key)
         result.advice.append(
             Advice(
@@ -196,6 +213,7 @@ def validate(draft: Mapping[str, Any], evidence: Mapping[str, EvidenceText]) -> 
                 statement=statement,
                 evidence_ids=[kept.evidence_id for kept in supported],
                 support=supported,
+                section=section,
             )
         )
     return result
