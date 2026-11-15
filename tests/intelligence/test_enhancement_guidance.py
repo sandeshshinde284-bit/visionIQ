@@ -418,7 +418,7 @@ def test_a_source_file_is_matched_through_the_innermost_project_that_contains_it
     assert found.dependents == ("src/Kiosk/Kiosk.csproj", "src/Recon/Recon.csproj")
 
 
-def test_a_direct_reference_wins_and_own_repository_rows_are_preferred() -> None:
+def test_direct_reference_wins_and_foreign_repository_rows_are_excluded() -> None:
     rows = [
         row("app/retry.py", "app/retry.py", "app/print.py"),
         row("app/retry.py", "app/app.pyproj", "tests/tests.pyproj"),
@@ -428,9 +428,8 @@ def test_a_direct_reference_wins_and_own_repository_rows_are_preferred() -> None
     (found,) = file_dependents(rows, "kiosk-repo")
 
     assert (found.target, found.dependents) == ("app/retry.py", ("app/print.py",))
-    # With no row of the ticket's repository, what there is is used.
-    (fallback,) = file_dependents(rows[2:], "kiosk-repo")
-    assert fallback.dependents == ("elsewhere/copy.py",)
+    # Matching file paths in other repositories must never be used as fallback.
+    assert file_dependents(rows[2:], "kiosk-repo") == []
     assert file_dependents([], "kiosk-repo") == []
 
 
