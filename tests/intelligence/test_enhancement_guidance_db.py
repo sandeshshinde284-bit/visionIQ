@@ -135,6 +135,24 @@ def test_only_the_latest_scan_of_a_repository_counts() -> None:
     assert found.dependents == ("src/Kiosk/Kiosk.csproj",)
 
 
+def test_file_dependencies_never_fall_back_to_another_readable_repository() -> None:
+    corpus = Corpus()
+    other = scan(corpus, "other-repo")
+    refers(other, "src/Other/Consumer.csproj", PROJECT)
+
+    # Both scans are readable under the same scope; a matching path in the other
+    # repository must not supply guidance for a repository with no matching edges.
+    assert sources(corpus).dependents("kiosk", ["src/Payments/RetryPolicy.cs"]) == []
+
+    own = scan(corpus, "kiosk")
+    refers(own, "src/Kiosk/Kiosk.csproj", PROJECT)
+
+    found = sources(corpus).dependents("kiosk", ["src/Payments/RetryPolicy.cs"])
+    assert len(found) == 1
+    assert found[0].dependents == ("src/Kiosk/Kiosk.csproj",)
+    assert found[0].item_key == own
+
+
 def test_references_are_read_only_under_the_callers_access_scope() -> None:
     corpus = Corpus()
     item = scan(corpus, "kiosk")
