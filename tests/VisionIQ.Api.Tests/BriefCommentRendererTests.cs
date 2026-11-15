@@ -260,6 +260,58 @@ public sealed class BriefCommentRendererTests
     }
 
     [Fact]
+    public void Malformed_enhancement_guidance_is_rendered_in_canonical_order_without_unsupported_advice()
+    {
+        var brief = Guidance();
+        // Reverse and rename the persisted sections. Stored labels must never define the ADO output.
+        var reversed = brief["guidance"]!.AsArray().Reverse()
+            .Select(section =>
+            {
+                var copy = section!.DeepClone();
+                copy["title"] = "Wrong title";
+                return copy;
+            }).ToArray();
+        brief["guidance"] = new JsonArray(reversed);
+        // Put an item in a section to which it does not belong.
+        brief["guidance"]![0]!["advice_ids"] = new JsonArray("ADV-001");
+        // Duplicate a section and an advice id: renderer must not throw.
+        brief["guidance"]!.AsArray().Add(brief["guidance"]![0]!.DeepClone());
+
+        var html = RenderGuidance(brief);
+
+        Assert.Contains("<b>Guidance</b> &mdash; 2 of 8 sections", html, StringComparison.Ordinal);
+        Assert.True(html.IndexOf("1. Acceptance-criteria gaps", StringComparison.Ordinal)
+            < html.IndexOf("8. Reviewer decisions", StringComparison.Ordinal));
+        Assert.Contains("4. Related past changes", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wrong title", html, StringComparison.Ordinal);
+        Assert.Equal(1, html.Split("ADV-001</b>", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void Missing_guidance_on_an_enhancement_does_not_fall_back_to_defect_advice()
+    {
+        var brief = Guidance();
+        brief.Remove("guidance");
+
+        var html = RenderGuidance(brief);
+
+        Assert.Contains("VisionIQ enhancement guidance", html, StringComparison.Ordinal);
+        Assert.Contains("0 of 8 sections", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<p><b>Advice</b></p>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_item_referenced_in_the_wrong_section_is_not_rendered_as_supported()
+    {
+        var brief = Guidance();
+        brief["guidance"]![0]!["advice_ids"] = new JsonArray("ADV-001");
+        var html = RenderGuidance(brief);
+
+        Assert.Contains("1. Acceptance-criteria gaps</b> &mdash; <i>missing</i>", html, StringComparison.Ordinal);
+        Assert.Equal(1, html.Split("ADV-001</b>", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public void A_defect_brief_is_rendered_as_before_when_it_states_its_kind()
     {
         var brief = Brief();
