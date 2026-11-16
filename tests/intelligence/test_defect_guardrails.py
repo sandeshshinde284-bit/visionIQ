@@ -15,8 +15,8 @@ from app.defect.sources import HistoricalFix
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = {
     "src/Payments/RetryPolicy.cs": "class RetryPolicy { int Max = 3; }\n",
-    "src/Kiosk/ReceiptPrinter.cs": "class ReceiptPrinter { }\n",
-    "src/Kiosk/Big.cs": "class Big { }\n",
+    "src/Shop/ReceiptPrinter.cs": "class ReceiptPrinter { }\n",
+    "src/Shop/Big.cs": "class Big { }\n",
     "tests/RetryPolicyTests.cs": "class RetryPolicyTests { }\n",
     "src/Demo.csproj": "<Project />\n",
 }
@@ -47,7 +47,7 @@ def judge(*changes: tuple[str, str], policy: RepositoryPolicy | None = None, sho
         policy or repository(),
         BASELINE.get,
         REPRODUCTION,
-        set(BASELINE) - {"src/Kiosk/Big.cs"} if shown is None else shown,
+        set(BASELINE) - {"src/Shop/Big.cs"} if shown is None else shown,
     )
 
 
@@ -56,7 +56,7 @@ def codes(result) -> list[tuple[str, str]]:
 
 
 def test_a_small_change_in_a_writable_file_passes() -> None:
-    result = judge(("src/Kiosk/ReceiptPrinter.cs", "class ReceiptPrinter { int Copies = 1; }\n"))
+    result = judge(("src/Shop/ReceiptPrinter.cs", "class ReceiptPrinter { int Copies = 1; }\n"))
 
     assert result.status == "PASS" and result.findings == ()
     (file,) = result.files
@@ -70,7 +70,7 @@ def test_a_small_change_in_a_writable_file_passes() -> None:
         ("src/Payments/RetryPolicy.cs", "restricted_area_payment"),
         ("src/Data/Migrations/0007_add_column.cs", "restricted_area_schema"),
         ("src/Demo.csproj", "dependency_change"),
-        ("src/Kiosk/appsettings.secret.json", "secret_change"),
+        ("src/Shop/appsettings.secret.json", "secret_change"),
     ],
 )
 def test_sensitive_areas_secrets_and_dependencies_stop_for_an_engineer(
@@ -91,7 +91,7 @@ def test_a_one_line_change_in_a_restricted_area_still_stops() -> None:
 def test_text_that_looks_like_a_credential_stops_for_an_engineer() -> None:
     content = 'class ReceiptPrinter { string ApiKey = "password=hunter2-super-secret"; }\n'
 
-    result = judge(("src/Kiosk/ReceiptPrinter.cs", content))
+    result = judge(("src/Shop/ReceiptPrinter.cs", content))
 
     assert ("secret_content", "review") in codes(result)
 
@@ -101,14 +101,14 @@ def test_text_that_looks_like_a_credential_stops_for_an_engineer() -> None:
     [
         ("../outside.cs", "x\n", "unsafe_path"),
         ("/etc/passwd", "x\n", "unsafe_path"),
-        ("src\\Kiosk\\ReceiptPrinter.cs", "x\n", "unsafe_path"),
+        ("src\\Shop\\ReceiptPrinter.cs", "x\n", "unsafe_path"),
         ("docs/readme.md", "x\n", "path_not_writable"),
         (REPRODUCTION, "class CapturedPaymentTests { }\n", "test_changed"),
         ("tests/RetryPolicyTests.cs", "// deleted the assertion\n", "test_changed"),
-        ("src/Kiosk/bin/Release/Kiosk.dll", "binary\n", "generated_artifact"),
-        ("src/Kiosk/ReceiptPrinter.cs", BASELINE["src/Kiosk/ReceiptPrinter.cs"], "unchanged_file"),
+        ("src/Shop/bin/Release/Shop.dll", "binary\n", "generated_artifact"),
+        ("src/Shop/ReceiptPrinter.cs", BASELINE["src/Shop/ReceiptPrinter.cs"], "unchanged_file"),
         # The model saw this file cut short (or not at all): replacing it would lose the rest.
-        ("src/Kiosk/Big.cs", "class Big { int X; }\n", "file_not_shown"),
+        ("src/Shop/Big.cs", "class Big { int X; }\n", "file_not_shown"),
     ],
 )
 def test_what_a_fix_may_never_do_is_rejected(path: str, content: str, code: str) -> None:
@@ -119,14 +119,14 @@ def test_what_a_fix_may_never_do_is_rejected(path: str, content: str, code: str)
 
 
 def test_an_empty_proposal_and_a_file_changed_twice_are_rejected() -> None:
-    twice = judge(("src/Kiosk/ReceiptPrinter.cs", "a\n"), ("src/Kiosk/ReceiptPrinter.cs", "b\n"))
+    twice = judge(("src/Shop/ReceiptPrinter.cs", "a\n"), ("src/Shop/ReceiptPrinter.cs", "b\n"))
 
     assert codes(judge()) == [("no_change", "block")]
     assert ("duplicate_path", "block") in codes(twice)
 
 
 def test_a_new_source_file_is_allowed() -> None:
-    result = judge(("src/Kiosk/CaptureGuard.cs", "class CaptureGuard { }\n"))
+    result = judge(("src/Shop/CaptureGuard.cs", "class CaptureGuard { }\n"))
 
     assert result.status == "PASS" and result.files[0].change == "added"
 
@@ -135,8 +135,8 @@ def test_a_change_broader_than_the_repositorys_budget_stops_for_review() -> None
     small = repository(limits={"max_changed_files": 1, "max_changed_lines": 400})
     tight = repository(limits={"max_changed_lines": 2})
     two = (
-        ("src/Kiosk/ReceiptPrinter.cs", "class ReceiptPrinter { int A; }\n"),
-        ("src/Kiosk/CaptureGuard.cs", "class CaptureGuard { }\n"),
+        ("src/Shop/ReceiptPrinter.cs", "class ReceiptPrinter { int A; }\n"),
+        ("src/Shop/CaptureGuard.cs", "class CaptureGuard { }\n"),
     )
 
     assert ("patch_too_broad", "review") in codes(judge(*two, policy=small))
@@ -207,8 +207,8 @@ def test_a_policy_file_cannot_carry_unknown_settings(tmp_path: Path) -> None:
         ("tests/unit/RetryPolicyTests.cs", "**/*Tests.cs", True),
         ("RetryPolicyTests.cs", "**/*Tests.cs", True),
         ("src/a/b/Migrations/001.sql", "**/Migrations/**", True),
-        ("src/Kiosk/x.cs", "src/*", False),  # * stays inside one directory
-        ("SRC/Kiosk/X.cs", "src/**", True),  # Windows checkouts differ only in case
+        ("src/Shop/x.cs", "src/*", False),  # * stays inside one directory
+        ("SRC/Shop/X.cs", "src/**", True),  # Windows checkouts differ only in case
         (".env.local", ".env.*", True),
     ],
 )
@@ -260,7 +260,7 @@ def test_a_test_found_by_name_only_is_labelled_inferred() -> None:
         None,
     )
     assert found.discovery_method == "test_name_matches_changed_file"
-    assert discover([], changed=("src/Kiosk/ReceiptPrinter.cs",)) == []
+    assert discover([], changed=("src/Shop/ReceiptPrinter.cs",)) == []
 
 
 def test_an_inferred_ticket_link_does_not_make_historical_proof() -> None:

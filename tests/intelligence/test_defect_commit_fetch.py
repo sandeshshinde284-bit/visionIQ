@@ -50,7 +50,7 @@ def test_only_the_pinned_commit_is_downloaded_and_the_workspace_behaves_the_same
     assert shallow(one) and not shallow(full)  # no history came with it
     assert run_git(one.base, ["rev-parse", "HEAD"]).strip() == demo.base_sha
     assert one.files() == full.files()
-    assert one.read("src/kiosk/retry.py") == full.read("src/kiosk/retry.py")
+    assert one.read("src/shop/retry.py") == full.read("src/shop/retry.py")
 
 
 def test_a_fix_made_in_a_single_commit_workspace_is_a_normal_commit_diff_export_and_bundle(
@@ -59,20 +59,20 @@ def test_a_fix_made_in_a_single_commit_workspace_is_a_normal_commit_diff_export_
     demo = make_demo(tmp_path)
     one = prepare(str(demo.repo), demo.base_sha, tmp_path / "one", fetch="commit")
 
-    one.write("candidate", "src/kiosk/retry.py", "FIXED = True\n")
+    one.write("candidate", "src/shop/retry.py", "FIXED = True\n")
     sha = one.commit_candidate("visioniq/fix/1-run", "the fix")
     exported = one.export(sha, "x1", "candidate")
     bundle = tmp_path / "fix.bundle"
     one.bundle(bundle, "visioniq/fix/1-run")
 
-    assert "FIXED = True" in one.diff(sha, ["src/kiosk/retry.py"])
-    assert (exported / "src" / "kiosk" / "retry.py").read_text("utf-8") == "FIXED = True\n"
+    assert "FIXED = True" in one.diff(sha, ["src/shop/retry.py"])
+    assert (exported / "src" / "shop" / "retry.py").read_text("utf-8") == "FIXED = True\n"
     assert not (exported / ".git").exists()
     # The bundle is usable where the history is: the original repository takes it as a branch.
     run_git(demo.repo, ["bundle", "verify", str(bundle)])
     run_git(demo.repo, ["fetch", "--quiet", str(bundle), "visioniq/fix/1-run:applied"])
     assert run_git(demo.repo, ["rev-parse", "applied~1"]).strip() == demo.base_sha
-    assert run_git(demo.repo, ["show", "applied:src/kiosk/retry.py"]) == "FIXED = True\n"
+    assert run_git(demo.repo, ["show", "applied:src/shop/retry.py"]) == "FIXED = True\n"
 
 
 def test_a_commit_that_is_not_the_newest_can_be_pinned(tmp_path: Path) -> None:

@@ -44,7 +44,7 @@ def bands(areas: list[AreaActivity]) -> dict[str, str]:
     [
         ("/src/Payments/Retry/RetryPolicy.cs", 2, "src/Payments"),
         ("src/Payments/RetryPolicy.cs", 3, "src/Payments"),
-        ("src\\Kiosk\\Printer.cs", 1, "src"),
+        ("src\\Shop\\Printer.cs", 1, "src"),
         ("/README.md", 2, ROOT_AREA),
         ("build.ps1", 2, ROOT_AREA),
     ],

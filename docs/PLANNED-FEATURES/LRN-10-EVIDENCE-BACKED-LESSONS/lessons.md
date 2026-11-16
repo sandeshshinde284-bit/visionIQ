@@ -67,4 +67,4 @@ that drains unpublished rows to Pub/Sub and sets `published_at` is FND-06 infras
 
 ### Safe validation
 
-Run `tests/intelligence/test_lessons.py` as pure unit tests, then use the guarded disposable PostgreSQL runner for `tests/intelligence/test_lessons_db.py`, `tests/intelligence/test_kb_readiness_db.py`, `tests/intelligence/test_retrieval_db.py` and `tests/intelligence/test_lrn13_db.py`. Keep the published Genoa Kiosk index read-only. A passing fixture suite establishes **local behavior only**, not production classification accuracy. Review real source tickets for false-positive and false-negative rates before tuning thresholds.
+Run `tests/intelligence/test_lessons.py` as pure unit tests, then use the guarded disposable PostgreSQL runner for `tests/intelligence/test_lessons_db.py`, `tests/intelligence/test_kb_readiness_db.py`, `tests/intelligence/test_retrieval_db.py` and `tests/intelligence/test_lrn13_db.py`. Keep the published Example Project index read-only. A passing fixture suite establishes **local behavior only**, not production classification accuracy. Review real source tickets for false-positive and false-negative rates before tuning thresholds.

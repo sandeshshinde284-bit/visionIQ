@@ -454,12 +454,12 @@ or model provider.
 
 1. Create the demo repository (a Python project whose retry policy retries a captured payment):
    ```powershell
-   python scripts/defect-demo/make_demo_repo.py --out $env:TEMP\kiosk-demo
+   python scripts/defect-demo/make_demo_repo.py --out $env:TEMP\shop-demo
    ```
    It prints the next command with the paths and the baseline SHA filled in.
 2. Run the pipeline (from `src/VisionIQ.Intelligence`):
    ```powershell
-   python -m app.defect.cli --policy <out>\defect-policy.json --repository kiosk-demo `
+   python -m app.defect.cli --policy <out>\defect-policy.json --repository shop-demo `
      --base-sha <sha> --ticket <out>\ticket.json `
      --offline-script <out>\offline-script.json --out <out>\evidence
    ```

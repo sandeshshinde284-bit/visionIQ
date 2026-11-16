@@ -100,7 +100,7 @@ def test_a_corrupt_entry_is_never_served_and_is_repaired_on_the_next_run() -> No
 def test_an_interrupted_model_change_is_rejected_but_revocations_are_never_blocked() -> None:
     corpus = Corpus()
     for n in range(10, 15):
-        corpus.add("work_item_current", bug(n, f"Kiosk fault {n}"))
+        corpus.add("work_item_current", bug(n, f"Shop fault {n}"))
     snapshots.refresh(intel(), corpus.read, HashingEmbedder())
 
     class NewModel(HashingEmbedder):
@@ -114,7 +114,7 @@ def test_an_interrupted_model_change_is_rejected_but_revocations_are_never_block
         corpus.add("work_item_current", bug(n, "x"), revision="2", scope="ado-project:o/Secret")
     _, revoked = snapshots.refresh(intel(), corpus.read, HashingEmbedder())
     assert revoked.status == "published"
-    assert served_titles(corpus, "kiosk fault") == set()
+    assert served_titles(corpus, "shop fault") == set()
 
 
 def _coverage_baseline() -> tuple[int, int]:
@@ -133,7 +133,7 @@ def test_a_targeted_pass_may_publish_far_below_full_coverage_but_full_scope_may_
     """LRN-08: an --only reindex must never be mistaken for a complete, ready-to-serve index."""
     eligible_before, items_before = _coverage_baseline()
     corpus = Corpus()
-    keys = [corpus.add("work_item_current", bug(n, f"Kiosk fault {n}")) for n in range(100, 110)]
+    keys = [corpus.add("work_item_current", bug(n, f"Shop fault {n}")) for n in range(100, 110)]
     indexer.run(intel(), corpus.read, HashingEmbedder(), only=[keys[0]])  # 1 of 10, rest pending
 
     targeted = snapshots.build_and_publish(intel(), HashingEmbedder().model_id, scope="targeted")

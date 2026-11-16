@@ -1128,7 +1128,7 @@ def probe_retrieval(argv: list[str]) -> int:
 
     embedder = from_environment()
     scope = f"ado-project:{args.org.rstrip('/')}/{args.project}"
-    query = "Ticket vending total incorrect expected fare 25 actual fare 30 payment kiosk"
+    query = "Ticket vending total incorrect expected fare 25 actual fare 30 payment shop"
     # This tests retrieval's live_check HOOK; it does not impersonate a real end-user.
     allowed = retrieve(
         connect, embedder, query, [scope], live_check=lambda key: key == args.item_key

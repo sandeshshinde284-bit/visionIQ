@@ -4,13 +4,13 @@
     {
       "name": "retry_defect_with_a_reverted_fix",
       "ticket_title": "Bug 4711: Barcode not printed after payment retry",
-      "ticket_text": "Kiosk payment captured, barcode print failed after retry in RetryPolicy.cs.",
+      "ticket_text": "Shop payment captured, barcode print failed after retry in RetryPolicy.cs.",
       "evidence": [
         {
           "evidence_id": "E1",
           "kind": "work_item_current",
           "title": "Bug 101: Barcode print fails after payment retry",
-          "text": "Pay at kiosk, payment captured, retry printing: no barcode on the receipt. Fixed by making the retry policy idempotent."
+          "text": "Pay at shop, payment captured, retry printing: no barcode on the receipt. Fixed by making the retry policy idempotent."
         },
         {
           "evidence_id": "E2",

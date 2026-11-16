@@ -20,4 +20,4 @@
 - Use reviewed commit-tagged images and explicit source/database/project restrictions. Confirm the actual Cloud SQL address, database, service-account grants, secrets and private networking *before* deploying.
 - Existing API/Intelligence Cloud Run services are internal/IAM-protected. Do **not** make them public just to receive ADO hooks; that needs its own approved ingress/security decision.
 - A manual run still needs passing migrations, service health, real source connectivity, indexed-snapshot integrity, cited Brief output and safe defect outcome. Cloud deployment and acceptance are distinct steps.
-- Do not run disposable database integration fixtures against the published Genoa Kiosk evidence database.
+- Do not run disposable database integration fixtures against the published Example Project evidence database.

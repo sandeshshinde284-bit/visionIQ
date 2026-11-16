@@ -16,7 +16,7 @@ namespace VisionIQ.Api.Tests;
 /// </summary>
 public sealed class FixPullRequestTests
 {
-    private const string Repository = "https://dev.azure.com/contoso/Payments%20Core/_apis/git/repositories/kiosk-demo";
+    private const string Repository = "https://dev.azure.com/contoso/Payments%20Core/_apis/git/repositories/shop-demo";
     private static readonly int[] Attempts = [1, 2, 3, 7, 20];
     private static readonly string[] AllowedCalls = ["/pushes", "/commits/", "/statuses", "/pullrequests?", "/pullrequests/"];
 
@@ -37,12 +37,12 @@ public sealed class FixPullRequestTests
         Assert.Equal(("Payments Core", false), (opened.Project, opened.MayAlreadyExist));
         Assert.True(opened.Fix.PullRequest!.IsDraft);
         var posted = Assert.Single(pullRequests.Checks);
-        Assert.Equal(("Payments Core", "kiosk-demo", "812"), (posted.Project, posted.RepositoryId, posted.PullRequestId));
+        Assert.Equal(("Payments Core", "shop-demo", "812"), (posted.Project, posted.RepositoryId, posted.PullRequestId));
         Assert.Equal(6, posted.Checks.Count);
         Assert.All(posted.Checks, check => Assert.Equal("succeeded", check.State));
         var (runId, record) = Assert.Single(store.Published);
         Assert.Equal(RunId, runId);
-        Assert.Equal((FixPullRequestMode.Ado, "kiosk-demo", "812", PushedSha), (record.Mode, record.RepositoryId, record.PullRequest.PullRequestId, record.PullRequest.HeadSha));
+        Assert.Equal((FixPullRequestMode.Ado, "shop-demo", "812", PushedSha), (record.Mode, record.RepositoryId, record.PullRequest.PullRequestId, record.PullRequest.HeadSha));
         Assert.StartsWith("visioniq/fix/4711-", record.SourceBranch, StringComparison.Ordinal);
         Assert.Matches("^[0-9a-f]{64}$", record.RequestSha256);
         Assert.Null(record.RequestBody); // in ado mode the content lives in the repository, not in our database
@@ -203,7 +203,7 @@ public sealed class FixPullRequestTests
         Assert.Equal(Verified.BaseSha, reference["oldObjectId"]!.GetValue<string>()); // branches from the pinned baseline
         var changes = pushed["commits"]![0]!["changes"]!.AsArray();
         Assert.Equal(
-            [("add", "/tests/test_captured_payment.py"), ("edit", "/src/kiosk/retry_policy.py")],
+            [("add", "/tests/test_captured_payment.py"), ("edit", "/src/shop/retry_policy.py")],
             changes.Select(change => (change!["changeType"]!.GetValue<string>(), change["item"]!["path"]!.GetValue<string>())));
         Assert.Equal(Verified.Patch.Files[0].Content, changes[1]!["newContent"]!["content"]!.GetValue<string>());
         Assert.Equal("rawtext", changes[1]!["newContent"]!["contentType"]!.GetValue<string>());
@@ -330,7 +330,7 @@ public sealed class FixPullRequestTests
         { "branch_not_allowed", """{"pull_request": {"target_branch": "a..b"}}""" },
         { "branch_not_allowed", """{"pull_request": {"base_sha": "main"}}""" },
         // A pull request without its work item would be opened silently unlinked.
-        { "ticket_id_not_a_work_item", """{"pull_request": {"work_item_id": "KIOSK-12"}}""" },
+        { "ticket_id_not_a_work_item", """{"pull_request": {"work_item_id": "SHOP-12"}}""" },
         { "pull_request_text_too_long", """{"pull_request": {"title": ""}}""" },
     };
 
@@ -367,8 +367,8 @@ public sealed class FixPullRequestTests
             Reply("""{"pullRequestId": 812}"""));
         var ado = Ado(handler);
 
-        Assert.Equal(NewHeadSha, await ado.CurrentHeadAsync("Payments Core", "kiosk-demo", "812", default));
-        Assert.Null(await ado.CurrentHeadAsync("Payments Core", "kiosk-demo", "812", default));
+        Assert.Equal(NewHeadSha, await ado.CurrentHeadAsync("Payments Core", "shop-demo", "812", default));
+        Assert.Null(await ado.CurrentHeadAsync("Payments Core", "shop-demo", "812", default));
         Assert.All(handler.Requests, sent =>
             Assert.Equal((HttpMethod.Get, Repository + "/pullrequests/812?api-version=7.1"), (sent.Method, sent.Uri)));
     }
@@ -401,7 +401,7 @@ public sealed class FixPullRequestTests
             new("visioniq/performance", "not_applicable", "NOT_APPLICABLE: not measured."),
         ];
 
-        await Ado(handler).PostChecksAsync("Payments Core", "kiosk-demo", "812", checks, default);
+        await Ado(handler).PostChecksAsync("Payments Core", "shop-demo", "812", checks, default);
 
         Assert.All(handler.Requests, sent =>
             Assert.Equal((HttpMethod.Post, Repository + "/pullRequests/812/statuses?api-version=7.1"), (sent.Method, sent.Uri)));
@@ -424,7 +424,7 @@ public sealed class FixPullRequestTests
         var ado = Ado(handler);
 
         var opened = await ado.PublishAsync("Payments Core", Verified, mayAlreadyExist: false, default);
-        await ado.PostChecksAsync("Payments Core", "kiosk-demo", opened.PullRequestId, [new("visioniq/fix-test", "succeeded", "PASS")], default);
+        await ado.PostChecksAsync("Payments Core", "shop-demo", opened.PullRequestId, [new("visioniq/fix-test", "succeeded", "PASS")], default);
 
         // No vote (reviewers), no update of the pull request (PATCH completes or abandons it), no deletion.
         Assert.All(handler.Requests, sent => Assert.Contains(sent.Method, new[] { HttpMethod.Get, HttpMethod.Post }));
@@ -476,19 +476,19 @@ public sealed class FixPullRequestTests
         var pullRequests = new FakePullRequests(FixPullRequestMode.Ado);
         var watcher = new FixPullRequestHeadWatcher(store, pullRequests, PickupTestData.Policy, NullLogger<FixPullRequestHeadWatcher>.Instance);
 
-        var outcome = await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "kiosk-demo", "812", NewHeadSha), default);
+        var outcome = await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "shop-demo", "812", NewHeadSha), default);
 
         Assert.Equal(FixPullRequestHeadWatcher.Invalidated, outcome);
         var posted = Assert.Single(pullRequests.Checks);
-        Assert.Equal(("Payments Core", "kiosk-demo", "812"), (posted.Project, posted.RepositoryId, posted.PullRequestId));
+        Assert.Equal(("Payments Core", "shop-demo", "812"), (posted.Project, posted.RepositoryId, posted.PullRequestId));
         Assert.Equal(6, posted.Checks.Count);
         Assert.All(posted.Checks, check => Assert.Equal("pending", check.State));
         Assert.All(posted.Checks, check => Assert.Contains("Stale: measured on 111111111111", check.Description, StringComparison.Ordinal));
         Assert.Equal((RunId, NewHeadSha), (store.Heads[0].RunId, store.Heads[0].HeadSha));
 
         // The same delivery again changes nothing; the verified commit coming back restores the results.
-        Assert.Equal(FixPullRequestHeadWatcher.Unchanged, await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "kiosk-demo", "812", NewHeadSha), default));
-        Assert.Equal(FixPullRequestHeadWatcher.Restored, await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "kiosk-demo", "812", PushedSha), default));
+        Assert.Equal(FixPullRequestHeadWatcher.Unchanged, await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "shop-demo", "812", NewHeadSha), default));
+        Assert.Equal(FixPullRequestHeadWatcher.Restored, await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "shop-demo", "812", PushedSha), default));
         Assert.All(pullRequests.Checks[^1].Checks, check => Assert.Equal("succeeded", check.State));
     }
 
@@ -500,7 +500,7 @@ public sealed class FixPullRequestTests
         var pullRequests = new FakePullRequests(FixPullRequestMode.Ado) { CurrentHead = NewHeadSha };
         var watcher = new FixPullRequestHeadWatcher(store, pullRequests, PickupTestData.Policy, NullLogger<FixPullRequestHeadWatcher>.Instance);
 
-        var outcome = await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "kiosk-demo", "812", PushedSha), default);
+        var outcome = await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "shop-demo", "812", PushedSha), default);
 
         // Azure DevOps says the head is still the new commit: nothing is restored, nothing is posted.
         Assert.Equal(FixPullRequestHeadWatcher.Unchanged, outcome);
@@ -516,7 +516,7 @@ public sealed class FixPullRequestTests
         var watcher = new FixPullRequestHeadWatcher(store, pullRequests, PickupTestData.Policy, NullLogger<FixPullRequestHeadWatcher>.Instance);
 
         // The body claims the verified commit; the pull request is really on another one.
-        var outcome = await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "kiosk-demo", "812", PushedSha), default);
+        var outcome = await watcher.OnUpdatedAsync(new PullRequestUpdate("repo-guid", "shop-demo", "812", PushedSha), default);
 
         Assert.Equal(FixPullRequestHeadWatcher.Invalidated, outcome);
         Assert.All(Assert.Single(pullRequests.Checks).Checks, check => Assert.Equal("pending", check.State));
@@ -530,7 +530,7 @@ public sealed class FixPullRequestTests
         var pullRequests = new FakePullRequests(FixPullRequestMode.Ado);
         var watcher = new FixPullRequestHeadWatcher(store, pullRequests, null, NullLogger<FixPullRequestHeadWatcher>.Instance);
 
-        Assert.Equal(FixPullRequestHeadWatcher.Invalidated, await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "kiosk-demo", "812", NewHeadSha), default));
+        Assert.Equal(FixPullRequestHeadWatcher.Invalidated, await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "shop-demo", "812", NewHeadSha), default));
 
         var posted = Assert.Single(pullRequests.Checks).Checks;
         Assert.Equal(6, posted.Count); // the old green statuses are replaced, not left standing
@@ -541,9 +541,9 @@ public sealed class FixPullRequestTests
     public async Task A_result_for_another_repository_or_baseline_than_the_run_is_never_pushed()
     {
         var otherRepository = Pending(VerifiedJson) with { RepositoryId = "another-repo", BaseSha = Verified.BaseSha };
-        var otherBaseline = Pending(VerifiedJson) with { RepositoryId = "kiosk-demo", BaseSha = new string('a', 40) };
+        var otherBaseline = Pending(VerifiedJson) with { RepositoryId = "shop-demo", BaseSha = new string('a', 40) };
         var otherTicket = Pending(VerifiedJson) with { TicketId = "9999" };
-        var matching = Pending(VerifiedJson) with { RepositoryId = "kiosk-demo", BaseSha = Verified.BaseSha };
+        var matching = Pending(VerifiedJson) with { RepositoryId = "shop-demo", BaseSha = Verified.BaseSha };
         var store = new FakeFixStore(otherRepository, otherBaseline, otherTicket, matching);
         var pullRequests = new FakePullRequests(FixPullRequestMode.Ado);
 
@@ -588,7 +588,7 @@ public sealed class FixPullRequestTests
         var pullRequests = new FakePullRequests(FixPullRequestMode.Ado);
         var watcher = new FixPullRequestHeadWatcher(store, pullRequests, null, NullLogger<FixPullRequestHeadWatcher>.Instance);
 
-        Assert.Equal(FixPullRequestHeadWatcher.UnknownPullRequest, await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "kiosk-demo", "999", NewHeadSha), default));
+        Assert.Equal(FixPullRequestHeadWatcher.UnknownPullRequest, await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "shop-demo", "999", NewHeadSha), default));
         Assert.Equal(FixPullRequestHeadWatcher.UnknownPullRequest, await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "other-repo", "812", NewHeadSha), default));
         Assert.Empty(pullRequests.Checks);
         Assert.Empty(store.Heads);
@@ -600,11 +600,11 @@ public sealed class FixPullRequestTests
         var body = $$"""
             {"id": "e1", "eventType": "git.pullrequest.updated",
              "resource": {"pullRequestId": 812, "title": "ignored",
-                          "repository": {"id": "repo-guid", "name": "kiosk-demo"},
+                          "repository": {"id": "repo-guid", "name": "shop-demo"},
                           "lastMergeSourceCommit": {"commitId": "{{NewHeadSha}}"} } }
             """;
 
-        Assert.Equal(new PullRequestUpdate("repo-guid", "kiosk-demo", "812", NewHeadSha), AdoPullRequestHook.Parse(Encoding.UTF8.GetBytes(body)));
+        Assert.Equal(new PullRequestUpdate("repo-guid", "shop-demo", "812", NewHeadSha), AdoPullRequestHook.Parse(Encoding.UTF8.GetBytes(body)));
         Assert.Null(AdoPullRequestHook.Parse(Encoding.UTF8.GetBytes(body.Replace("git.pullrequest.updated", "git.pullrequest.created", StringComparison.Ordinal))));
         Assert.Null(AdoPullRequestHook.Parse(Encoding.UTF8.GetBytes(body.Replace(NewHeadSha, "short", StringComparison.Ordinal))));
         // Only a full commit id is a head: anything else would be refused by the database after the statuses
@@ -690,13 +690,13 @@ public sealed class FixPullRequestTests
         var ado = new AdoPullRequestPublisher(new HttpClient(handler), new Uri("https://dev.azure.com/contoso/"), "bot-pr-token", log);
 
         var opened = await ado.PublishAsync("Payments Core", Verified, mayAlreadyExist: false, default);
-        await ado.PostChecksAsync("Payments Core", "kiosk-demo", opened.PullRequestId, [new("visioniq/fix-test", "succeeded", "PASS: ok")], default);
+        await ado.PostChecksAsync("Payments Core", "shop-demo", opened.PullRequestId, [new("visioniq/fix-test", "succeeded", "PASS: ok")], default);
 
         Assert.Equal(
             [
-                (LogLevel.Information, $"Branch {Verified.PullRequest!.SourceBranch} pushed to kiosk-demo from {Verified.BaseSha}: commit {PushedSha}, 2 file(s)"),
+                (LogLevel.Information, $"Branch {Verified.PullRequest!.SourceBranch} pushed to shop-demo from {Verified.BaseSha}: commit {PushedSha}, 2 file(s)"),
                 (LogLevel.Debug, $"Pushed commit {PushedSha} has the tested tree {Verified.Patch.TreeSha}"),
-                (LogLevel.Information, "Draft pull request 812 created in kiosk-demo for work item 4711"),
+                (LogLevel.Information, "Draft pull request 812 created in shop-demo for work item 4711"),
                 (LogLevel.Debug, "Pull request 812 status visioniq/fix-test: succeeded"),
             ],
             log.Lines.Select(line => (line.Level, line.Message)));
@@ -766,8 +766,8 @@ public sealed class FixPullRequestTests
         var watcher = new FixPullRequestHeadWatcher(
             new FakeFixStore { Opened = OpenedPullRequest() }, new FakePullRequests(FixPullRequestMode.Ado), null, log);
 
-        await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "kiosk-demo", "999", NewHeadSha), default);
-        await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "kiosk-demo", "812", NewHeadSha), default);
+        await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "shop-demo", "999", NewHeadSha), default);
+        await watcher.OnUpdatedAsync(new PullRequestUpdate("g", "shop-demo", "812", NewHeadSha), default);
 
         Assert.Equal(
             [
@@ -799,7 +799,7 @@ public sealed class FixPullRequestTests
     }
 
     private static OpenedFixPullRequest OpenedPullRequest() =>
-        new(RunId, "payments-core", "kiosk-demo", "812", PushedSha, PushedSha, VerifiedJson);
+        new(RunId, "payments-core", "shop-demo", "812", PushedSha, PushedSha, VerifiedJson);
 
     private static FixPullRequestOptions Options(params (string Name, string Value)[] settings) =>
         FixPullRequestOptions.FromConfiguration(new ConfigurationBuilder()

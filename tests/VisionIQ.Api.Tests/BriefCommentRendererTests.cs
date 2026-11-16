@@ -85,7 +85,7 @@ public sealed class BriefCommentRendererTests
         var html = Render();
 
         Assert.Contains("<code>RetryPolicy.cs</code> (named in the ticket)", html, StringComparison.Ordinal);
-        Assert.Contains("<code>/src/Kiosk/ReceiptPrinter.cs</code> (changed by past fixes of similar tickets)", html, StringComparison.Ordinal);
+        Assert.Contains("<code>/src/Shop/ReceiptPrinter.cs</code> (changed by past fixes of similar tickets)", html, StringComparison.Ordinal);
         Assert.Contains("(work item current, strong match)<br><i>A fix linked to this ticket was later reverted.</i>", html, StringComparison.Ordinal);
         Assert.Contains("<b>Limits of this brief</b>", html, StringComparison.Ordinal);
         Assert.Contains("It was treated as data and not followed.", html, StringComparison.Ordinal);

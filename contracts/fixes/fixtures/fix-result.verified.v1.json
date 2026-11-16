@@ -4,12 +4,12 @@
   "run_id": "3b25fca8-05e8-4422-9cca-c3e1c2c69565",
   "ticket": {
     "system": "ado",
-    "project": "Kiosk",
+    "project": "Shop",
     "id": "4711",
     "revision": 3,
     "title": "Bug 4711: customer charged twice"
   },
-  "repository_id": "kiosk-demo",
+  "repository_id": "shop-demo",
   "base_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
   "candidate_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
   "state": "PUBLISHED",
@@ -21,7 +21,7 @@
       "path": "tests/test_captured_payment.py",
       "test_id": "test_captured_payment_is_not_retried",
       "sha256": "2e76de1e7ff7e517b6b7394c3b5d42a634378f0890254bc708f6c54e1da4b1bc",
-      "content": "from kiosk.retry_policy import RetryPolicy\n\n\ndef test_captured_payment_is_not_retried():\n    policy = RetryPolicy(max_attempts=3)\n    assert policy.should_retry(attempt=1, captured=True) is False, \"captured payment was retried\"\n",
+      "content": "from shop.retry_policy import RetryPolicy\n\n\ndef test_captured_payment_is_not_retried():\n    policy = RetryPolicy(max_attempts=3)\n    assert policy.should_retry(attempt=1, captured=True) is False, \"captured payment was retried\"\n",
       "rationale": "The ticket says a captured payment is retried; the test asks the policy."
     },
     "expected_failure": {
@@ -52,15 +52,15 @@
     "bundle_sha256": "2c9d7438b58bd927a790ba69b2b6132ae0e2d05cbc1abe4ca659ec99bbbd717b",
     "files": [
       {
-        "path": "src/kiosk/retry_policy.py",
+        "path": "src/shop/retry_policy.py",
         "change": "modified",
         "sha256": "5eec2a8656e87eda8722f3bb2e3adc08f01271de58eaf49ea0df575e87a15577",
         "added_lines": 1,
         "removed_lines": 1,
-        "content": "\"\"\"When the kiosk retries a payment.\"\"\"\n\n\nclass RetryPolicy:\n    def __init__(self, max_attempts: int = 3) -> None:\n        self.max_attempts = max_attempts\n\n    def should_retry(self, attempt: int, captured: bool) -> bool:\n        \"\"\"Retry while attempts remain. A captured payment must never be retried.\"\"\"\n        return not captured and attempt < self.max_attempts\n\n    def delays(self) -> list[float]:\n        \"\"\"Seconds to wait before each retry: 0.5, 1, 2, ...\"\"\"\n        return [0.5 * 2**number for number in range(self.max_attempts - 1)]\n"
+        "content": "\"\"\"When the shop retries a payment.\"\"\"\n\n\nclass RetryPolicy:\n    def __init__(self, max_attempts: int = 3) -> None:\n        self.max_attempts = max_attempts\n\n    def should_retry(self, attempt: int, captured: bool) -> bool:\n        \"\"\"Retry while attempts remain. A captured payment must never be retried.\"\"\"\n        return not captured and attempt < self.max_attempts\n\n    def delays(self) -> list[float]:\n        \"\"\"Seconds to wait before each retry: 0.5, 1, 2, ...\"\"\"\n        return [0.5 * 2**number for number in range(self.max_attempts - 1)]\n"
       }
     ],
-    "diff": "diff --git a/src/kiosk/retry_policy.py b/src/kiosk/retry_policy.py\nindex 8c91d01..0290fc5 100644\n--- a/src/kiosk/retry_policy.py\n+++ b/src/kiosk/retry_policy.py\n@@ -7,7 +7,7 @@ class RetryPolicy:\n \n     def should_retry(self, attempt: int, captured: bool) -> bool:\n         \"\"\"Retry while attempts remain. A captured payment must never be retried.\"\"\"\n-        return attempt < self.max_attempts\n+        return not captured and attempt < self.max_attempts\n \n     def delays(self) -> list[float]:\n         \"\"\"Seconds to wait before each retry: 0.5, 1, 2, ...\"\"\"\n",
+    "diff": "diff --git a/src/shop/retry_policy.py b/src/shop/retry_policy.py\nindex 8c91d01..0290fc5 100644\n--- a/src/shop/retry_policy.py\n+++ b/src/shop/retry_policy.py\n@@ -7,7 +7,7 @@ class RetryPolicy:\n \n     def should_retry(self, attempt: int, captured: bool) -> bool:\n         \"\"\"Retry while attempts remain. A captured payment must never be retried.\"\"\"\n-        return attempt < self.max_attempts\n+        return not captured and attempt < self.max_attempts\n \n     def delays(self) -> list[float]:\n         \"\"\"Seconds to wait before each retry: 0.5, 1, 2, ...\"\"\"\n",
     "diff_truncated": false,
     "cause": "should_retry ignores whether the payment was captured.",
     "summary": "Do not retry a captured payment; keep the attempt limit",
@@ -265,7 +265,7 @@
     {
       "manifest_id": "M1",
       "ticket_id": "4711",
-      "repository_id": "kiosk-demo",
+      "repository_id": "shop-demo",
       "base_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
       "candidate_sha": null,
       "runner": {
@@ -315,7 +315,7 @@
     {
       "manifest_id": "M2",
       "ticket_id": "4711",
-      "repository_id": "kiosk-demo",
+      "repository_id": "shop-demo",
       "base_sha": "64d6fa52939bbb42221eb0913f17b9757a5fa391",
       "candidate_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
       "runner": {
@@ -716,7 +716,7 @@
     "head_sha": "2737f4c8ad3afceb3adda4e8b40f61c52a642dac",
     "work_item_id": "4711",
     "title": "[VisionIQ draft] Fix for #4711: Bug 4711: customer charged twice",
-    "description": "Draft fix for work item #4711, opened by the VisionIQ bot. It is a proposal: the bot cannot approve or merge it.\n\n**Status: NOT GREEN** (sandbox verdict: VERIFIED). Still open: Native CI on this PR, Engineer review.\n\n### Defect\nBug 4711: customer charged twice (baseline `64d6fa52939b`).\n\n### Reproduction\nTest `test_captured_payment_is_not_retried` in `tests/test_captured_payment.py` ran on the unchanged baseline: **FAIL_TARGET_SIGNATURE**.\nFailure: `AssertionError: captured payment was retried`\n\n### Cause (proposed by the model, not verified)\nshould_retry ignores whether the payment was captured.\n\n### Fix\nDo not retry a captured payment; keep the attempt limit. Candidate `2737f4c8ad3a`, iteration 1. Files: `src/kiosk/retry_policy.py` (+1/-1).\n\n### Verification\n| Check | Result | Detail | Runs |\n| --- | --- | --- | --- |\n| Defect reproduced on the baseline | **PASS** (required) | The test failed on the baseline with the predicted failure. | X1, X2 |\n| Same test passes on the fix | **PASS** (required) | Outcome PASS. | X3 |\n| Past regression tests | **PASS** (required) | 1 test(s) passed on the candidate: 1 linked to past fixes, 0 found by name only. | X4 |\n| Touched project's suite (sandbox) | **PASS** (required) | Outcome PASS. | X5 |\n| Performance of the touched path | **PASS** (required) | Median change +0.0% over 5 pairs (threshold 25%, noise 0.0%). Measured under these conditions only. | X6, X7, X8, X9, X10, X11 |\n| Patch policy | **PASS** (required) | The change is inside the repository's policy. | - |\n| Native CI on this PR | **NOT RUN** (required) | The repository's own pipeline runs on the pull request, after it exists. | - |\n| Engineer review | **REVIEW REQUIRED** (required) | An engineer approves or rejects. The bot cannot approve or merge. | - |\n\n### Evidence\nRunner: docker `fake@sha256:0000000000000000000000000000000000000000000000000000000000000000`, network none. Policy `defect-policy-demo.1`. Manifest `6ad4fb61e364`.\n| Run | Purpose | Code | Outcome | Exit | Log SHA-256 |\n| --- | --- | --- | --- | --- | --- |\n| X1 | reproduction | baseline `64d6fa52939b` | FAIL_TARGET_SIGNATURE | 1 | `016b4864048d` |\n| X2 | reproduction | baseline `64d6fa52939b` | FAIL_TARGET_SIGNATURE | 1 | `016b4864048d` |\n| X3 | candidate | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n| X4 | regression | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n| X5 | suite | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n\n12 benchmark run(s): X6 to X17.\n\nFull result: fix `8b1bf0e4-216b-4fc3-b1d7-f04fc4d1748f`, run `3b25fca8-05e8-4422-9cca-c3e1c2c69565`.",
+    "description": "Draft fix for work item #4711, opened by the VisionIQ bot. It is a proposal: the bot cannot approve or merge it.\n\n**Status: NOT GREEN** (sandbox verdict: VERIFIED). Still open: Native CI on this PR, Engineer review.\n\n### Defect\nBug 4711: customer charged twice (baseline `64d6fa52939b`).\n\n### Reproduction\nTest `test_captured_payment_is_not_retried` in `tests/test_captured_payment.py` ran on the unchanged baseline: **FAIL_TARGET_SIGNATURE**.\nFailure: `AssertionError: captured payment was retried`\n\n### Cause (proposed by the model, not verified)\nshould_retry ignores whether the payment was captured.\n\n### Fix\nDo not retry a captured payment; keep the attempt limit. Candidate `2737f4c8ad3a`, iteration 1. Files: `src/shop/retry_policy.py` (+1/-1).\n\n### Verification\n| Check | Result | Detail | Runs |\n| --- | --- | --- | --- |\n| Defect reproduced on the baseline | **PASS** (required) | The test failed on the baseline with the predicted failure. | X1, X2 |\n| Same test passes on the fix | **PASS** (required) | Outcome PASS. | X3 |\n| Past regression tests | **PASS** (required) | 1 test(s) passed on the candidate: 1 linked to past fixes, 0 found by name only. | X4 |\n| Touched project's suite (sandbox) | **PASS** (required) | Outcome PASS. | X5 |\n| Performance of the touched path | **PASS** (required) | Median change +0.0% over 5 pairs (threshold 25%, noise 0.0%). Measured under these conditions only. | X6, X7, X8, X9, X10, X11 |\n| Patch policy | **PASS** (required) | The change is inside the repository's policy. | - |\n| Native CI on this PR | **NOT RUN** (required) | The repository's own pipeline runs on the pull request, after it exists. | - |\n| Engineer review | **REVIEW REQUIRED** (required) | An engineer approves or rejects. The bot cannot approve or merge. | - |\n\n### Evidence\nRunner: docker `fake@sha256:0000000000000000000000000000000000000000000000000000000000000000`, network none. Policy `defect-policy-demo.1`. Manifest `6ad4fb61e364`.\n| Run | Purpose | Code | Outcome | Exit | Log SHA-256 |\n| --- | --- | --- | --- | --- | --- |\n| X1 | reproduction | baseline `64d6fa52939b` | FAIL_TARGET_SIGNATURE | 1 | `016b4864048d` |\n| X2 | reproduction | baseline `64d6fa52939b` | FAIL_TARGET_SIGNATURE | 1 | `016b4864048d` |\n| X3 | candidate | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n| X4 | regression | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n| X5 | suite | candidate `2737f4c8ad3a` | PASS | 0 | `d74ff0ee8da3` |\n\n12 benchmark run(s): X6 to X17.\n\nFull result: fix `8b1bf0e4-216b-4fc3-b1d7-f04fc4d1748f`, run `3b25fca8-05e8-4422-9cca-c3e1c2c69565`.",
     "is_draft": true,
     "checks": [
       {

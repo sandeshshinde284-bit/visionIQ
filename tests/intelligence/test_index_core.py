@@ -258,7 +258,7 @@ def test_work_item_discussion_comments_are_indexed_as_their_own_sections():
         "title": "Barcode print fails",
         "comments": [
             {"id": 5, "text": "<p>Seen again after the retry patch.</p>"},
-            {"id": 9, "text": "Workaround: restart the kiosk."},
+            {"id": 9, "text": "Workaround: restart the shop."},
         ],
     }
 
@@ -267,7 +267,7 @@ def test_work_item_discussion_comments_are_indexed_as_their_own_sections():
         s.text for s in extract("work_item_current", record).sections if s.name == "Discussion"
     ]
 
-    assert discussion == ["Seen again after the retry patch.", "Workaround: restart the kiosk."]
+    assert discussion == ["Seen again after the retry patch.", "Workaround: restart the shop."]
     assert "Discussion" in sections
     assert not [
         s

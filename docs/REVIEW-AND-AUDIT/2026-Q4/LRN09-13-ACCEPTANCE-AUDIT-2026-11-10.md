@@ -1,6 +1,6 @@
 # LRN-09–13 acceptance audit — 2026-11-10
 
-**Status: source-inspected, NOT fully acceptance-tested.** This report records verified code/test inventory against the five original Trello stories. Any test result not actually executed in the operator's environment is **PENDING**. LRN-08's published Genoa Kiosk evidence (135 ADO items, 554 Gemini chunks) is available for read-only demo queries. Do not run synthetic DB tests against that database.
+**Status: source-inspected, NOT fully acceptance-tested.** This report records verified code/test inventory against the five original Trello stories. Any test result not actually executed in the operator's environment is **PENDING**. LRN-08's published Example Project evidence (135 ADO items, 554 Gemini chunks) is available for read-only demo queries. Do not run synthetic DB tests against that database.
 
 | Story | Existing implementation | Existing verification | Open acceptance |
 | --- | --- | --- | --- |

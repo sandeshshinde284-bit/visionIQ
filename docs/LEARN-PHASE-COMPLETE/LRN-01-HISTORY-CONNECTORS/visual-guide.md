@@ -6,7 +6,7 @@ This is an explanation-first companion to the [technical guide](README.md), not 
 
 ## 1. Why does VisionIQ need history connectors?
 
-**Example (illustrative, not a real corporate ticket):** A kiosk payment fails after a retry. Azure DevOps has the original incident, a developer's investigation, a PR with a fix, its commit and a subsequent build. If VisionIQ reads only the ticket title, it cannot explain what changed or cite the engineering evidence. LRN-01 captures those source records as separate, traceable items.
+**Example (illustrative, not a real corporate ticket):** A shop payment fails after a retry. Azure DevOps has the original incident, a developer's investigation, a PR with a fix, its commit and a subsequent build. If VisionIQ reads only the ticket title, it cannot explain what changed or cite the engineering evidence. LRN-01 captures those source records as separate, traceable items.
 
 ## 2. What happens on a run?
 

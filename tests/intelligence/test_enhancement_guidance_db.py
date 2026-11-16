@@ -102,20 +102,20 @@ def sources(corpus: Corpus, scope: str | None = None) -> PostgresBriefSources:
 
 def test_a_file_is_found_through_its_project_and_a_python_file_directly() -> None:
     corpus = Corpus()
-    item = scan(corpus, "kiosk")
-    refers(item, "src/Kiosk/Kiosk.csproj", PROJECT)
+    item = scan(corpus, "shop")
+    refers(item, "src/Shop/Shop.csproj", PROJECT)
     refers(item, "tests/Payments.Tests/Payments.Tests.csproj", PROJECT)
     refers(item, "tools/Build.csproj", "src/All.csproj")  # an outer project: not the innermost
     refers(item, "app/print.py", "app/retry.py")
 
     found = sources(corpus).dependents(
-        "kiosk", ["/src/Payments/Api/PaymentResponse.cs", "/app/retry.py", "/docs/readme.md"]
+        "shop", ["/src/Payments/Api/PaymentResponse.cs", "/app/retry.py", "/docs/readme.md"]
     )
 
     by_target = {entry.target: entry for entry in found}
     assert set(by_target) == {PROJECT, "app/retry.py"}  # nothing is recorded for the readme
     assert by_target[PROJECT].dependents == (
-        "src/Kiosk/Kiosk.csproj",
+        "src/Shop/Shop.csproj",
         "tests/Payments.Tests/Payments.Tests.csproj",
     )
     assert by_target["app/retry.py"].dependents == ("app/print.py",)
@@ -125,14 +125,14 @@ def test_a_file_is_found_through_its_project_and_a_python_file_directly() -> Non
 
 def test_only_the_latest_scan_of_a_repository_counts() -> None:
     corpus = Corpus()
-    scan(corpus, "kiosk", revision="c0")
-    item = scan(corpus, "kiosk", revision="c1")  # the same item, scanned again
+    scan(corpus, "shop", revision="c0")
+    item = scan(corpus, "shop", revision="c1")  # the same item, scanned again
     refers(item, "src/Old/Old.csproj", PROJECT, revision="c0")  # a reference that is gone
-    refers(item, "src/Kiosk/Kiosk.csproj", PROJECT, revision="c1")
+    refers(item, "src/Shop/Shop.csproj", PROJECT, revision="c1")
 
-    (found,) = sources(corpus).dependents("kiosk", ["src/Payments/RetryPolicy.cs"])
+    (found,) = sources(corpus).dependents("shop", ["src/Payments/RetryPolicy.cs"])
 
-    assert found.dependents == ("src/Kiosk/Kiosk.csproj",)
+    assert found.dependents == ("src/Shop/Shop.csproj",)
 
 
 def test_file_dependencies_never_fall_back_to_another_readable_repository() -> None:
@@ -142,31 +142,31 @@ def test_file_dependencies_never_fall_back_to_another_readable_repository() -> N
 
     # Both scans are readable under the same scope; a matching path in the other
     # repository must not supply guidance for a repository with no matching edges.
-    assert sources(corpus).dependents("kiosk", ["src/Payments/RetryPolicy.cs"]) == []
+    assert sources(corpus).dependents("shop", ["src/Payments/RetryPolicy.cs"]) == []
 
-    own = scan(corpus, "kiosk")
-    refers(own, "src/Kiosk/Kiosk.csproj", PROJECT)
+    own = scan(corpus, "shop")
+    refers(own, "src/Shop/Shop.csproj", PROJECT)
 
-    found = sources(corpus).dependents("kiosk", ["src/Payments/RetryPolicy.cs"])
+    found = sources(corpus).dependents("shop", ["src/Payments/RetryPolicy.cs"])
     assert len(found) == 1
-    assert found[0].dependents == ("src/Kiosk/Kiosk.csproj",)
+    assert found[0].dependents == ("src/Shop/Shop.csproj",)
     assert found[0].item_key == own
 
 
 def test_references_are_read_only_under_the_callers_access_scope() -> None:
     corpus = Corpus()
-    item = scan(corpus, "kiosk")
-    refers(item, "src/Kiosk/Kiosk.csproj", PROJECT)
+    item = scan(corpus, "shop")
+    refers(item, "src/Shop/Shop.csproj", PROJECT)
     hidden = scan(corpus, "secret", scope="ado-project:https://dev.azure.com/other/Secret")
     refers(hidden, "src/Secret/Secret.csproj", PROJECT)
 
-    (found,) = sources(corpus).dependents("kiosk", ["src/Payments/RetryPolicy.cs"])
+    (found,) = sources(corpus).dependents("shop", ["src/Payments/RetryPolicy.cs"])
 
-    assert found.dependents == ("src/Kiosk/Kiosk.csproj",)  # the other project's file is not shown
-    assert sources(corpus, "ado-project:nobody").dependents("kiosk", [PROJECT]) == []
+    assert found.dependents == ("src/Shop/Shop.csproj",)  # the other project's file is not shown
+    assert sources(corpus, "ado-project:nobody").dependents("shop", [PROJECT]) == []
     assert (
         PostgresBriefSources(intelligence, HashingEmbedder(), [], lambda key: True).dependents(
-            "kiosk", [PROJECT]
+            "shop", [PROJECT]
         )
         == []
     )
@@ -174,26 +174,26 @@ def test_references_are_read_only_under_the_callers_access_scope() -> None:
 
 def test_other_repositories_that_declare_a_dependency_are_named_when_readable() -> None:
     corpus = Corpus()
-    kiosk = scan(corpus, "kiosk")
+    shop = scan(corpus, "shop")
     recon = scan(corpus, "recon")
     edge(
-        node(recon, "file", "deps/kiosk.gitmodules"),
-        node(kiosk, "repository", "kiosk"),
+        node(recon, "file", "deps/shop.gitmodules"),
+        node(shop, "repository", "shop"),
         "repository_dependency",
         recon,
     )
     unreadable = scan(corpus, "billing", scope="ado-project:https://dev.azure.com/other/Billing")
     edge(
         node(unreadable, "file", "requirements.txt"),
-        node(kiosk, "repository", "kiosk"),
+        node(shop, "repository", "shop"),
         "repository_dependency",
         unreadable,
     )
 
-    (found,) = sources(corpus).dependents("kiosk", [])
+    (found,) = sources(corpus).dependents("shop", [])
 
-    assert found.cross_repository and found.target == "kiosk"
-    assert found.dependents == ("recon: deps/kiosk.gitmodules",)  # billing is not readable
+    assert found.cross_repository and found.target == "shop"
+    assert found.dependents == ("recon: deps/shop.gitmodules",)  # billing is not readable
     assert sources(corpus).dependents("", []) == []
 
 
@@ -201,7 +201,7 @@ def test_an_enhancement_is_answered_with_stored_guidance_in_eight_sections() -> 
     corpus = Corpus()
     demo_history(corpus)
     item = scan(corpus, "repo-1")
-    refers(item, "src/Kiosk/Kiosk.csproj", PROJECT)
+    refers(item, "src/Shop/Shop.csproj", PROJECT)
     first = request_event(corpus, live_ticket(corpus))
     envelope = EventEnvelope.model_validate(
         {
@@ -223,13 +223,13 @@ def test_an_enhancement_is_answered_with_stored_guidance_in_eight_sections() -> 
     assert document["kind"] == "enhancement"
     assert [section["section"] for section in document["guidance"]] == list(SECTION_CODES)
     sections = {section["section"]: section for section in document["guidance"]}
-    # The files in scope belong to Payments.csproj, which Kiosk.csproj refers to: written by code.
+    # The files in scope belong to Payments.csproj, which Shop.csproj refers to: written by code.
     assert sections["contracts_and_apis"]["status"] == "covered"
     reference = next(e for e in document["evidence"] if e["kind"] == "code_dependency")
     assert reference["title"] == f"{PROJECT} is referenced by 1 other file"
     (contract,) = [a for a in document["advice"] if a["section"] == "contracts_and_apis"]
     assert contract["evidence_ids"] == [reference["id"]]
-    assert "src/Kiosk/Kiosk.csproj" in contract["statement"]
+    assert "src/Shop/Shop.csproj" in contract["statement"]
     # What the history shows fills its sections; the rest are missing, not guessed.
     assert sections["related_past_changes"]["status"] == "covered"
     assert sections["do_and_dont"]["status"] == "covered"  # ticket 102's fix was reverted

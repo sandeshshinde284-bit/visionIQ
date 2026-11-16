@@ -240,7 +240,7 @@ def test_generic_or_missing_symptoms_never_qualify_a_lesson():
     files = ("/src/PaymentService.cs",)
     plan = consolidate(
         [
-            obs("1", *files, symptom="A problem happened in the kiosk"),
+            obs("1", *files, symptom="A problem happened in the shop"),
             obs("2", *files, symptom="Unexpected issue in the application"),
             obs("3", *files, symptom=""),
         ],

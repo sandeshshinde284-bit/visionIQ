@@ -47,7 +47,7 @@ End to end, with the demo repository (step 2C.3 of [TESTING-KICKOFF-TODAY.md](..
 
 | Check | Expected |
 | --- | --- |
-| `Patch (iteration 2)` | Only `src/kiosk/retry_policy.py` |
+| `Patch (iteration 2)` | Only `src/shop/retry_policy.py` |
 | Gate `patch_policy` | `PASS`: "The change is inside the repository's policy." |
 | `candidate.patch` in the evidence folder | The diff that was tested |
 | Remove the `code_fix` answers from `offline-script.json` | `PARTIAL` / `INCONCLUSIVE` / `llm_unavailable`, never `VERIFIED` |

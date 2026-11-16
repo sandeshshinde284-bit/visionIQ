@@ -14,7 +14,7 @@ dotnet test .\tests\VisionIQ.Ingestor.Tests\VisionIQ.Ingestor.Tests.csproj --con
 Reported result: **37 passed, 0 failed, 0 skipped, exit 0**. Includes inherited restriction evaluation, unauthorized synthetic viewer, decision recognition by title/label/template, snapshots with versions and ACLs, permission changes without new content versions, and canonical evidence access metadata. This filtered run does not prove a deployed retrieval endpoint exists or denies an actual unauthorized engineer. An earlier `FullyQualifiedName~ConfluenceAccess` filter matched **zero** tests and must not be cited as a passing test run.
 
 ## Live read-only inventory
-Configured approved ERK Confluence Cloud space:
+Configured approved DOCS Confluence Cloud space:
 - Pages found: **589**
 - Complete ACLs: **527**
 - Incomplete ACLs: **62**
@@ -48,7 +48,7 @@ The sum is **213 restricted pages with complete ACLs + 62 pages with incomplete 
 2. An actual restricted page denied to an unauthorized user through a VisionIQ endpoint, including absence from search and AI brief context. Requires a delivery surface for Confluence evidence (see Architecture: per-user read path).
 3. Corresponding authorized-user positive retrieval when permission is granted.
 4. End-to-end ACL change/revocation demonstration through persisted storage and retrieval.
-5. A qualifying real ADR in the approved ERK space was not found by title or label; label/title discovery is not an exhaustive body/template scan. Synthetic decision-recognition tests passed.
+5. A qualifying real ADR in the approved DOCS space was not found by title or label; label/title discovery is not an exhaustive body/template scan. Synthetic decision-recognition tests passed.
 
 ## Test execution hygiene
 No confidential page titles, IDs, URLs, bodies, credentials or group membership lists should be committed. Store local logs and reports in ignored artifact directories and publish only safe summaries. Do not mark test evidence as PASS until the actual test run returns exit 0 and asserts intended denials.

@@ -1,4 +1,4 @@
-"""Read-only LRN-09 retrieval probe for approved local Genoa Kiosk ADO history.
+"""Read-only LRN-09 retrieval probe for approved local Example Project ADO history.
 
 This CLI deliberately does not provide end-user authorization: it must run only
 under an already-approved local operator identity and never as an external API.
@@ -52,7 +52,9 @@ def connection_string() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", default="Genoa Kiosk")
+    # The ADO project: --project, else the first of ADO_PROJECTS.
+    default_project = (os.environ.get("ADO_PROJECTS") or "").split(",")[0].strip()
+    parser.add_argument("--project", default=default_project or None, required=not default_project)
     parser.add_argument("--query", required=True, help="Non-sensitive defect description")
     parser.add_argument("--limit", type=int, default=5)
     args = parser.parse_args(argv)

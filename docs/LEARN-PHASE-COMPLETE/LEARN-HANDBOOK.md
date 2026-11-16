@@ -335,7 +335,7 @@ The evidence-aware retrieval engine for a current defect/ticket, across approved
 Turns LRN-08 published chunks and LRN-04/06/07 evidence into a **traceable shortlist** for Engineering Brief—not a confirmed repair.
 
 ### 5. Testing
-Run focused retrieval tests and the read-only `app.knowledge.lrn09_demo` / `app.knowledge.lrn09_benchmark` commands with approved source scopes. Inspect actual cited tickets and revert warnings. [Retrieval design](../PLANNED-FEATURES/LRN-08-HYBRID-RETRIEVAL/retrieval.md) · [PR #28](https://github.com/sandeshshinde284-bit/visionIQ/pull/28).
+Run focused retrieval tests and the read-only `app.knowledge.lrn09_demo` / `app.knowledge.lrn09_benchmark` commands with approved source scopes. Inspect actual cited tickets and revert warnings. [Retrieval design](../PLANNED-FEATURES/LRN-08-HYBRID-RETRIEVAL/retrieval.md) · PR #28.
 
 ### 6. Move to LRN-10
 Use defensible historical fixes to identify repeated problems—without confusing a shared file with a shared root cause.

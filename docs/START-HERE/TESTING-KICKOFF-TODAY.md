@@ -430,7 +430,7 @@ docker stop def-test-pg
 Needs Git and the Python requirements only.
 
 ```powershell
-python scripts/defect-demo/make_demo_repo.py --out $env:TEMP\kiosk-demo
+python scripts/defect-demo/make_demo_repo.py --out $env:TEMP\shop-demo
 ```
 
 The script prints the next command with the paths and the baseline commit filled in. Run it from `src/VisionIQ.Intelligence`. Add `2>$null` to hide the structured log lines.
@@ -443,7 +443,7 @@ The script prints the next command with the paths and the baseline commit filled
 | `Reproduction` | `REPRODUCED`, failure `AssertionError: captured payment was retried` | DEF-01 |
 | `<out>\evidence\<run id>\M1.json` | Baseline SHA, runner, tool versions and commands, written before `X1.log` | DEF-01 |
 | `Attempts`, patch 1 | `regression_failed`: the old test `tests/test_retry_policy.py` passes on the baseline and fails on the candidate | DEF-04 |
-| `Attempts`, patch 2 | `candidate_accepted`; `candidate.patch` changes only `src/kiosk/retry_policy.py` | DEF-02 |
+| `Attempts`, patch 2 | `candidate_accepted`; `candidate.patch` changes only `src/shop/retry_policy.py` | DEF-02 |
 | Gates `candidate_test`, `historical_regression`, `touched_suite` | `PASS` | DEF-03, DEF-04 |
 | Gate `performance` | `PASS` with the median change, pair count and noise. On a busy machine it may be `INCONCLUSIVE` (verdict `INCONCLUSIVE`, exit code 3): that is correct behaviour, run it again | DEF-03 |
 | `Gates:` | `NOT_GREEN`, because `native_ci` is `NOT_RUN` and `human_review` is `REVIEW_REQUIRED` | DEF-06 |

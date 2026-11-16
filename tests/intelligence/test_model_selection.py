@@ -186,7 +186,7 @@ def test_a_simple_fix_runs_on_the_simple_model_and_never_calls_the_usual_one(
 
 
 def test_a_failed_attempt_is_retried_one_tier_up(tmp_path: Path) -> None:
-    outside = {**TEST_ANSWER, "test_path": "src/kiosk/test_sneaky.py"}  # rejected by the policy
+    outside = {**TEST_ANSWER, "test_path": "src/shop/test_sneaky.py"}  # rejected by the policy
     usual = model("claude", "opus")
     cheap = model("claude", "haiku", outside, SAFE_FIX)
     middle = model("claude", "sonnet", TEST_ANSWER)

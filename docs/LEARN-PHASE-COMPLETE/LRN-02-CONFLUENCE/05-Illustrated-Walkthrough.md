@@ -70,7 +70,7 @@ sequenceDiagram
 
 Discovery deliberately excludes **all restricted pages**, even those an authorized engineer might personally view. It is a privacy-preserving inventory, not a personal search service or a proof that every unrestricted page is readable by every engineer.
 
-## 5. Understanding the actual ERK results
+## 5. Understanding the actual DOCS results
 
 | Observed result | Count | Interpretation |
 | --- | ---: | --- |

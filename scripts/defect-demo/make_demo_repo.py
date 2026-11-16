@@ -2,11 +2,11 @@
 tried end to end without Azure DevOps, a database or a model provider.
 
     python scripts/defect-demo/make_demo_repo.py            # prints the command to run next
-    python scripts/defect-demo/make_demo_repo.py --out D:\\tmp\\kiosk-demo
+    python scripts/defect-demo/make_demo_repo.py --out D:\\tmp\\shop-demo
 
 It writes, under the output folder:
 
-* ``repo/``                a Python project (``kiosk``) whose retry policy retries a payment
+* ``repo/``                a Python project (``shop``) whose retry policy retries a payment
                            that was already captured. It has older tests, one of them the
                            regression test of a past bug, and a small benchmark.
 * ``defect-policy.json``   the fix policy for that repository (local runner).
@@ -29,10 +29,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPOSITORY_ID = "kiosk-demo"
+REPOSITORY_ID = "shop-demo"
 TICKET_ID = "4711"
 
-RETRY_POLICY = '''"""When the kiosk retries a payment."""
+RETRY_POLICY = '''"""When the shop retries a payment."""
 
 
 class RetryPolicy:
@@ -48,9 +48,9 @@ class RetryPolicy:
         return [0.5 * 2**number for number in range(self.max_attempts - 1)]
 '''
 
-RECEIPT = '''"""What the kiosk prints after a payment."""
+RECEIPT = '''"""What the shop prints after a payment."""
 
-from kiosk.retry_policy import RetryPolicy
+from shop.retry_policy import RetryPolicy
 
 
 def barcode_lines(order_id: str, attempts: int, captured: bool) -> list[str]:
@@ -60,8 +60,8 @@ def barcode_lines(order_id: str, attempts: int, captured: bool) -> list[str]:
     return [f"*{order_id}*"] * (1 + retried)
 '''
 
-# The regression test of past bug #101 ("the kiosk retries forever").
-OLD_TESTS = """from kiosk.retry_policy import RetryPolicy
+# The regression test of past bug #101 ("the shop retries forever").
+OLD_TESTS = """from shop.retry_policy import RetryPolicy
 
 
 def test_retry_stops_after_max_attempts():
@@ -82,7 +82,7 @@ import timeit
 
 sys.path.insert(0, "src")
 
-from kiosk.retry_policy import RetryPolicy  # noqa: E402
+from shop.retry_policy import RetryPolicy  # noqa: E402
 
 policy = RetryPolicy(max_attempts=5)
 
@@ -100,7 +100,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as out:
 '''
 
 PYPROJECT = """[project]
-name = "kiosk"
+name = "shop"
 version = "1.4.0"
 
 [tool.pytest.ini_options]
@@ -108,14 +108,14 @@ pythonpath = ["src", "."]
 """
 
 TICKET_TEXT = (
-    "Customer was charged twice at the kiosk and two barcodes were printed.\n"
-    "Steps: pay by card, the payment is captured, the receipt printer is slow, the kiosk "
+    "Customer was charged twice at the shop and two barcodes were printed.\n"
+    "Steps: pay by card, the payment is captured, the receipt printer is slow, the shop "
     "retries.\n"
     "Expected: a captured payment is never retried. Actual: RetryPolicy.should_retry returns "
-    "True for a captured payment while attempts remain (src/kiosk/retry_policy.py)."
+    "True for a captured payment while attempts remain (src/shop/retry_policy.py)."
 )
 
-REPRODUCTION_TEST = """from kiosk.retry_policy import RetryPolicy
+REPRODUCTION_TEST = """from shop.retry_policy import RetryPolicy
 
 
 def test_captured_payment_is_not_retried():
@@ -147,13 +147,13 @@ OFFLINE_SCRIPT = {
     },
     "code_fix": [
         {
-            "changes": [{"path": "src/kiosk/retry_policy.py", "content": UNSAFE_FIX}],
+            "changes": [{"path": "src/shop/retry_policy.py", "content": UNSAFE_FIX}],
             "cause": "should_retry ignores whether the payment was captured.",
             "summary": "Never retry a captured payment",
             "limitations": [],
         },
         {
-            "changes": [{"path": "src/kiosk/retry_policy.py", "content": SAFE_FIX}],
+            "changes": [{"path": "src/shop/retry_policy.py", "content": SAFE_FIX}],
             "cause": "should_retry ignores whether the payment was captured.",
             "summary": "Do not retry a captured payment; keep the attempt limit",
             "limitations": [],
@@ -216,12 +216,12 @@ def policy(repo: Path, python: str = sys.executable) -> dict:
                 "test_file_patterns": ["tests/**"],
                 "writable_paths": ["src/**"],
                 "restricted_areas": [
-                    {"area": "payment", "patterns": ["src/kiosk/payments/**"]},
+                    {"area": "payment", "patterns": ["src/shop/payments/**"]},
                     {"area": "schema", "patterns": ["migrations/**"]},
                 ],
                 "lock_files": ["pyproject.toml"],
                 "benchmark": {
-                    "applies_to": ["src/kiosk/retry_policy.py"],
+                    "applies_to": ["src/shop/retry_policy.py"],
                     "pairs": 5,
                     "warmup_pairs": 1,
                     "max_regression_percent": 25,
@@ -237,36 +237,36 @@ def create(out: Path, python: str = sys.executable) -> dict[str, str]:
     repo = out / "repo"
     files = {
         "pyproject.toml": PYPROJECT,
-        "src/kiosk/__init__.py": "",
-        "src/kiosk/retry_policy.py": RETRY_POLICY.replace(
+        "src/shop/__init__.py": "",
+        "src/shop/retry_policy.py": RETRY_POLICY.replace(
             "        return attempt < self.max_attempts\n", "        return True\n"
         ),
-        "src/kiosk/receipt.py": RECEIPT,
+        "src/shop/receipt.py": RECEIPT,
         "bench/bench_retry.py": BENCHMARK,
     }
     for name, content in files.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(content, encoding="utf-8", newline="\n")
     _git(repo, "init", "--quiet", "--initial-branch=main")
-    _commit(repo, "Kiosk retry policy and receipt printing")
+    _commit(repo, "Shop retry policy and receipt printing")
     # The fix of past bug #101, with its regression test: this is the area's history.
-    (repo / "src/kiosk/retry_policy.py").write_text(RETRY_POLICY, encoding="utf-8", newline="\n")
+    (repo / "src/shop/retry_policy.py").write_text(RETRY_POLICY, encoding="utf-8", newline="\n")
     (repo / "tests").mkdir()
     (repo / "tests/test_retry_policy.py").write_text(OLD_TESTS, encoding="utf-8", newline="\n")
     base_sha = _commit(repo, "Fix #101: stop retrying after max attempts")
 
     ticket = {
-        "project": "Kiosk",
+        "project": "Shop",
         "id": TICKET_ID,
         "revision": 3,
         "title": "Bug 4711: customer charged twice when the receipt printer is slow",
         "text": TICKET_TEXT,
-        "scope": ["src/kiosk/retry_policy.py", "src/kiosk/receipt.py"],
+        "scope": ["src/shop/retry_policy.py", "src/shop/receipt.py"],
         "historical_fixes": [
             {
                 "ticket_id": "101",
                 "fix_reference": "PR 201",
-                "paths": ["src/kiosk/retry_policy.py", "tests/test_retry_policy.py"],
+                "paths": ["src/shop/retry_policy.py", "tests/test_retry_policy.py"],
             }
         ],
     }

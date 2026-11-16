@@ -154,7 +154,7 @@ def test_the_manifest_is_written_before_the_code_runs_and_pins_everything(tmp_pa
             "reproduction_different_failure",
         ),
         (
-            "error:ModuleNotFoundError: No module named 'kiosk'",
+            "error:ModuleNotFoundError: No module named 'shop'",
             "ENVIRONMENT_ERROR",
             "reproduction_environment_error",
         ),
@@ -209,7 +209,7 @@ def test_a_defect_that_cannot_run_in_a_sandbox_is_unavailable_and_escalated(tmp_
 
 
 def test_a_rejected_test_gets_one_more_attempt_and_both_are_recorded(tmp_path: Path) -> None:
-    outside = {**TEST_ANSWER, "test_path": "src/kiosk/test_sneaky.py"}
+    outside = {**TEST_ANSWER, "test_path": "src/shop/test_sneaky.py"}
     model = claude(outside, TEST_ANSWER, SAFE_FIX)
 
     result = run(tmp_path, gateway_for(model), honest)
@@ -257,7 +257,7 @@ def test_with_no_model_allowed_to_see_code_the_run_says_so(tmp_path: Path) -> No
 
 def test_a_change_in_a_restricted_area_stops_for_an_engineer_and_is_not_run(tmp_path: Path) -> None:
     demo = make_demo(
-        tmp_path, restricted_areas=[{"area": "payment", "patterns": ["src/kiosk/retry_policy.py"]}]
+        tmp_path, restricted_areas=[{"area": "payment", "patterns": ["src/shop/retry_policy.py"]}]
     )
     runner = FakeRunner(honest)
 
@@ -426,7 +426,7 @@ def test_a_noisy_measurement_is_inconclusive(tmp_path: Path) -> None:
 
 
 def test_a_change_outside_the_benchmarked_paths_is_reported_as_not_measured(tmp_path: Path) -> None:
-    demo = make_demo(tmp_path, benchmark={"applies_to": ["src/kiosk/receipt.py"]})
+    demo = make_demo(tmp_path, benchmark={"applies_to": ["src/shop/receipt.py"]})
     runner = FakeRunner(honest)
 
     result = run(tmp_path, [TEST_ANSWER, SAFE_FIX], runner, demo=demo)
@@ -684,7 +684,7 @@ def test_what_goes_wrong_is_logged_as_a_warning_with_its_reason_code(tmp_path: P
     _, blocked = logged(tmp_path / "a", [TEST_ANSWER], request=None, policy=None)
     _, timed_out = logged(tmp_path / "b", [TEST_ANSWER, TEST_ANSWER], broken_runner)
     demo = make_demo(
-        tmp_path / "c", restricted_areas=[{"area": "payment", "patterns": ["src/kiosk/**"]}]
+        tmp_path / "c", restricted_areas=[{"area": "payment", "patterns": ["src/shop/**"]}]
     )
     _, review = logged(tmp_path / "c", [TEST_ANSWER, SAFE_FIX], demo=demo)
 

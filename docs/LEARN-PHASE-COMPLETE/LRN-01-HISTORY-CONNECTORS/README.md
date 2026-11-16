@@ -42,7 +42,7 @@ flowchart TD
 
 ## How do we know it works?
 
-Against the approved **WLMTS / Genoa Kiosk** scope: historical work items, comments, PRs, commits and now **86 CI builds with 149 links** were read. Canonical evidence was written to PostgreSQL/GCS, sampled GCS hashes matched, and test failures/retries were exercised in automated tests. The comments sample was **9/9, 2/2, 0/0**. These results demonstrate the tested connector pipeline, not complete downstream AI quality.
+Against the approved **example-org / Example Project** scope: historical work items, comments, PRs, commits and now **86 CI builds with 149 links** were read. Canonical evidence was written to PostgreSQL/GCS, sampled GCS hashes matched, and test failures/retries were exercised in automated tests. The comments sample was **9/9, 2/2, 0/0**. These results demonstrate the tested connector pipeline, not complete downstream AI quality.
 
 See [acceptance.md](acceptance.md) and the [detailed dated test report](../../REVIEW-AND-AUDIT/2026-Q4/LRN-01-Test-Report.md).
 

@@ -63,7 +63,7 @@ public sealed class FixDeliveryDatabaseIntegrationTests
             delivery.Parameters.Add(new NpgsqlParameter { Value = runId });
             await using var reader = await delivery.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
-            Assert.Equal(("published", "record", "recorded", "kiosk-demo"),
+            Assert.Equal(("published", "record", "recorded", "shop-demo"),
                 (reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3)));
             Assert.StartsWith("visioniq/fix/", reader.GetString(4), StringComparison.Ordinal);
             // Nothing was pushed, so the results apply to the sandbox candidate itself.
@@ -86,7 +86,7 @@ public sealed class FixDeliveryDatabaseIntegrationTests
         }
 
         // A recorded pull request is not on Azure DevOps, so a "pull request updated" delivery never matches it.
-        Assert.Null(await store.FindOpenedAsync("recorded", ["kiosk-demo"], default));
+        Assert.Null(await store.FindOpenedAsync("recorded", ["shop-demo"], default));
     }
 
     [DatabaseFact(Flag)]
@@ -204,7 +204,7 @@ public sealed class FixDeliveryDatabaseIntegrationTests
     {
         await using var connection = await api.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
-        var request = new AnalysisRequestedV1("payments-core", ticket, 7, "kiosk-demo", baseSha ?? Sha, mode, "project:payments-core");
+        var request = new AnalysisRequestedV1("payments-core", ticket, 7, "shop-demo", baseSha ?? Sha, mode, "project:payments-core");
         // A run started by ticket pickup has its kind and the policy revision; a fix run is only started for those.
         var run = ticketKind is null
             ? new NewAnalysisRun(runId, tenant, request, Trace)
@@ -233,7 +233,7 @@ public sealed class FixDeliveryDatabaseIntegrationTests
         batch.BatchCommands.Add(new NpgsqlBatchCommand(
             "INSERT INTO knowledge.analysis_requests (run_id, event_id, tenant_id, project_id, ticket_id, ticket_revision, " +
             "repository_id, base_commit_sha, analysis_mode, security_scope_id, status, result_id, result_state, reason_codes, completed_at) " +
-            "VALUES ($1, $2, $3, 'payments-core', '4711', 7, 'kiosk-demo', $4, 'deep', 'project:payments-core', 'completed', $5, $6, $7, now())")
+            "VALUES ($1, $2, $3, 'payments-core', '4711', 7, 'shop-demo', $4, 'deep', 'project:payments-core', 'completed', $5, $6, $7, now())")
         {
             Parameters =
             {
@@ -245,7 +245,7 @@ public sealed class FixDeliveryDatabaseIntegrationTests
             "INSERT INTO knowledge.fix_runs (fix_id, run_id, tenant_id, project_id, ticket_id, ticket_revision, repository_id, " +
             "base_commit_sha, candidate_commit_sha, candidate_tree_sha, state, verdict, reason_codes, reproducibility, " +
             "gates_overall, schema_version, document, routing_revision, accepted_at, total_ms) " +
-            "VALUES ($1, $2, $3, 'payments-core', '4711', 7, 'kiosk-demo', $4, $5, $6, $7, $8, $9, $10, $11, 1, $12::jsonb, " +
+            "VALUES ($1, $2, $3, 'payments-core', '4711', 7, 'shop-demo', $4, $5, $6, $7, $8, $9, $10, $11, 1, $12::jsonb, " +
             "'routing-test', now(), 1000)")
         {
             Parameters =

@@ -76,7 +76,7 @@ def test_a_repository_that_cannot_be_cloned_is_a_reason_code(tmp_path: Path) -> 
         "src/../../secret.txt",
         "/etc/passwd",
         "C:/Windows/system.ini",
-        "src\\kiosk\\x.py",
+        "src\\shop\\x.py",
         "src/./x.py",
         "src//x.py",
         "src/",
@@ -246,7 +246,7 @@ def test_the_command_line_runs_a_ticket_file_and_writes_the_evidence(
     code = cli.main(
         [
             "--policy", created["policy"],
-            "--repository", "kiosk-demo",
+            "--repository", "shop-demo",
             "--base-sha", created["base_sha"],
             "--ticket", created["ticket"],
             "--offline-script", created["offline_script"],

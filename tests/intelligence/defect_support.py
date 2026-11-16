@@ -23,7 +23,7 @@ from app.defect.sources import HistoricalFix
 from app.llm.gateway import ModelGateway
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = "src/kiosk/retry_policy.py"
+SOURCE = "src/shop/retry_policy.py"
 OLD_TEST = "tests/test_retry_policy.py"
 
 
@@ -75,13 +75,13 @@ def settings(tmp_path: Path, **overrides: Any) -> FixSettings:
     return FixSettings(**values)
 
 
-def request(demo: Demo, base_sha: str | None = None, repository_id: str = "kiosk-demo"):
+def request(demo: Demo, base_sha: str | None = None, repository_id: str = "shop-demo"):
     return FixRequest(
         run_id=uuid.uuid4(),
-        ticket=TicketRef(project="Kiosk", id="4711", revision=3),
+        ticket=TicketRef(project="Shop", id="4711", revision=3),
         repository_id=repository_id,
         base_commit_sha=base_sha or demo.base_sha,
-        security_scope_id="project:Kiosk",
+        security_scope_id="project:Shop",
     )
 
 

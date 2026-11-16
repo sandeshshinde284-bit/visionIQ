@@ -23,9 +23,9 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("VISIONIQ_DB_INTEGRATION") != "1",
     reason="Set VISIONIQ_DB_INTEGRATION=1 after bootstrapping PostgreSQL",
 )
-RETRY_FIX = ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
+RETRY_FIX = ["/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"]
 LIVE_DEFECT = (
-    "Kiosk payment captured, barcode print failed after retry.\n"
+    "Shop payment captured, barcode print failed after retry.\n"
     "   at Shop.Payments.RetryPolicy.Execute(Int32 attempt) in /src/Payments/RetryPolicy.cs:line 42"
 )
 
@@ -42,7 +42,7 @@ def demo_history(corpus: Corpus) -> dict[str, str]:
             bug(
                 101,
                 "Barcode print fails after payment retry",
-                "Pay at kiosk, payment captured, retry printing: no barcode on the receipt.",
+                "Pay at shop, payment captured, retry printing: no barcode on the receipt.",
             ),
         ),
         "duplicate": corpus.add(

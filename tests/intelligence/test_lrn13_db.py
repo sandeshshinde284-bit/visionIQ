@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("VISIONIQ_DB_INTEGRATION") != "1",
     reason="Set VISIONIQ_DB_INTEGRATION=1 after bootstrapping PostgreSQL",
 )
-FILES = ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
+FILES = ["/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"]
 
 
 class CountingEmbedder(HashingEmbedder):

@@ -1,7 +1,7 @@
 
 ## Changed-file fidelity — PASSED (2026-11-02)
 
-User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8bb6a9` in approved `Genoa Kiosk / KIOSK_TVM` against VisionIQ's local JSONL export (`artifacts/ingestion/lrn01-changed-files/20261102-122630/commits.jsonl`). **VisionIQFiles=8, AzureDevOpsFiles=8, Differences=0, Truncated=False, Result=PASS**. Comparison matched both changed-file paths and change types, without publishing filenames or source contents. Export contained 39 commits, exit 0. This is one sampled live commit, not exhaustive verification of every commit. Combined with 402/402 full solution tests, all three written LRN-01 acceptance criteria now have supporting evidence; 66 build warnings still require severity review. PR #14 remains Draft pending LRN-01–07 acceptance.
+User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8bb6a9` in approved `Example Project / EXAMPLE_REPO` against VisionIQ's local JSONL export (`artifacts/ingestion/lrn01-changed-files/20261102-122630/commits.jsonl`). **VisionIQFiles=8, AzureDevOpsFiles=8, Differences=0, Truncated=False, Result=PASS**. Comparison matched both changed-file paths and change types, without publishing filenames or source contents. Export contained 39 commits, exit 0. This is one sampled live commit, not exhaustive verification of every commit. Combined with 402/402 full solution tests, all three written LRN-01 acceptance criteria now have supporting evidence; 66 build warnings still require severity review. PR #14 remains Draft pending LRN-01–07 acceptance.
 
 # LRN-01 — Azure DevOps historical ingestion acceptance report
 
@@ -13,11 +13,11 @@ User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8b
 
 ## Full solution regression — PASSED (2026-11-02)
 
-User executed `dotnet test .\VisionIQ.sln --configuration Release` on local checkout after latest branch pull: **402 total, 402 passed, 0 failed, 0 skipped; exit code 0; build succeeded with 66 warnings; test duration 10.4s, build duration 32.1s.** The warning categories were not supplied and require review before treating them as harmless. This closes the full current-branch regression gate from the previous acceptance decision. **Subsequently completed:** comparison of changed-file paths/change types for a real `KIOSK_TVM` commit (8/8 matched, 0 differences). Final acceptance signoff and warning review remain. PR #14 remains Draft.
+User executed `dotnet test .\VisionIQ.sln --configuration Release` on local checkout after latest branch pull: **402 total, 402 passed, 0 failed, 0 skipped; exit code 0; build succeeded with 66 warnings; test duration 10.4s, build duration 32.1s.** The warning categories were not supplied and require review before treating them as harmless. This closes the full current-branch regression gate from the previous acceptance decision. **Subsequently completed:** comparison of changed-file paths/change types for a real `EXAMPLE_REPO` commit (8/8 matched, 0 differences). Final acceptance signoff and warning review remain. PR #14 remains Draft.
 
 ## Live CI build ingestion — PASSED (2026-11-02)
 
-Command: `dotnet run --configuration Release --project .\\src\\VisionIQ.Ingestor.Cli -- sync --source builds --since 2026-10-30`; approved ADO project `Genoa Kiosk`; canonical PostgreSQL at `127.0.0.1:15543/visioniq` and GCS evidence destination. The CLI notes that `--since` applies only if no checkpoint exists, unless `--full` is specified. Run ID `00c39f65-5491-4b63-b78b-6ff5176d1f49`: **86 builds stored; 149 source links; 0 not stored, 0 quarantined; 112 build-link graph assertions processed; exit 0; all synced.** Output report: `artifacts/ingestion/lrn01-canonical-test/20261102-115556/report.json`. Pipeline builds were read at **project scope**; `ADO_REPOS=KIOSK_TVM` is not proof of filtering CI builds to that repository. Changed-file content/metadata was subsequently sampled and matched 8/8 paths/change types; see the latest changed-file fidelity entry. Feature guides: [docs/features/LRN-01-history-connectors/](features/LRN-01-history-connectors/README.md).
+Command: `dotnet run --configuration Release --project .\\src\\VisionIQ.Ingestor.Cli -- sync --source builds --since 2026-10-30`; approved ADO project `Example Project`; canonical PostgreSQL at `127.0.0.1:15543/visioniq` and GCS evidence destination. The CLI notes that `--since` applies only if no checkpoint exists, unless `--full` is specified. Run ID `00c39f65-5491-4b63-b78b-6ff5176d1f49`: **86 builds stored; 149 source links; 0 not stored, 0 quarantined; 112 build-link graph assertions processed; exit 0; all synced.** Output report: `artifacts/ingestion/lrn01-canonical-test/20261102-115556/report.json`. Pipeline builds were read at **project scope**; `ADO_REPOS=EXAMPLE_REPO` is not proof of filtering CI builds to that repository. Changed-file content/metadata was subsequently sampled and matched 8/8 paths/change types; see the latest changed-file fidelity entry. Feature guides: [docs/features/LRN-01-history-connectors/](features/LRN-01-history-connectors/README.md).
 
 ## Current acceptance decision — 2026-11-02
 
@@ -27,7 +27,7 @@ Command: `dotnet run --configuration Release --project .\\src\\VisionIQ.Ingestor
 |---|---|---|
 | ADO project, work-item, revision and link ingestion | 367 items / 1,002 links from Oct 1 full local run; 0 failures, 0 quarantined; 20/20 sampled historical revision field comparisons | PASS (sampled source fidelity) |
 | Source comments | Live ADO API 9 / 2 / 0 and corresponding local JSONL records for work items 106675 / 107328 / 115804; 4/4 comment regression tests | PASS (local output) |
-| ADO repository access | Inventory: 9 repos, 4,438 work items, 22 pipelines; approved Git test scope restricted to `KIOSK_TVM` | PASS for discovery |
+| ADO repository access | Inventory: 9 repos, 4,438 work items, 22 pipelines; approved Git test scope restricted to `EXAMPLE_REPO` | PASS for discovery |
 | Git commits and PRs | Live initial run: 64 commits / 12 PRs, no source failures; subsequent delta and zero-change replay | PASS for selected repo and tested window |
 | Canonical persistence | Real PostgreSQL + GCS writes; independent GCS object listing and 5/5 SHA-256 object comparisons | PASS (sampled integrity) |
 | Checkpoints & no-change idempotency | Three isolated PostgreSQL cursors present; ADO work-item canonical no-change delta with stable 208 identities / 524 revisions | PASS |
@@ -54,17 +54,17 @@ Inspect skipped integration tests and warnings; report the actual summary rather
 
 Source: https://trello.com/c/Zg15086C/7-learn-lrn-01-connect-to-the-history-sources
 
-1. **Read work items, PRs, commits, changed files and CI runs for every approved project:** work items / PRs / commits **verified** against the selected ADO project and `KIOSK_TVM` repo. **CI build runs verified live (86 builds / 149 links); changed-file extraction not yet independently verified live**; pipeline inventory alone does not satisfy CI-run ingestion. Other projects/repositories need only be tested if approved as in scope.
+1. **Read work items, PRs, commits, changed files and CI runs for every approved project:** work items / PRs / commits **verified** against the selected ADO project and `EXAMPLE_REPO` repo. **CI build runs verified live (86 builds / 149 links); changed-file extraction not yet independently verified live**; pipeline inventory alone does not satisfy CI-run ingestion. Other projects/repositories need only be tested if approved as in scope.
 2. **Unreachable source is NOT SYNCED, never empty:** simulated invalid-PAT test and failure isolation **verified**; test output preserved in earlier evidence.
 3. **Interrupted synchronization resumes from last checkpoint without duplicates:** simulated mid-stream tests **verified**; live no-change canonical replay **verified**.
 
-**LRN-01 remaining acceptance gates:** (a) selected `KIOSK_TVM` commit changed-file metadata inspection, (b) real CI build/run ingestion or explicit approved scope exception, (c) final current branch regression / reviewer approval. Canonical comments archival check is a cross-story LRN-03 quality follow-up, not one of the three written LRN-01 criteria.
+**LRN-01 remaining acceptance gates:** (a) selected `EXAMPLE_REPO` commit changed-file metadata inspection, (b) real CI build/run ingestion or explicit approved scope exception, (c) final current branch regression / reviewer approval. Canonical comments archival check is a cross-story LRN-03 quality follow-up, not one of the three written LRN-01 criteria.
 
 ## Scope and environment
 
-- Source organization: `https://dev.azure.com/WLMTS`, project `Genoa Kiosk`.
+- Source organization: `https://dev.azure.com/example-org`, project `Example Project`.
 - Ingestion modes tested: historical local JSONL/file-checkpoint testing and later canonical PostgreSQL/GCS testing using an isolated PostgreSQL instance at `127.0.0.1:15543` with bucket `visioniq-source-evidence-dev`.
-- **Historical access note:** initially Stakeholder-only, without repositories. **Current access:** ADO inventory reports nine accessible repositories and the `KIOSK_TVM` Git sync succeeded.
+- **Historical access note:** initially Stakeholder-only, without repositories. **Current access:** ADO inventory reports nine accessible repositories and the `EXAMPLE_REPO` Git sync succeeded.
 - Run output under `artifacts/ingestion/lrn01-manual/`. Evidence files include per-run `report.json` and JSONL streams; checkpoint at `artifacts/ingestion/lrn01-manual/checkpoints.json`.
 - No PATs or work-item content included in this report.
 
@@ -198,12 +198,12 @@ Five archive URIs were selected from `evidence.source_revisions` in the isolated
 
 ## Live ADO access restored and comments unit regression — PASSED (2026-11-02)
 
-User executed the new `WorkItemCommentTests` suite: **4 passed, 0 failed, 0 skipped, exit code 0**. Build reported 63 warnings; evaluate warning types during final regression. Live `inventory` exited 0 and reported **Genoa Kiosk: 4,438 work items, 9 repositories, 22 pipelines**. The former missing Azure Repos permission is resolved at discovery/inventory level; actual live commit and PR ingestion plus real comment cases remain unverified. Confluence remains unconfigured.
+User executed the new `WorkItemCommentTests` suite: **4 passed, 0 failed, 0 skipped, exit code 0**. Build reported 63 warnings; evaluate warning types during final regression. Live `inventory` exited 0 and reported **Example Project: 4,438 work items, 9 repositories, 22 pipelines**. The former missing Azure Repos permission is resolved at discovery/inventory level; actual live commit and PR ingestion plus real comment cases remain unverified. Confluence remains unconfigured.
 
 
-## Live KIOSK_TVM Git ingestion — streams passed; graph projection failed (2026-11-02)
+## Live EXAMPLE_REPO Git ingestion — streams passed; graph projection failed (2026-11-02)
 
-Only ADO repository `KIOSK_TVM` (project `Genoa Kiosk`) was selected. Sync run `31242d8b-ba97-44d0-9710-04868966423b` reported pull requests **12 stored, 42 links** and commits **64 stored, 11 links**; both streams `Synced`, zero not stored/quarantined. Post-sync ticket-fix graph materialization processed 43 assertions and reported **18 failed associations** with `InvalidOperationException`; code marks `graphFailed=true` and returns **exit code 2** even when ingestion streams pass. Actual process exit code and remaining output not yet supplied. Treat source sync and graph reconciliation as distinct acceptance conditions. Investigate details without reingesting the same large source unnecessarily; inspect the first safe exception/error detail and PostgreSQL graph endpoint state. PR #14 remains Draft.
+Only ADO repository `EXAMPLE_REPO` (project `Example Project`) was selected. Sync run `31242d8b-ba97-44d0-9710-04868966423b` reported pull requests **12 stored, 42 links** and commits **64 stored, 11 links**; both streams `Synced`, zero not stored/quarantined. Post-sync ticket-fix graph materialization processed 43 assertions and reported **18 failed associations** with `InvalidOperationException`; code marks `graphFailed=true` and returns **exit code 2** even when ingestion streams pass. Actual process exit code and remaining output not yet supplied. Treat source sync and graph reconciliation as distinct acceptance conditions. Investigate details without reingesting the same large source unnecessarily; inspect the first safe exception/error detail and PostgreSQL graph endpoint state. PR #14 remains Draft.
 
 ## Security observations
 
@@ -218,26 +218,26 @@ Code review of `src/VisionIQ.Ingestor/Ado/AdoWorkItemReader.cs`, `src/VisionIQ.A
 
 ## Historical open gates (status superseded by Current acceptance decision above)
 
-1. **Azure Repos access — RESOLVED:** nine repositories discovered; `KIOSK_TVM` commit/PR ingestion verified. Repository-wide completeness/pagination outside the selected scope not established.
+1. **Azure Repos access — RESOLVED:** nine repositories discovered; `EXAMPLE_REPO` commit/PR ingestion verified. Repository-wide completeness/pagination outside the selected scope not established.
 2. **Source fidelity:** sampled latest fields and five earlier historical revisions have now been matched against ADO; **dedicated downstream defect-only classification/search** validation remains a downstream feature gate, because no dedicated defect search implementation exists in the reviewed code. The sample does not prove exhaustive history correctness.
 3. **Canonical persistence — CORE TESTS PASSED:** PostgreSQL records and checkpoints, GCS object existence, five sampled SHA-256 matches, no-change replay and synthetic failure recovery verified. Exhaustive object validation not claimed.
 4. **Final code review and evidence signoff:** evaluate any additional review blockers or CI gates at the final branch head. Do not merge on the basis of this report alone.
 
 ## PR policy
 
-**PR #14 remains DRAFT** and must not be merged until LRN-01 through LRN-07 have each passed their story-specific acceptance and the combined pipeline has been reviewed and approved. Live Git verification for `KIOSK_TVM` completed; final full regression and acceptance signoff remain. No cloud deployment is authorized by this report.
+**PR #14 remains DRAFT** and must not be merged until LRN-01 through LRN-07 have each passed their story-specific acceptance and the combined pipeline has been reviewed and approved. Live Git verification for `EXAMPLE_REPO` completed; final full regression and acceptance signoff remain. No cloud deployment is authorized by this report.
 
 ## LRN-07 graph assertion identity fix — implementation awaiting local validation (2026-11-02)
 
-Live `KIOSK_TVM` incremental Git sync (`runId=908c1918-a7c9-43b8-bba6-e023c488d78b`) synced 2 PRs and 19 commits (no source errors), but reconciliation failed 21 associations with `immutable_graph_assertion_conflict` and process exit 2. Database contained multiple ticket-fix associations sharing evidence refs. Root cause in code: `GraphAssertion.AssertionKey` previously omitted `TicketFixAssociationKey`, while `ContentHash` included it, so legitimate distinct associations could collide. Updated association-linked keys to hash `(RelationshipKey, ProvenanceRevision, TicketFixAssociationKey)`, retaining the legacy key formula for assertions without an association. Added unit regression for two distinct associations, deterministic replay, legacy identity, and immutable changed-content detection. Old graph rows are deliberately preserved; no migration or data deletion performed. Verify runtime behavior and inspect legacy/new row coexistence in isolated database before acceptance. PR #14 remains Draft.
+Live `EXAMPLE_REPO` incremental Git sync (`runId=908c1918-a7c9-43b8-bba6-e023c488d78b`) synced 2 PRs and 19 commits (no source errors), but reconciliation failed 21 associations with `immutable_graph_assertion_conflict` and process exit 2. Database contained multiple ticket-fix associations sharing evidence refs. Root cause in code: `GraphAssertion.AssertionKey` previously omitted `TicketFixAssociationKey`, while `ContentHash` included it, so legitimate distinct associations could collide. Updated association-linked keys to hash `(RelationshipKey, ProvenanceRevision, TicketFixAssociationKey)`, retaining the legacy key formula for assertions without an association. Added unit regression for two distinct associations, deterministic replay, legacy identity, and immutable changed-content detection. Old graph rows are deliberately preserved; no migration or data deletion performed. Verify runtime behavior and inspect legacy/new row coexistence in isolated database before acceptance. PR #14 remains Draft.
 
 ## LRN-07 graph identity live retest — no projection conflicts reported (2026-11-02)
 
-Following association-scoped assertion-key fix, user rebuilt and ran canonical `KIOSK_TVM` delta sync (`runId=586d47ce-1769-43fb-abd9-2060eb921ec0`). Both PR and commit streams reported `Synced`, **0 newly stored, 0 quarantined, 0 not stored**. Ticket-fix graph reconciliation processed **85 assertions** and displayed **no projection failure warnings**; test-link and build-link projections processed 0. Full terminal tail and exit code were not included in the shared output, so process exit 0 remains to be confirmed. This reconciled existing data without a database reset, but regression-test output and longer-term compatibility of legacy assertion rows still require validation.
+Following association-scoped assertion-key fix, user rebuilt and ran canonical `EXAMPLE_REPO` delta sync (`runId=586d47ce-1769-43fb-abd9-2060eb921ec0`). Both PR and commit streams reported `Synced`, **0 newly stored, 0 quarantined, 0 not stored**. Ticket-fix graph reconciliation processed **85 assertions** and displayed **no projection failure warnings**; test-link and build-link projections processed 0. Full terminal tail and exit code were not included in the shared output, so process exit 0 remains to be confirmed. This reconciled existing data without a database reset, but regression-test output and longer-term compatibility of legacy assertion rows still require validation.
 
 ## LRN-07 regression confirmed — PASSED (2026-11-02)
 
-User ran `TicketFixAssertionIdentityTests` in `VisionIQ.Api.Tests`: **3 passed, 0 failed, 0 skipped, exit 0**, build successful. Post-fix KIOSK_TVM reconciliation reported 85 assertions processed and no conflicts; persisted graph assertions were **141**. The original 21 `immutable_graph_assertion_conflict` errors were no longer reported. The specific assertion-key collision defect is verified fixed, while broader LRN-07 story acceptance and LRN-01 comments/failure-recovery checks remain pending.
+User ran `TicketFixAssertionIdentityTests` in `VisionIQ.Api.Tests`: **3 passed, 0 failed, 0 skipped, exit 0**, build successful. Post-fix EXAMPLE_REPO reconciliation reported 85 assertions processed and no conflicts; persisted graph assertions were **141**. The original 21 `immutable_graph_assertion_conflict` errors were no longer reported. The specific assertion-key collision defect is verified fixed, while broader LRN-07 story acceptance and LRN-01 comments/failure-recovery checks remain pending.
 
 ## Live ADO comments ingestion — PASSED (2026-11-02)
 

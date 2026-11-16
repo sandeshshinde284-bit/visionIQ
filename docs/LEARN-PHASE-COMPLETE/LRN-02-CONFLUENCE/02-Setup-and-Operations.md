@@ -12,7 +12,7 @@ CONFLUENCE_API_TOKEN=<secret>
 # Per-user read check (API only): JSON map of e-mail -> Atlassian account ID, kept outside source control.
 CONFLUENCE_IDENTITY_MAP_FILE=<path-to-identity-map.json>
 ```
-These are **templates**, not credential values. The observed integration used Confluence Cloud, the approved `ERK` space, and no other approved space. `CONFLUENCE_IDENTITY_MAP_FILE` is read only by the VisionIQ API: without it, Confluence evidence is never shown to anyone. The map is a decision for your Atlassian administrators (for example exported from Atlassian Guard or your SSO directory); see `docs/graph-api.md`.
+These are **templates**, not credential values. The observed integration used Confluence Cloud, the approved `DOCS` space, and no other approved space. `CONFLUENCE_IDENTITY_MAP_FILE` is read only by the VisionIQ API: without it, Confluence evidence is never shown to anyone. The map is a decision for your Atlassian administrators (for example exported from Atlassian Guard or your SSO directory); see `docs/graph-api.md`.
 
 ## Which command should I run?
 
@@ -20,7 +20,7 @@ These are **templates**, not credential values. The observed integration used Co
 | --- | --- | --- |
 | Check whether the code builds | Run the build command below | No source ingestion |
 | Find decision candidates | Run `discover-confluence-decisions` below | Reads metadata, restrictions and eligible labels; no page bodies or evidence writes |
-| Confirm ERK connectivity | Run `inventory` below | Read-only remote access; writes a local inventory result |
+| Confirm DOCS connectivity | Run `inventory` below | Read-only remote access; writes a local inventory result |
 | Validate ACL logic | Run the automated tests below | Synthetic/test fixtures, no live user impersonation |
 | Import historical pages | **Do not run by default** | Requires separate approval and destination review |
 
@@ -72,7 +72,7 @@ The `--since` filter does not avoid the need to compute current ACLs for the who
 ## Expected results from the completed discovery run
 
 ```text
-Confluence space ERK: pages=589, eligible-complete-unrestricted=314, title-candidates=0, label-candidates=0, label-lookup-failures=0, withheld-or-unverified=275
+Confluence space DOCS: pages=589, eligible-complete-unrestricted=314, title-candidates=0, label-candidates=0, label-lookup-failures=0, withheld-or-unverified=275
 ```
 
 This is a **recorded result**, not a hardcoded or guaranteed output. It means that the 314 ACL-complete unrestricted pages have no matching **title or label** under current patterns; it does not examine decision templates, and it does not prove that any specific engineer can retrieve a page.

@@ -54,7 +54,7 @@
         { "area": "security", "patterns": ["src/**/Auth/**", "src/**/Security/**"] },
         { "area": "identity", "patterns": ["src/**/Identity/**"] },
         { "area": "schema", "patterns": ["**/Migrations/**", "**/*.sql"] },
-        { "area": "hardware", "patterns": ["src/Kiosk/Devices/**"] }
+        { "area": "hardware", "patterns": ["src/Shop/Devices/**"] }
       ],
       // Recorded by hash in the execution manifest.
       "lock_files": ["packages.lock.json", "global.json"],

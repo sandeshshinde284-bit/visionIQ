@@ -4,7 +4,7 @@ This needs no database, no Azure DevOps and no event bus: the ticket comes from 
 the result is printed and written next to the run's evidence. It is the local way to try
 DEF-01 to DEF-06 on a repository, and what ``scripts/defect-demo`` uses.
 
-    python -m app.defect.cli --policy defect-policy.json --repository kiosk-demo
+    python -m app.defect.cli --policy defect-policy.json --repository shop-demo
         --base-sha <40-hex commit> --ticket ticket.json --offline-script offline-script.json
 
 Without ``--offline-script`` the models configured in the environment are used (LLM_MODE,

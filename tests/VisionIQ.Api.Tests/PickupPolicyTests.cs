@@ -191,8 +191,8 @@ public sealed class PickupPolicyTests
     public void A_scope_may_name_a_project_with_spaces()
     {
         // The stored access list says "ado-project:{org}/{project}"; ADO project names often contain spaces.
-        const string Scope = "ado-project:https://dev.azure.com/WLMTS/Genoa Kiosk";
-        var policy = PickupPolicy.Parse($$"""{"policy_revision": "1", "projects": [{"project": "Genoa Kiosk", "project_id": "genoa-kiosk", "defect_types": ["Bug"], "pickup_states": ["Doing"], "repository_id": "r", "security_scope_id": "{{Scope}}"}]}""");
+        const string Scope = "ado-project:https://dev.azure.com/example-org/Example Project";
+        var policy = PickupPolicy.Parse($$"""{"policy_revision": "1", "projects": [{"project": "Example Project", "project_id": "example-project", "defect_types": ["Bug"], "pickup_states": ["Doing"], "repository_id": "r", "security_scope_id": "{{Scope}}"}]}""");
 
         Assert.Equal(Scope, Assert.Single(policy.Projects).SecurityScopeId);
     }
@@ -200,8 +200,8 @@ public sealed class PickupPolicyTests
     [Theory]
     [InlineData(" ado-project:x/P")]
     [InlineData("ado-project:x/P ")]
-    [InlineData("ado-project:x/Genoa  Kiosk")]
-    [InlineData("ado-project:x/Genoa\tKiosk")]
+    [InlineData("ado-project:x/Example  Project")]
+    [InlineData("ado-project:x/Example\tProject")]
     public void A_scope_with_stray_whitespace_is_refused(string scope)
     {
         var json = $$"""{"policy_revision": "1", "projects": [{"project": "P", "project_id": "p", "defect_types": ["Bug"], "pickup_states": ["Doing"], "repository_id": "r", "security_scope_id": {{System.Text.Json.JsonSerializer.Serialize(scope)}}}]}""";

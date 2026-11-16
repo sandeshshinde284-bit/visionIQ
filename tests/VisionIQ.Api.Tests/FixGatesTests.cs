@@ -174,13 +174,13 @@ public sealed class FixGatesTests
     [Fact]
     public void The_stored_fix_result_is_read_with_its_draft_and_its_files()
     {
-        Assert.Equal(("PUBLISHED", "VERIFIED", "kiosk-demo"), (Verified.State, Verified.Verdict, Verified.RepositoryId));
+        Assert.Equal(("PUBLISHED", "VERIFIED", "shop-demo"), (Verified.State, Verified.Verdict, Verified.RepositoryId));
         Assert.True(Verified.PullRequest!.IsDraft);
         Assert.Equal(("4711", "main"), (Verified.PullRequest.WorkItemId, Verified.PullRequest.TargetBranch));
         Assert.Equal(Verified.CandidateSha, Verified.PullRequest.HeadSha);
         var files = Verified.CommitFiles()!;
         Assert.Equal(
-            [("tests/test_captured_payment.py", "added"), ("src/kiosk/retry_policy.py", "modified")],
+            [("tests/test_captured_payment.py", "added"), ("src/shop/retry_policy.py", "modified")],
             files.Select(file => (file.Path, file.Change)));
         Assert.Contains("return not captured and attempt < self.max_attempts", files[1].Content, StringComparison.Ordinal);
 

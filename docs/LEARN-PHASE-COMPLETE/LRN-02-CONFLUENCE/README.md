@@ -7,7 +7,7 @@
 
 ![Visual overview: how LRN-02 handles Confluence permissions](images/lrn02-security-flow.svg)
 
-**Start with [the illustrated step-by-step walkthrough](05-Illustrated-Walkthrough.md)** — realistic synthetic examples, Mermaid flows, inherited ACL examples and explanations of each ERK count.
+**Start with [the illustrated step-by-step walkthrough](05-Illustrated-Walkthrough.md)** — realistic synthetic examples, Mermaid flows, inherited ACL examples and explanations of each DOCS count.
 
 ## Document index
 1. [Architecture and implementation](01-Architecture-and-Implementation.md) — behavior, code locations, ACL model and storage boundaries.
@@ -17,7 +17,7 @@
 5. [Illustrated walkthrough](05-Illustrated-Walkthrough.md) — diagram-based explanation, practical examples and test-result interpretation.
 
 ## Verified user-run evidence
-- Confluence Cloud approved ERK space: **589 pages**, **527 complete** ACLs, **62 incomplete**.
+- Confluence Cloud approved DOCS space: **589 pages**, **527 complete** ACLs, **62 incomplete**.
 - ACL classification: **314 complete/unrestricted**, **213 complete/restricted**, **61 incomplete/unrestricted**, **1 incomplete/restricted**.
 - Local JSONL sample since 2026-11-01: **2 versioned page snapshots**, **589 ACL records**, **3 page snapshots withheld**, **0 unsafe exported page matches**, partial sync exit **2**.
 - Automated filtered suite: **37 passed, 0 failed, 0 skipped**.

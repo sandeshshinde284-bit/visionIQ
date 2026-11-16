@@ -6,13 +6,13 @@
 
 | Original criterion | Evidence | Status |
 |---|---|---|
-| Read work items, PRs, commits, changed files and CI runs for every approved project | Work items: 367 in Oct 1 local full sync. Initial selected `KIOSK_TVM` Git run: 64 commits and 12 PRs. **CI builds: 86, 149 links, 0 failure, exit 0 on 2026-11-02.** Sampled commit `6f13cdd9...` verified 8/8 paths/types against ADO, zero differences, not truncated. Scope only approved `Genoa Kiosk` and selected repo; CI build stream is project-scoped. | **PASS — sampled changed-file fidelity** |
+| Read work items, PRs, commits, changed files and CI runs for every approved project | Work items: 367 in Oct 1 local full sync. Initial selected `EXAMPLE_REPO` Git run: 64 commits and 12 PRs. **CI builds: 86, 149 links, 0 failure, exit 0 on 2026-11-02.** Sampled commit `6f13cdd9...` verified 8/8 paths/types against ADO, zero differences, not truncated. Scope only approved `Example Project` and selected repo; CI build stream is project-scoped. | **PASS — sampled changed-file fidelity** |
 | Inaccessible source marked NOT SYNCED, never empty | Invalid-PAT live failure and automated stream-isolation scenarios; explicit nonzero exit | **PASS** |
 | Interrupted sync resumes at last checkpoint without duplicates | PostgreSQL checkpoints inspected, no-change replay, 30/30 fault/recovery regressions | **PASS** |
 
 ## Changed-file fidelity — PASSED (2026-11-02)
 
-User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8bb6a9` in approved `Genoa Kiosk / KIOSK_TVM` against VisionIQ's local JSONL export (`artifacts/ingestion/lrn01-changed-files/20261102-122630/commits.jsonl`). **VisionIQFiles=8, AzureDevOpsFiles=8, Differences=0, Truncated=False, Result=PASS**. Comparison matched both changed-file paths and change types, without publishing filenames or source contents. Export contained 39 commits, exit 0. This is one sampled live commit, not exhaustive verification of every commit. Combined with 402/402 full solution tests, all three written LRN-01 acceptance criteria now have supporting evidence; 66 build warnings still require severity review. PR #14 remains Draft pending LRN-01–07 acceptance.
+User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8bb6a9` in approved `Example Project / EXAMPLE_REPO` against VisionIQ's local JSONL export (`artifacts/ingestion/lrn01-changed-files/20261102-122630/commits.jsonl`). **VisionIQFiles=8, AzureDevOpsFiles=8, Differences=0, Truncated=False, Result=PASS**. Comparison matched both changed-file paths and change types, without publishing filenames or source contents. Export contained 39 commits, exit 0. This is one sampled live commit, not exhaustive verification of every commit. Combined with 402/402 full solution tests, all three written LRN-01 acceptance criteria now have supporting evidence; 66 build warnings still require severity review. PR #14 remains Draft pending LRN-01–07 acceptance.
 
 ## Separate supporting evidence
 
@@ -25,7 +25,7 @@ User compared live Azure DevOps Git commit `6f13cdd9f97eb57ecb0c60f9bc40724cee8b
 
 ## Remaining before signoff
 
-1. **Completed:** selected `KIOSK_TVM` commit `6f13cdd9...`: 8/8 changed paths/types exactly match live ADO; 0 differences; no truncation.
+1. **Completed:** selected `EXAMPLE_REPO` commit `6f13cdd9...`: 8/8 changed paths/types exactly match live ADO; 0 differences; no truncation.
 2. **Completed:** full solution regression on latest local `feature/learn`: 402 tests passed, 0 failed, 0 skipped; exit 0. **Warning review completed:** the build warnings are analyzer advisories, none in error. Production code: 15 × `CA1873` (log arguments evaluated when a log level is off; a performance advisory, already fixed on `feature/learn-08-14`, where production warnings now fail the build). Test code only: `CA1861`/`CA1869` (performance advisories) and 3 × `CS8602` (possible-null warnings in tests). `NU1900` appears only when NuGet cannot reach its vulnerability feed (offline). None affects production correctness or security.
 3. Review live source scopes/pipeline filtering, required approvals, and any material security blockers.
 4. Optional LRN-03 follow-up: independently validate newly collected comments in canonical archive for a source revision; local JSONL preservation alone doesn't establish archival backfill.

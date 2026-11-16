@@ -126,7 +126,6 @@ STOPWORDS = frozenset(
         "bugs",
         "defect",
         "defects",
-        "kiosk",
         "application",
         "app",
         "report",

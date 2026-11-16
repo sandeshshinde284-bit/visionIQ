@@ -13,7 +13,7 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("VISIONIQ_DB_INTEGRATION") != "1",
     reason="Run only with a disposable migrated PostgreSQL database",
 )
-FILES = ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
+FILES = ["/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"]
 
 
 def test_published_redacted_chunks_qualify_when_source_metadata_has_no_title():

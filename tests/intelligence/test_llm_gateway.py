@@ -33,7 +33,7 @@ CONTEXT = EvidenceContext(
             evidence_id="E1",
             kind="work_item_current",
             title="Bug 101",
-            text="Pay at kiosk, payment captured, retry printing: no barcode on the receipt. "
+            text="Pay at shop, payment captured, retry printing: no barcode on the receipt. "
             "Fixed by making the retry policy idempotent.",
         ),
         EvidenceItem(

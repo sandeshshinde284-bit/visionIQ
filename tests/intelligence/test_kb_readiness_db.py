@@ -31,7 +31,7 @@ CANONICAL_SQL = re.sub(
     r"%(\1)s",
     re.search(r'const string sql = """(.*?)""";', _READER, re.S).group(1),
 )
-FILES = ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
+FILES = ["/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"]
 QUERY = (
     "Barcode print fails after payment retry at RetryPolicy.Execute in /src/Payments/RetryPolicy.cs"
 )
@@ -133,7 +133,7 @@ def test_s15_15_a_revoked_item_cannot_be_read_anywhere(tmp_path) -> None:
     assert bundle.results == [] and bundle.lessons == []
     record(
         "S15-15 permission revocation",
-        "kiosk barcode/duplicate-receipt bugs; ACL moved, ticket deleted, ACL unverified",
+        "shop barcode/duplicate-receipt bugs; ACL moved, ticket deleted, ACL unverified",
         corpus,
         [
             "canonical evidence query denies all three revoked items",

@@ -75,7 +75,9 @@ def conninfo() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", default="Genoa Kiosk")
+    # The ADO project: --project, else the first of ADO_PROJECTS.
+    default_project = (os.environ.get("ADO_PROJECTS") or "").split(",")[0].strip()
+    parser.add_argument("--project", default=default_project or None, required=not default_project)
     parser.add_argument("--query", required=True, help="A real, non-sensitive demo-history query")
     args = parser.parse_args(argv)
 

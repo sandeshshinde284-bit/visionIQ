@@ -22,7 +22,7 @@ from app.llm.types import (
 
 ORG = "https://dev.azure.com/contoso"
 TICKET_TEXT = (
-    "Kiosk payment captured, barcode print failed after retry.\n"
+    "Shop payment captured, barcode print failed after retry.\n"
     "   at Shop.Payments.RetryPolicy.Execute(Int32 attempt) in /src/Payments/RetryPolicy.cs:line 42"
 )
 
@@ -61,7 +61,7 @@ def result(
 PRINTED = result(
     "101",
     "Bug 101: Barcode print fails after payment retry",
-    "Pay at kiosk, payment captured, retry printing: no barcode on the receipt. "
+    "Pay at shop, payment captured, retry printing: no barcode on the receipt. "
     "Fixed by making the retry policy idempotent.",
 )
 DUPLICATE = result(
@@ -70,7 +70,7 @@ DUPLICATE = result(
     "Retrying a captured payment prints twice. The retry counter fix was merged.",
     counterevidence=["A fix linked to this ticket was later reverted."],
 )
-RETRY_FILES = ("/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs")
+RETRY_FILES = ("/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs")
 
 
 def bundle(

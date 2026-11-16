@@ -92,9 +92,9 @@ class BriefSources(Protocol):
 
 
 # The run names its project by the pickup policy's project id, which is an alias when the ADO
-# project name has spaces ("Genoa Kiosk" -> "genoa-kiosk"), while evidence stores the ADO name.
-# So the ticket is found by its work-item number (unique in an ADO organization) among the items
-# the run's scope may read; the project is only a tie-break, and the stored name is returned.
+# project name has spaces ("Example Project" -> "example-project"), while evidence stores the ADO
+# name. So the ticket is found by its work-item number (unique in an ADO organization) among the
+# items the run's scope may read; the project is only a tie-break, and the stored name is returned.
 TICKET_SQL = """
 SELECT i.item_key, i.source_instance, i.project_id
 FROM evidence.source_items AS i

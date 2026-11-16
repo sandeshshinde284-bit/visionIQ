@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -24,7 +25,9 @@ from app.knowledge.retrieval import retrieve
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cases", required=True, type=Path)
-    parser.add_argument("--project", default="Genoa Kiosk")
+    # The ADO project: --project, else the first of ADO_PROJECTS.
+    default_project = (os.environ.get("ADO_PROJECTS") or "").split(",")[0].strip()
+    parser.add_argument("--project", default=default_project or None, required=not default_project)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     if not args.cases.is_file():

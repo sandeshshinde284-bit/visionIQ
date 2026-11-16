@@ -65,7 +65,7 @@ def test_a_defect_gets_risk_areas_do_dont_and_an_approach_each_with_a_source() -
     assert evidence["E2"].notes == ["A fix linked to this ticket was later reverted."]
     assert [(s.path, s.basis) for s in brief.predicted_scope] == [
         ("RetryPolicy.cs", "named_in_ticket"),
-        ("/src/Kiosk/ReceiptPrinter.cs", "changed_by_past_fix"),
+        ("/src/Shop/ReceiptPrinter.cs", "changed_by_past_fix"),
     ]
     assert brief.risk.band == "MODERATE"  # 2 fixes, 1 reverted
     assert brief.ticket.title == "Bug 4711: Barcode not printed after payment retry"

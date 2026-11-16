@@ -48,7 +48,7 @@ removed from the codebase.
 Design. Every other story (LRN-02–13) reads evidence that ultimately came through this layer.
 
 **5. Testing status:** **Proven with real evidence** — full ADO sync, all 3 streams (Commits,
-PullRequests, WorkItems) `Synced` against the real Genoa Kiosk project, bounded-concurrency
+PullRequests, WorkItems) `Synced` against the real Example Project project, bounded-concurrency
 performance fix verified, incremental sync proven via PR #38561's real completion event, and the
 DB checkpoint monotonic guard now execution-verified against a real disposable PostgreSQL database
 (3/3 passed). **No open gaps for LRN-01.**

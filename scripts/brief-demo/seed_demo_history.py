@@ -31,16 +31,16 @@ from psycopg.conninfo import make_conninfo  # noqa: E402
 from app.knowledge import lessons_cli, snapshots  # noqa: E402
 from app.knowledge.embeddings import HashingEmbedder  # noqa: E402
 
-RETRY_FIX = ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
+RETRY_FIX = ["/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"]
 LIVE_DEFECT = (
-    "Kiosk payment captured, barcode print failed after retry.\n"
+    "Shop payment captured, barcode print failed after retry.\n"
     "   at Shop.Payments.RetryPolicy.Execute(Int32 attempt) in /src/Payments/RetryPolicy.cs:line 42"
 )
 HISTORY = [
     (
         101,
         "Barcode print fails after payment retry",
-        "Pay at kiosk, payment captured, retry printing: no barcode on the receipt. "
+        "Pay at shop, payment captured, retry printing: no barcode on the receipt. "
         "Fixed by making the retry policy idempotent.",
         "201",
         RETRY_FIX,

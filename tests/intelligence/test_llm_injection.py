@@ -45,7 +45,7 @@ def test_instruction_like_text_is_found(text: str, pattern: str) -> None:
 def test_ordinary_ticket_text_is_not_flagged() -> None:
     text = (
         "Barcode print failed after the payment retry. The previous fix was reverted. "
-        "Steps: pay at the kiosk, system shows the prompt, retry. Expected: a receipt."
+        "Steps: pay at the shop, system shows the prompt, retry. Expected: a receipt."
     )
 
     assert scan("ticket", text) == []

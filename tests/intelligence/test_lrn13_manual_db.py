@@ -14,7 +14,7 @@ pytestmark = pytest.mark.skipif(
     reason="Only run under guarded isolated-pytest disposable DB setup",
 )
 
-FILES = ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
+FILES = ["/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"]
 
 
 def test_manual_refresh_replays_fix_revert_preserves_history_and_is_idempotent() -> None:

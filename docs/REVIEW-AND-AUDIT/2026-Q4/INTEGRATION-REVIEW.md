@@ -399,7 +399,7 @@ Fixed and regression-tested this round (same standard: every new test fails on t
 
 | ID | Fix | Verified against |
 |---|---|---|
-| R4-07 | Detect ADO's own `Revert "<title>"` pull requests; resolve only an unambiguous, same-process, same-SHA match | Real PR 38386/38394 titles and commits |
+| R4-07 | Detect ADO's own `Revert "<title>"` pull requests; resolve only an unambiguous, same-process, same-SHA match | A real revert pull-request pair (titles and commits) |
 | R4-03 | Abandoned/active PR links kept as `Unknown`, not `Explicit`; self-upgrades on completion | Real PR 38497 and 6 active PRs |
 | R1-01 | `workitemsbatch` now reads field values "as of" the WIQL query's own snapshot time; checkpoint additionally clamped to that snapshot as defense in depth | Fake-server race-condition test; matches the real WIQL response's own `asOf` field already present in the test fixture |
 | R1-02 | A future-dated commit (bad local clock) no longer advances the checkpoint past the real current time | Fake-server future-date test |

@@ -62,10 +62,10 @@ set; until then no quality or speed claim is made (master design §6.16).
 
 ## Hackathon LRN-08 acceptance (November 10, 2026)
 
-The indexed Genoa Kiosk ADO demo corpus has **135 items** (125 work items, 8 commits,
+The indexed Example Project ADO demo corpus has **135 items** (125 work items, 8 commits,
 2 pull requests) with GCS-backed evidence. A separate 14 Payments records have
 `mem://` archive references and must not be treated as production evidence.
-The 147 ERK Confluence pages are deliberately **not** enabled for the hackathon
+The 147 DOCS Confluence pages are deliberately **not** enabled for the hackathon
 search until live page authorization is restored (deferred LRN-02 follow-up).
 Never manufacture GCS paths, disable authorization, or present this as 100% corpus coverage.
 
@@ -74,7 +74,7 @@ Default Credentials for Vertex AI already configured:
 
 ```powershell
 $env:PYTHONPATH = "src/VisionIQ.Intelligence"
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import sys; from app.knowledge.lrn08_acceptance import main; load_dotenv('.env'); sys.exit(main(['--project','Genoa Kiosk','--query','kiosk payment ticket']))"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; import sys; from app.knowledge.lrn08_acceptance import main; load_dotenv('.env'); sys.exit(main(['--project','Example Project','--query','shop payment ticket']))"
 ```
 
 The command is **read-only** and returns a JSON PASS/FAIL summary. It validates
@@ -82,7 +82,7 @@ the published snapshot's ADO chunk provenance (source, current revision and ACL)
 the pinned model and 768-dimensional vectors, and non-empty keyword **and**
 live Gemini-vector search results for the given query. It prints counts, not
 source content. Change the query to words known to occur in your approved
-Genoa Kiosk demo records if keyword results are empty. This acceptance command
+Example Project demo records if keyword results are empty. This acceptance command
 does **not** prove semantic relevance, production latency, permission revocation,
 Confluence search, or complete source-ingestion coverage.
 

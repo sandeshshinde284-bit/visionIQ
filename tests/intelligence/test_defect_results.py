@@ -78,7 +78,7 @@ def test_a_missing_or_broken_report_is_no_report(tmp_path: Path) -> None:
         # A compile error, a missing module or a crashed runner is not red.
         (
             ran(),
-            failed("ModuleNotFoundError: No module named 'kiosk'", status="error"),
+            failed("ModuleNotFoundError: No module named 'shop'", status="error"),
             "ENVIRONMENT_ERROR",
         ),
         (

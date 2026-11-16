@@ -13,15 +13,15 @@ public sealed class AdoWorkItemReaderTests
         const string Bug = """
             {"id":7,"rev":3,"fields":{"System.WorkItemType":"Bug","System.State":"Active","System.Title":"Barcode print fails",
               "System.ChangedDate":"2026-01-01T00:00:00Z","System.Description":"",
-              "Microsoft.VSTS.TCM.ReproSteps":"<div>1. Pay at kiosk</div><div>2. Retry print</div>",
-              "Microsoft.VSTS.TCM.SystemInfo":"<p>Kiosk OS 4.2</p>",
+              "Microsoft.VSTS.TCM.ReproSteps":"<div>1. Pay at shop</div><div>2. Retry print</div>",
+              "Microsoft.VSTS.TCM.SystemInfo":"<p>Shop OS 4.2</p>",
               "Microsoft.VSTS.Common.AcceptanceCriteria":"<p>Receipt prints once</p>"},"relations":[]}
             """;
 
         var item = AdoWorkItemReader.ParseWorkItem(Bug).Record!;
 
-        Assert.Equal("<div>1. Pay at kiosk</div><div>2. Retry print</div>", item.ReproSteps);
-        Assert.Equal("<p>Kiosk OS 4.2</p>", item.SystemInfo);
+        Assert.Equal("<div>1. Pay at shop</div><div>2. Retry print</div>", item.ReproSteps);
+        Assert.Equal("<p>Shop OS 4.2</p>", item.SystemInfo);
         Assert.Equal("<p>Receipt prints once</p>", item.AcceptanceCriteria);
     }
 

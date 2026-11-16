@@ -10,14 +10,14 @@ def test_exact_signals_come_from_paths_stack_frames_and_constants():
         "PAYMENT_CAPTURED then barcode print fails.\n"
         "   at Shop.Payments.RetryPolicy.Execute(Int32 attempt) in "
         "/src/Payments/RetryPolicy.cs:line 42\n"
-        "   at Shop.Kiosk.Print() in C:\\agent\\src\\Kiosk\\ReceiptPrinter.cs:line 7\n"
-        "See Printer.cs and the KioskController."
+        "   at Shop.Shop.Print() in C:\\agent\\src\\Shop\\ReceiptPrinter.cs:line 7\n"
+        "See Printer.cs and the ShopController."
     )
 
     signals = extract_signals(text)
 
     assert signals.files == ("Printer.cs", "ReceiptPrinter.cs", "RetryPolicy.cs")
-    assert {"Execute", "PAYMENT_CAPTURED", "KioskController", "RetryPolicy"} <= set(signals.symbols)
+    assert {"Execute", "PAYMENT_CAPTURED", "ShopController", "RetryPolicy"} <= set(signals.symbols)
     assert "barcode" in signals.terms and "the" not in signals.terms
 
 

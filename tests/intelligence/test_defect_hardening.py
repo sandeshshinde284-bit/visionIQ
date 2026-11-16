@@ -355,7 +355,7 @@ def judge(*changes: tuple[str, str], baseline=BASELINE, shown=None, files=None):
 
 def test_an_existing_file_that_is_not_text_cannot_be_replaced() -> None:
     # The file is in the commit but could not be read as text, so the model never saw it.
-    result = judge(("src/Kiosk/Logo.cs", "class Logo {}"), files={*BASELINE, "src/Kiosk/Logo.cs"})
+    result = judge(("src/Shop/Logo.cs", "class Logo {}"), files={*BASELINE, "src/Shop/Logo.cs"})
 
     assert [(f.code, f.severity) for f in result.findings] == [("file_not_text", "block")]
     assert result.status == "BLOCKED" and result.files == ()
@@ -364,16 +364,16 @@ def test_an_existing_file_that_is_not_text_cannot_be_replaced() -> None:
 @pytest.mark.parametrize(
     ("path", "code"),
     [
-        ("src/Kiosk", "path_not_a_file"),  # an existing directory
-        ("src/kiosk", "path_not_a_file"),
-        ("src/Kiosk/ReceiptPrinter.cs/extra.cs", "path_not_a_file"),  # under an existing file
-        ("src/kiosk/receiptprinter.cs", "path_case_conflict"),  # the same file on Windows and macOS
+        ("src/Shop", "path_not_a_file"),  # an existing directory
+        ("src/shop", "path_not_a_file"),
+        ("src/Shop/ReceiptPrinter.cs/extra.cs", "path_not_a_file"),  # under an existing file
+        ("src/shop/receiptprinter.cs", "path_case_conflict"),  # the same file on Windows and macOS
     ],
 )
 def test_a_path_that_is_a_directory_or_differs_only_by_case_is_rejected(
     path: str, code: str
 ) -> None:
-    assert "src/Kiosk/ReceiptPrinter.cs" in BASELINE
+    assert "src/Shop/ReceiptPrinter.cs" in BASELINE
 
     result = judge((path, "class X {}"))
 
@@ -402,7 +402,7 @@ def test_replacing_one_secret_with_another_is_still_a_new_secret() -> None:
         "src/requirements/base.txt",
         "src/requirements.in",
         "src/constraints.txt",
-        "src/Kiosk/Kiosk.fsproj",
+        "src/Shop/Shop.fsproj",
         "src/Directory.Build.props",
         "src/nuget.config",
         "src/global.json",
@@ -445,10 +445,10 @@ def test_past_fixes_are_matched_on_the_full_path() -> None:
             seen.append(dict(params))
             return self
 
-    fixes = sources.PostgresFixSources(Recording, None, ["project:Kiosk"])  # type: ignore[arg-type]
-    fixes.historical_fixes(FakeFixSources().ticket, ["/src/Kiosk/Retry.cs", "src\\Kiosk\\A.cs"])
+    fixes = sources.PostgresFixSources(Recording, None, ["project:Shop"])  # type: ignore[arg-type]
+    fixes.historical_fixes(FakeFixSources().ticket, ["/src/Shop/Retry.cs", "src\\Shop\\A.cs"])
 
-    assert seen[0]["files"] == ["src/kiosk/a.cs", "src/kiosk/retry.cs"]
+    assert seen[0]["files"] == ["src/shop/a.cs", "src/shop/retry.cs"]
 
 
 def test_tests_that_were_found_but_not_run_are_named_in_the_result(tmp_path: Path) -> None:

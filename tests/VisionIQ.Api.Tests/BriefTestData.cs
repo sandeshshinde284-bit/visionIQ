@@ -28,7 +28,7 @@ internal static class BriefTestData
         ["snapshot_id"] = "snap-1",
         ["predicted_scope"] = new JsonArray(
             new JsonObject { ["path"] = "RetryPolicy.cs", ["basis"] = "named_in_ticket", ["confidence"] = "exact", ["evidence_ids"] = new JsonArray() },
-            new JsonObject { ["path"] = "/src/Kiosk/ReceiptPrinter.cs", ["basis"] = "changed_by_past_fix", ["confidence"] = "inferred", ["evidence_ids"] = new JsonArray("E1") }),
+            new JsonObject { ["path"] = "/src/Shop/ReceiptPrinter.cs", ["basis"] = "changed_by_past_fix", ["confidence"] = "inferred", ["evidence_ids"] = new JsonArray("E1") }),
         ["risk"] = new JsonObject
         {
             ["band"] = "MODERATE",
@@ -141,7 +141,7 @@ internal static class BriefTestData
         ["title"] = title,
         ["url"] = url,
         ["revision"] = "3",
-        ["snippet"] = "Pay at kiosk, payment captured, retry printing: no barcode on the receipt.",
+        ["snippet"] = "Pay at shop, payment captured, retry printing: no barcode on the receipt.",
         ["relevance"] = relevance,
         ["notes"] = new JsonArray([.. notes.Select(n => (JsonNode)n)]),
     };

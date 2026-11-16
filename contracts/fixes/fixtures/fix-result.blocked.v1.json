@@ -4,12 +4,12 @@
   "run_id": "80ce0744-dff4-40d9-8b75-4bf7d4cd925d",
   "ticket": {
     "system": "ado",
-    "project": "Kiosk",
+    "project": "Shop",
     "id": "4711",
     "revision": 3,
     "title": ""
   },
-  "repository_id": "kiosk-demo",
+  "repository_id": "shop-demo",
   "base_sha": "35651f5862821bb7373290e73c774fce924ef4d1",
   "candidate_sha": null,
   "state": "BLOCKED",

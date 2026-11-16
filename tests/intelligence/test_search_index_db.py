@@ -27,11 +27,11 @@ BUG = {
     "title": "Barcode print fails after payment retry",
     "state": "Active",
     "description": "",
-    "reproSteps": "<div>1. Pay at the kiosk</div><div>2. Payment is captured</div>"
+    "reproSteps": "<div>1. Pay at the shop</div><div>2. Payment is captured</div>"
     "<div>3. Retry prints no barcode receipt</div>",
-    "systemInfo": "<p>Kiosk OS 4.2, contact ana.lopez@contoso.com, Password=Hunter2Secret!</p>",
-    "tags": ["kiosk", "payments"],
-    "areaPath": "Shop\\Kiosk",
+    "systemInfo": "<p>Shop OS 4.2, contact ana.lopez@contoso.com, Password=Hunter2Secret!</p>",
+    "tags": ["shop", "payments"],
+    "areaPath": "Shop\\Shop",
 }
 PR = {
     "id": 245,
@@ -160,7 +160,7 @@ def test_one_query_is_answered_by_both_keyword_and_vector_search() -> None:
     with psycopg.connect(_conninfo("INTELLIGENCE")) as conn:
         by_keyword = search.keyword(conn, "barcode retry", [corpus.scope])
         by_vector = search.vector(
-            conn, HashingEmbedder(), "barcode receipt retry kiosk", [corpus.scope]
+            conn, HashingEmbedder(), "barcode receipt retry shop", [corpus.scope]
         )
         elsewhere = search.keyword(conn, "barcode retry", ["ado-project:https://other/Secret"])
 

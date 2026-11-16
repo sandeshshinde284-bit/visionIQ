@@ -18,7 +18,7 @@ from app.brief.validate import (
 EVIDENCE = {
     "E1": EvidenceText(
         "Bug 101: Barcode print fails after payment retry",
-        "Pay at kiosk, payment captured, retry printing: no barcode on the receipt. "
+        "Pay at shop, payment captured, retry printing: no barcode on the receipt. "
         "Fixed by making the retry policy idempotent.",
         "https://dev.azure.com/contoso/Payments/_workitems/edit/101",
     ),

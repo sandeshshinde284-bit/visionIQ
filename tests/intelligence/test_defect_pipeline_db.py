@@ -61,17 +61,17 @@ def intelligence():
     return psycopg.connect(conninfo("INTELLIGENCE"))
 
 
-def deep_request(base_sha: str, repository_id: str = "kiosk-demo") -> EventEnvelope:
+def deep_request(base_sha: str, repository_id: str = "shop-demo") -> EventEnvelope:
     event = json.loads(json.dumps(FIXTURE))
     event["event_id"], event["run_id"] = str(uuid.uuid4()), str(uuid.uuid4())
     event["correlation_id"] = event["run_id"]
     event["data"].update(
-        project_id="Kiosk",
+        project_id="Shop",
         ticket_id="4711",
         repository_id=repository_id,
         base_commit_sha=base_sha,
         analysis_mode="deep",
-        security_scope_id="project:Kiosk",
+        security_scope_id="project:Shop",
     )
     return EventEnvelope.model_validate(event)
 
@@ -205,10 +205,10 @@ def test_a_stored_fix_result_cannot_be_changed_or_answered_twice(tmp_path: Path)
     claimed = fix_worker.ClaimedFix(
         fix_worker.FixRequest(
             run_id=envelope.run_id,
-            ticket=fix_worker.TicketRef(project="Kiosk", id="4711", revision=12),
-            repository_id="kiosk-demo",
+            ticket=fix_worker.TicketRef(project="Shop", id="4711", revision=12),
+            repository_id="shop-demo",
             base_commit_sha=demo.base_sha,
-            security_scope_id="project:Kiosk",
+            security_scope_id="project:Shop",
         ),
         "visioniq-dev",
         envelope,
@@ -230,7 +230,7 @@ def test_the_database_refuses_a_published_result_that_is_not_verified(tmp_path: 
         "INSERT INTO knowledge.fix_runs (fix_id, run_id, tenant_id, project_id, ticket_id, "
         "ticket_revision, repository_id, base_commit_sha, state, verdict, reason_codes, "
         "reproducibility, gates_overall, schema_version, document, routing_revision, accepted_at, "
-        "total_ms) VALUES (%s, %s, 't', 'Kiosk', '4711', 1, 'kiosk-demo', %s, %s, %s, %s, %s, "
+        "total_ms) VALUES (%s, %s, 't', 'Shop', '4711', 1, 'shop-demo', %s, %s, %s, %s, %s, "
         "'NOT_GREEN', 1, '{}'::jsonb, 'r', now(), 0)"
     )
     for state, verdict, reasons, reproducibility in (
@@ -297,7 +297,7 @@ def test_past_fixes_are_read_by_full_path_under_the_runs_access_scope() -> None:
     fixes = PostgresFixSources(intelligence, None, ["project:none"])  # type: ignore[arg-type]
 
     # The query runs on PostgreSQL; a scope with no history has no fixes.
-    assert fixes.historical_fixes(ticket, ["src/kiosk/retry_policy.py"]) == []
+    assert fixes.historical_fixes(ticket, ["src/shop/retry_policy.py"]) == []
 
 
 def test_with_the_fix_pipeline_off_a_deep_request_is_blocked_at_once_and_never_queued(

@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## Project
 
-**Defect-Intelligence** — hackathon project. GitHub: `sandesh-shinde_exakisc/Defect-Intelligence`.
+**Defect-Intelligence** — hackathon project.
 
 The repo is at an early stage: only `README.md` is committed so far. Update this file with the
 tech stack, build/test commands, and architecture as they are added.

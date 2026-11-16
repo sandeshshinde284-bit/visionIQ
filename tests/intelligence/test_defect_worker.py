@@ -92,10 +92,10 @@ def claimed(demo, attempt: int = 1) -> ClaimedFix:
     return ClaimedFix(
         FixRequest(
             run_id=envelope.run_id,
-            ticket=TicketRef(project="Kiosk", id="4711", revision=12),
-            repository_id="kiosk-demo",
+            ticket=TicketRef(project="Shop", id="4711", revision=12),
+            repository_id="shop-demo",
             base_commit_sha=demo.base_sha,
-            security_scope_id="project:Kiosk",
+            security_scope_id="project:Shop",
         ),
         "visioniq-dev",
         envelope,
@@ -381,7 +381,7 @@ def test_a_claude_only_route_needs_the_d04_decision(tmp_path: Path) -> None:
     )
 
     assert (outcome.result, outcome.reason) == (None, "llm_no_allowed_provider")
-    assert demo.policy.repository("kiosk-demo") is not None
+    assert demo.policy.repository("shop-demo") is not None
 
 
 # ---- Service start-up ----------------------------------------------------------------------------
@@ -417,7 +417,7 @@ def test_the_worker_is_built_from_the_settings(tmp_path: Path, monkeypatch) -> N
     assert built._settings.work_dir == tmp_path / "fix" / "work"
     assert built._settings.artifact_dir == tmp_path / "fix" / "artifacts"
     assert (built._settings.max_calls, built._settings.production) == (4, False)
-    assert built._policy.repository("kiosk-demo") is not None
+    assert built._policy.repository("shop-demo") is not None
 
 
 @pytest.mark.parametrize(

@@ -28,7 +28,7 @@ def factor(result, code):
 
 
 def test_scope_lists_named_files_then_files_past_fixes_changed() -> None:
-    signals = extract_signals("Crash in RetryPolicy.cs when the kiosk retries.")
+    signals = extract_signals("Crash in RetryPolicy.cs when the shop retries.")
     changed = {
         key("101"): RETRY_FILES,
         key("102"): (*RETRY_FILES, "/src/Payments/Ledger.cs"),
@@ -38,7 +38,7 @@ def test_scope_lists_named_files_then_files_past_fixes_changed() -> None:
 
     assert [(s.path, s.basis, s.confidence) for s in scope] == [
         ("RetryPolicy.cs", "named_in_ticket", "exact"),
-        ("/src/Kiosk/ReceiptPrinter.cs", "changed_by_past_fix", "inferred"),  # in both fixes
+        ("/src/Shop/ReceiptPrinter.cs", "changed_by_past_fix", "inferred"),  # in both fixes
         ("/src/Payments/Ledger.cs", "changed_by_past_fix", "inferred"),
     ]
     assert scope[1].evidence_ids == ["E1", "E2"] and scope[2].evidence_ids == ["E2"]
@@ -55,28 +55,28 @@ def test_scope_is_capped() -> None:
     assert len(risk.predict_scope(extract_signals("x"), [PRINTED], changed, IDS)) == 12
 
 
-def test_strong_keyword_only_historical_railcard_fix_contributes_inferred_paths() -> None:
+def test_strong_keyword_only_historical_voucher_fix_contributes_inferred_paths() -> None:
     from brief_support import result
 
     signals = extract_signals(
-        "ITSO railcard selection: Continue remains disabled after choosing None."
+        "LOYALTY voucher selection: Continue remains disabled after choosing None."
     )
     related = result(
         "116353",
-        "ITSO Fares screen: Railcards dropdown refreshes instead of opening",
-        "The ITSO railcard dropdown refreshes on first click.",
+        "LOYALTY Fares screen: Vouchers dropdown refreshes instead of opening",
+        "The LOYALTY voucher dropdown refreshes on first click.",
         lanes={"keyword": 5},
     )
     unrelated = result(
         "115988",
-        "Payment approved receipt unexpectedly returns kiosk to home screen",
+        "Payment approved receipt unexpectedly returns shop to home screen",
         "Receipt after payment approval.",
         lanes={"keyword": 1},
     )
     paths = {
         related.item_key: (
-            "/src/components/ITSO/SelectRailcard/SelectRailcard.vue",
-            "/src/store/ItsoStore.ts",
+            "/src/components/LOYALTY/SelectVoucher/SelectVoucher.vue",
+            "/src/store/LoyaltyStore.ts",
             "/src/components/Payment/Receipt.vue",
         ),
         unrelated.item_key: ("/src/Payments/Receipt.vue",),
@@ -85,7 +85,7 @@ def test_strong_keyword_only_historical_railcard_fix_contributes_inferred_paths(
 
     scope = risk.predict_scope(signals, [unrelated, related], paths, ids)
 
-    assert any("SelectRailcard.vue" in item.path for item in scope)
+    assert any("SelectVoucher.vue" in item.path for item in scope)
     assert any(item.evidence_ids == ["E1"] and item.confidence == "inferred" for item in scope)
     assert not any("Receipt.vue" in item.path for item in scope)
 
@@ -102,13 +102,13 @@ def test_single_lane_generic_overlap_or_unverified_fix_does_not_expand_scope() -
     )
     unrelated = result(
         "302",
-        "ITSO railcard selection unexpectedly refreshes",
-        "A railcard regression.",
+        "LOYALTY voucher selection unexpectedly refreshes",
+        "A voucher regression.",
         lanes={"keyword": 1},
     )
     paths = {
         generic.item_key: ("/src/screen/Button.vue",),
-        unrelated.item_key: ("/src/ITSO/SelectRailcard.vue",),
+        unrelated.item_key: ("/src/LOYALTY/SelectVoucher.vue",),
     }
     scope = risk.predict_scope(
         signals,

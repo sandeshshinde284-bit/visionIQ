@@ -33,15 +33,15 @@ PROJECT = "src/Payments/Payments.csproj"
 REFERENCES = [
     Dependents(
         target=PROJECT,
-        dependents=("src/Kiosk/Kiosk.csproj", "tests/Payments.Tests/Payments.Tests.csproj"),
+        dependents=("src/Shop/Shop.csproj", "tests/Payments.Tests/Payments.Tests.csproj"),
         item_key=key("scan"),
-        url="https://dev.azure.com/acme/Payments/_git/kiosk",
+        url="https://dev.azure.com/acme/Payments/_git/shop",
         revision="0123abc",
     )
 ]
 OTHER_REPOSITORY = Dependents(
-    target="kiosk-repo",
-    dependents=("recon-service: deps/kiosk.gitmodules",),
+    target="shop-repo",
+    dependents=("recon-service: deps/shop.gitmodules",),
     item_key=key("scan2"),
     cross_repository=True,
 )
@@ -89,7 +89,7 @@ class GuidanceSources(FakeSources):
 
 
 def enhancement():
-    return dataclasses.replace(request(), ticket_kind="enhancement", repository_id="kiosk-repo")
+    return dataclasses.replace(request(), ticket_kind="enhancement", repository_id="shop-repo")
 
 
 def build(draft=DRAFT, sources=None, gateway=None, the_request=None):
@@ -242,7 +242,7 @@ def test_contracts_are_written_by_code_from_recorded_references() -> None:
 
     # The files of the predicted scope were looked up for the ticket's repository.
     assert sources.asked == [
-        ("kiosk-repo", ("/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"))
+        ("shop-repo", ("/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"))
     ]
     reference = brief.evidence[-1]
     assert (reference.id, reference.kind, reference.relevance) == (
@@ -251,10 +251,10 @@ def test_contracts_are_written_by_code_from_recorded_references() -> None:
         "strong",
     )
     assert reference.title == f"{PROJECT} is referenced by 2 other files"
-    assert reference.url == "https://dev.azure.com/acme/Payments/_git/kiosk"
+    assert reference.url == "https://dev.azure.com/acme/Payments/_git/shop"
     (contract,) = by_section(brief)["contracts_and_apis"]
     assert contract.evidence_ids == ["E3"] and contract.kind == "RISK"
-    assert "src/Kiosk/Kiosk.csproj" in contract.statement
+    assert "src/Shop/Shop.csproj" in contract.statement
     # The model saw the same references as numbered evidence.
     assert (
         seen[0].evidence[-1].evidence_id == "E3" and seen[0].evidence[-1].kind == "code_dependency"
@@ -304,7 +304,7 @@ def test_dependents_in_other_repositories_get_a_second_opinion() -> None:
     assert brief.generation.reviewed_by == "claude" and len(reviewer.tasks) == 1
     cross = next(e for e in brief.evidence if "another repository" in e.title)
     assert (
-        cross.title == "1 file in another repository declare a dependency on repository kiosk-repo"
+        cross.title == "1 file in another repository declare a dependency on repository shop-repo"
     )
 
     # Without one, the routing table asks for no second opinion.
@@ -383,39 +383,39 @@ def test_the_eight_sections_are_the_same_in_the_model_the_prompt_and_the_contrac
 def test_a_file_the_ticket_only_names_is_looked_up_when_history_knows_exactly_one() -> None:
     known = [
         "/src/Payments/RetryPolicy.cs",
-        "/src/Kiosk/ReceiptPrinter.cs",
+        "/src/Shop/ReceiptPrinter.cs",
         "/a/Util.cs",
         "/b/Util.cs",
     ]
 
     paths = guidance.lookup_paths(
-        ["RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs", "Util.cs", "Unknown.cs"], known
+        ["RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs", "Util.cs", "Unknown.cs"], known
     )
 
     # RetryPolicy.cs is resolved; Util.cs is ambiguous and Unknown.cs is not recorded: both are
     # left out, because the dependents of the wrong project would be a guess.
-    assert paths == ["/src/Payments/RetryPolicy.cs", "/src/Kiosk/ReceiptPrinter.cs"]
+    assert paths == ["/src/Payments/RetryPolicy.cs", "/src/Shop/ReceiptPrinter.cs"]
     assert guidance.lookup_paths(["RetryPolicy.cs"], []) == []
 
 
 # ---- Recorded references, from rows --------------------------------------------------------------
 
 
-def row(path, target, dependent, repository="kiosk-repo"):
+def row(path, target, dependent, repository="shop-repo"):
     return (path, target, dependent, repository, key("scan"), "https://example.invalid/r", "abc")
 
 
 def test_a_source_file_is_matched_through_the_innermost_project_that_contains_it() -> None:
     rows = [
         row("src/Payments/Api/Response.cs", "src/All.csproj", "tools/Build.csproj"),
-        row("src/Payments/Api/Response.cs", PROJECT, "src/Kiosk/Kiosk.csproj"),
+        row("src/Payments/Api/Response.cs", PROJECT, "src/Shop/Shop.csproj"),
         row("src/Payments/Api/Response.cs", PROJECT, "src/Recon/Recon.csproj"),
     ]
 
-    (found,) = file_dependents(rows, "kiosk-repo")
+    (found,) = file_dependents(rows, "shop-repo")
 
     assert found.target == PROJECT  # not the outer project
-    assert found.dependents == ("src/Kiosk/Kiosk.csproj", "src/Recon/Recon.csproj")
+    assert found.dependents == ("src/Shop/Shop.csproj", "src/Recon/Recon.csproj")
 
 
 def test_direct_reference_wins_and_foreign_repository_rows_are_excluded() -> None:
@@ -425,28 +425,28 @@ def test_direct_reference_wins_and_foreign_repository_rows_are_excluded() -> Non
         row("app/retry.py", "app/retry.py", "elsewhere/copy.py", repository="another-repo"),
     ]
 
-    (found,) = file_dependents(rows, "kiosk-repo")
+    (found,) = file_dependents(rows, "shop-repo")
 
     assert (found.target, found.dependents) == ("app/retry.py", ("app/print.py",))
     # Matching file paths in other repositories must never be used as fallback.
-    assert file_dependents(rows[2:], "kiosk-repo") == []
-    assert file_dependents([], "kiosk-repo") == []
+    assert file_dependents(rows[2:], "shop-repo") == []
+    assert file_dependents([], "shop-repo") == []
 
 
 def test_other_repositories_are_one_record_naming_where_the_dependency_is_declared() -> None:
     rows = [
-        ("recon-service", "deps/kiosk.gitmodules", key("s1"), None, "r1"),
+        ("recon-service", "deps/shop.gitmodules", key("s1"), None, "r1"),
         ("print-service", "requirements.txt", key("s2"), None, "r2"),
     ]
 
-    (found,) = repository_dependents(rows, "kiosk-repo")
+    (found,) = repository_dependents(rows, "shop-repo")
 
-    assert found.cross_repository and found.target == "kiosk-repo"
+    assert found.cross_repository and found.target == "shop-repo"
     assert found.dependents == (
-        "recon-service: deps/kiosk.gitmodules",
+        "recon-service: deps/shop.gitmodules",
         "print-service: requirements.txt",
     )
-    assert repository_dependents([], "kiosk-repo") == []
+    assert repository_dependents([], "shop-repo") == []
 
 
 def test_only_the_most_referenced_targets_become_evidence_and_long_lists_are_cut() -> None:

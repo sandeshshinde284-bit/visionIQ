@@ -68,8 +68,8 @@ run these after updating your checkout to the LRN-09 branch:
 
 ```powershell
 $env:PYTHONPATH = "src/VisionIQ.Intelligence"
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_demo import main; load_dotenv('.env'); raise SystemExit(main(['--project','Genoa Kiosk','--query','kiosk ticket barcode printing failure after payment retry']))"
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_demo import main; load_dotenv('.env'); raise SystemExit(main(['--project','Genoa Kiosk','--query','it does not work']))"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_demo import main; load_dotenv('.env'); raise SystemExit(main(['--project','Example Project','--query','shop ticket barcode printing failure after payment retry']))"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_demo import main; load_dotenv('.env'); raise SystemExit(main(['--project','Example Project','--query','it does not work']))"
 ```
 
 Expected: ranked, sourced results (only if real history matches), explicit weak or
@@ -79,10 +79,10 @@ array, zero lessons, and no Vertex embedding request. Source URLs are
 emitted as citations; private evidence snippets are not printed.
 
 For convenience, generate unconfirmed examples from the current, published,
-scope-verified Genoa Kiosk history (read-only; no ADO writes):
+scope-verified Example Project history (read-only; no ADO writes):
 
 ```powershell
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_benchmark_draft import main; load_dotenv('.env'); raise SystemExit(main(['--project','Genoa Kiosk','--limit','10','--output','artifacts/lrn09-cases.json']))"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_benchmark_draft import main; load_dotenv('.env'); raise SystemExit(main(['--project','Example Project','--limit','10','--output','artifacts/lrn09-cases.json']))"
 ```
 
 The draft contains internal source URLs, item keys and redacted indexed excerpts.
@@ -109,7 +109,7 @@ an independent reviewer must confirm them. Create your own non-sensitive file,
 Run:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_benchmark import main; load_dotenv('.env'); raise SystemExit(main(['--project','Genoa Kiosk','--cases','artifacts/lrn09-cases.json','--output','artifacts/lrn09-benchmark.json']))"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; from app.knowledge.lrn09_benchmark import main; load_dotenv('.env'); raise SystemExit(main(['--project','Example Project','--cases','artifacts/lrn09-cases.json','--output','artifacts/lrn09-benchmark.json']))"
 ```
 
 The report measures real Gemini hybrid Recall@10, Precision@5, MRR, p95 query
@@ -128,4 +128,4 @@ $env:PYTHONPATH = "src/VisionIQ.Intelligence"
 
 The isolated runner creates, migrates, uses and drops its **own** local database.
 It requires local-admin DB settings and rejects non-loopback hosts. Do not run
-`test_retrieval_db.py` against the published Genoa Kiosk demo database.
+`test_retrieval_db.py` against the published Example Project demo database.
