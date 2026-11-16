@@ -507,7 +507,7 @@ class _FixRun:
 
         wanted = [
             *self.sources.brief_scope(self.request.ticket.project, self.request.ticket.id),
-            *extract_signals(f"{ticket.title}\\n{ticket.text}").files,
+            *extract_signals(f"{ticket.title}\n{ticket.text}").files,
         ]
         chosen = resolved(wanted)
         if not chosen:
