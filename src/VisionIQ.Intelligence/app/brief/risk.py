@@ -24,10 +24,34 @@ MAX_SINGLE_LANE_PATHS = 3
 
 # UI and workflow vocabulary alone is not a sufficiently specific match.
 _GENERIC_TERMS = {
-    "bug", "regression", "issue", "screen", "page", "button", "option",
-    "selected", "select", "click", "first", "when", "after", "before",
-    "ticket", "error", "failure", "disabled", "enabled", "continue",
-    "test", "tests", "work", "does", "doesnt", "not", "the", "and",
+    "bug",
+    "regression",
+    "issue",
+    "screen",
+    "page",
+    "button",
+    "option",
+    "selected",
+    "select",
+    "click",
+    "first",
+    "when",
+    "after",
+    "before",
+    "ticket",
+    "error",
+    "failure",
+    "disabled",
+    "enabled",
+    "continue",
+    "test",
+    "tests",
+    "work",
+    "does",
+    "doesnt",
+    "not",
+    "the",
+    "and",
 }
 
 
@@ -39,7 +63,8 @@ def _distinctive_terms(value: str) -> set[str]:
     )
     return {
         word[:-1] if word.endswith("s") and len(word) > 5 else word
-        for word in words if word not in _GENERIC_TERMS
+        for word in words
+        if word not in _GENERIC_TERMS
     }
 
 
@@ -51,7 +76,6 @@ def _single_lane_support(signals: Signals, result: Result) -> set[str]:
     incoming = _distinctive_terms(" ".join(signals.terms))
     historic = _distinctive_terms(result.title)
     return incoming & historic
-
 
 
 # Band thresholds. They are an initial, reviewable rule (7.5 asks for an ADR and a labelled
@@ -111,7 +135,8 @@ def predict_scope(
     # They never become exact paths or proof of causality.
     for result, terms in secondary:
         matching = [
-            path for path in fix_paths[result.item_key]
+            path
+            for path in fix_paths[result.item_key]
             if _distinctive_terms(path.replace("/", " ")) & terms
             and path.rsplit("/", 1)[-1].lower() not in named
         ]
