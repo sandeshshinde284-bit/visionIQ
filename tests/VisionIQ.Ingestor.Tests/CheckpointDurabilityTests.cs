@@ -47,9 +47,13 @@ public sealed class CheckpointDurabilityTests : IDisposable
         await new SyncRunner(DemoAdo.Client(DemoAdo.Server()), checkpoints, sink, new SourceCapabilityRegistry())
             .RunAsync(new SyncRequest(SyncRequest.AllKinds, null));
 
-        var workItemSave = Assert.Single(checkpoints.Saves, save => save.Scope.Contains("work-items", StringComparison.Ordinal));
-        Assert.True(workItemSave.LinesOnDisk.GetValueOrDefault("work-items") > 0,
-            "The work-item checkpoint was saved while the work-item records were still only in memory.");
+        var workItemSaves = checkpoints.Saves
+            .Where(save => save.Scope.Contains("work-items", StringComparison.Ordinal))
+            .ToList();
+        Assert.NotEmpty(workItemSaves);
+        Assert.All(workItemSaves, save =>
+            Assert.True(save.LinesOnDisk.GetValueOrDefault("work-items") > 0,
+                "A work-item checkpoint was saved while the work-item records were still only in memory."));
     }
 
     public void Dispose()
