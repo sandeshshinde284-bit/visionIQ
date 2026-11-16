@@ -489,6 +489,55 @@ def test_an_unreadable_ticket_and_an_unknown_scope_block_the_run(tmp_path: Path)
     assert demo.base_sha == lost.base_sha
 
 
+def test_missing_brief_scope_recovers_an_authorized_historical_file(tmp_path: Path) -> None:
+    from app.brief.history import TicketText
+
+    ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
+    sources = FakeFixSources(
+        ticket=ticket,
+        scope=(),
+        candidates=("old/folder/retry_policy.py",),
+    )
+
+    result = run(tmp_path, [TEST_ANSWER, SAFE_FIX], honest, sources)
+    assert result.verdict == "VERIFIED"
+    assert result.reproduction.reproducibility == "REPRODUCED"
+    assert result.patch.files[0].path == SOURCE
+
+
+def test_missing_brief_scope_without_historical_evidence_stays_blocked(tmp_path: Path) -> None:
+    from app.brief.history import TicketText
+
+    ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
+    model = claude(TEST_ANSWER, SAFE_FIX)
+    result = run(
+        tmp_path,
+        gateway_for(model),
+        honest,
+        FakeFixSources(ticket=ticket, scope=(), candidates=()),
+    )
+
+    assert result.reason_codes == ["scope_not_resolved"]
+    assert result.patch is None and result.pull_request is None
+    assert result.generation.calls == 0
+
+
+def test_historical_scope_does_not_select_nonexistent_or_unsafe_paths(tmp_path: Path) -> None:
+    from app.brief.history import TicketText
+
+    ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
+    sources = FakeFixSources(
+        ticket=ticket,
+        scope=(),
+        candidates=("../retry_policy.py", "src/unknown.py", "tests/test_retry_policy.py"),
+    )
+
+    result = run(tmp_path, [TEST_ANSWER], honest, sources)
+
+    assert result.reason_codes == ["scope_not_resolved"]
+    assert result.generation.calls == 0
+
+
 def test_instructions_in_the_ticket_are_data(tmp_path: Path) -> None:
     from app.brief.history import TicketText
 
