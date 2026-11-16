@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover
 from app.config import Settings
 from app.llm.factory import build_gateway
 from app.llm.gateway import Budget, RunLedger
-from app.llm.prompts import BRIEF_SCHEMA, TEMPLATES, render_user_prompt
+from app.llm.prompts import BRIEF_SCHEMA, REPRODUCTION_SCHEMA, TEMPLATES, render_user_prompt
 from app.llm.providers.claude import REFUSAL_FALLBACK_BETA, ClaudeProvider
 from app.llm.providers.gemini import GeminiProvider, to_vertex_schema
 from app.llm.providers.offline import OfflineProvider
@@ -263,6 +263,33 @@ def test_claude_asks_for_structured_output_and_keeps_thinking_adaptive() -> None
     assert (result.status, result.output, result.provider) == ("OK", DRAFT, "claude")
     assert (result.input_tokens, result.output_tokens) == (900, 90)
     assert result.model_version == "claude-opus-5-5"
+
+
+def test_claude_strips_unsupported_array_limits_without_weakening_local_schema() -> None:
+    client = FakeClaude(message({"reproducible": False, "limitations": []}))
+    template = TEMPLATES[TaskKind.REPRODUCTION_TEST]
+    task = TaskSpec(
+        kind=TaskKind.REPRODUCTION_TEST,
+        run_id=uuid.uuid4(),
+        classification=DataClassification.INTERNAL,
+        system_prompt=template.system,
+        user_prompt=render_user_prompt(TaskKind.REPRODUCTION_TEST, CONTEXT),
+        prompt_template_version=template.template_version,
+        output_schema=REPRODUCTION_SCHEMA,
+    )
+
+    result = ClaudeProvider(client, model="claude-haiku-5-5").generate(task, CONTEXT, POLICY)
+
+    sent = client.requests[0]["output_config"]["format"]["schema"]
+    message_contains = sent["properties"]["expected_failure"]["properties"]["message_contains"]
+    original = REPRODUCTION_SCHEMA["properties"]["expected_failure"]["properties"][
+        "message_contains"
+    ]
+    assert result.status == "OK"
+    assert "maxItems" not in message_contains
+    assert message_contains["minItems"] == 1
+    assert original["maxItems"] == 3
+    assert sent is not REPRODUCTION_SCHEMA
 
 
 def test_the_direct_api_route_opts_into_server_side_refusal_fallback() -> None:
