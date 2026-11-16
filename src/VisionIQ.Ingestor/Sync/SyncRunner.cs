@@ -63,6 +63,97 @@ public sealed class SyncRunner
             new EventId(1008, nameof(LogWorkItemsBeginningPersistence)),
             "ADO WorkItems: beginning persistence of {Total} records after {ElapsedMs}ms");
 
+    private static readonly Action<ILogger, int, int, int, Exception?>
+    LogDeletionStart =
+        LoggerMessage.Define<int, int, int>(
+            LogLevel.Information,
+            new EventId(1010, nameof(LogDeletionStart)),
+            "Recycle Bin: starting deletion {Index}/{Total}, ID={Id}");
+
+    private static readonly Action<ILogger, int, int, int, long, Exception?>
+    LogDeletionCompleted =
+        LoggerMessage.Define<int, int, int, long>(
+            LogLevel.Information,
+            new EventId(1011, nameof(LogDeletionCompleted)),
+            "Recycle Bin: completed {Index}/{Total}, ID={Id}, elapsed={ElapsedMs}ms");
+
+    private static readonly Action<ILogger, int, int, int, Exception?>
+        LogDeletionFailed =
+            LoggerMessage.Define<int, int, int>(
+                LogLevel.Error,
+                new EventId(1012, nameof(LogDeletionFailed)),
+                "Recycle Bin: FAILED at ID={Id}, index={Index}/{Total}");
+
+    private static readonly Action<ILogger, int, Exception?>
+        LogDeletionsFinished =
+            LoggerMessage.Define<int>(
+                LogLevel.Information,
+                new EventId(1013, nameof(LogDeletionsFinished)),
+                "Recycle Bin: finished processing {Count} deleted IDs");
+
+    private static readonly Action<ILogger, string, Exception?>
+    LogRepositoryDiscoveryStart =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(1014, nameof(LogRepositoryDiscoveryStart)),
+            "ADO Repository discovery START project={Project}");
+
+    private static readonly Action<ILogger, string, int, Exception?>
+        LogRepositoryDiscoveryCompleted =
+            LoggerMessage.Define<string, int>(
+                LogLevel.Information,
+                new EventId(1015, nameof(LogRepositoryDiscoveryCompleted)),
+                "ADO Repository discovery COMPLETED project={Project}, count={Count}");
+
+    private static readonly Action<ILogger, string, int, int, int, Exception?>
+    LogPullRequestEnrichmentStart =
+        LoggerMessage.Define<string, int, int, int>(
+            LogLevel.Information,
+            new EventId(1018, nameof(LogPullRequestEnrichmentStart)),
+            "ADO PR enrichment START repository={Repository}, index={Index}/{Total}, PR={PullRequestId}");
+
+    private static readonly Action<ILogger, string, int, int, int, Exception?>
+        LogPullRequestEnrichmentCompleted =
+            LoggerMessage.Define<string, int, int, int>(
+                LogLevel.Information,
+                new EventId(1019, nameof(LogPullRequestEnrichmentCompleted)),
+                "ADO PR enrichment COMPLETED repository={Repository}, index={Index}/{Total}, PR={PullRequestId}");
+
+    private static readonly Action<ILogger, string, int, Exception?>
+        LogPullRequestsFinished =
+            LoggerMessage.Define<string, int>(
+                LogLevel.Information,
+                new EventId(1020, nameof(LogPullRequestsFinished)),
+                "ADO PullRequests FINISHED repository={Repository}, processed={Count}");
+
+    private static readonly Action<ILogger, string, Exception?>
+    LogPullRequestsCheckpointLoaded =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(1021, nameof(LogPullRequestsCheckpointLoaded)),
+            "ADO PullRequests CHECKPOINT LOADED repository={Repository}");
+
+    private static readonly Action<ILogger, string, Exception?>
+    LogRepositoryDiscovered =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(1022, nameof(LogRepositoryDiscovered)),
+            "ADO Repository discovered: {Repository}");
+
+    private static readonly Action<ILogger, string, Exception?>
+    LogPullRequestsStart =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(1016, nameof(LogPullRequestsStart)),
+            "ADO PullRequests START repository={Repository}");
+
+    private static readonly Action<ILogger, string, int, Exception?>
+        LogPullRequestsFetched =
+            LoggerMessage.Define<string, int>(
+                LogLevel.Information,
+                new EventId(1017, nameof(LogPullRequestsFetched)),
+                "ADO PullRequests FETCHED repository={Repository}, count={Count}");
+
     /// <summary>R2-01: how many evidence writes (GCS archive + PostgreSQL) run at once. One at a time made
     /// 116 real work items take over 20 minutes in canonical mode; this is a deliberate, bounded cap on
     /// real network concurrency, not unbounded fan-out.</summary>
@@ -168,8 +259,23 @@ public sealed class SyncRunner
         IReadOnlyList<RepositoryRecord> found;
         try
         {
-            found = await repositories.GetRepositoriesAsync(project, cancellationToken).ConfigureAwait(false);
-            registry.Register(SourceKind.AzureDevOpsRepos, "repositories", CapabilityStatus.Supported);
+            LogRepositoryDiscoveryStart(log, project, null);
+
+            found = await repositories
+                .GetRepositoriesAsync(project, cancellationToken)
+                .ConfigureAwait(false);
+
+            LogRepositoryDiscoveryCompleted(log, project, found.Count, null);
+
+            foreach (var repo in found)
+            {
+                LogRepositoryDiscovered(log, repo.Name, null);
+            }
+
+            registry.Register(
+                SourceKind.AzureDevOpsRepos,
+                "repositories",
+                CapabilityStatus.Supported);
         }
         catch (AdoSourceException error)
         {
@@ -398,67 +504,207 @@ public sealed class SyncRunner
             await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
         }
 
-        // N-2: deleted items never appear in change queries, so read the Recycle Bin explicitly.
+
+        // N-2: deleted items never appear in change queries.
+
         try
         {
             var observed = time.GetUtcNow();
-            var deleted = await workItems.GetRecycleBinIdsAsync(project, cancellationToken).ConfigureAwait(false);
+
+            var deleted = await workItems
+                .GetRecycleBinIdsAsync(project, cancellationToken)
+                .ConfigureAwait(false);
+
             Logging.IngestionLog.DeletionsFound(log, project, deleted.Count);
+
+            var processed = 0;
+
             foreach (var id in deleted)
             {
-                await sink.WriteAsync("work-item-deletions",
-                    $"{client.Options.Tenant}/ado/{project}/work-item/{id.ToString(CultureInfo.InvariantCulture)}/deleted",
-                    new WorkItemDeletion(id, project, observed, "deleted_in_source"), cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+                // 1. Before processing each deletion
+                LogDeletionStart(
+                    log, processed + 1, deleted.Count, id, null);
+
+                try
+                {
+                    await sink.WriteAsync(
+                        "work-item-deletions",
+                        $"{client.Options.Tenant}/ado/{project}/work-item/{id.ToString(CultureInfo.InvariantCulture)}/deleted",
+                        new WorkItemDeletion(
+                            id, project, observed, "deleted_in_source"),
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // 2. When a deletion fails
+                    LogDeletionFailed(
+                        log, id, processed + 1, deleted.Count, ex);
+
+                    throw;
+                }
+
+                processed++;
+
+                // 3. After successful processing
+                LogDeletionCompleted(
+                    log, processed, deleted.Count, id,
+                    stopwatch.ElapsedMilliseconds, null);
             }
+
+            // 4. After all 415 deletions finish
+            LogDeletionsFinished(log, processed, null);
         }
         catch (AdoSourceException error)
         {
-            result.Notes.Add("Recycle Bin could not be read; deletions not checked this run: " + error.Message);
+            result.Notes.Add(
+                "Recycle Bin could not be read; deletions not checked this run: "
+                + error.Message);
         }
+
+
     }
 
-    private async Task SyncPullRequestsAsync(string project, RepositoryRecord repository, SyncRequest request, SyncReport report, CancellationToken cancellationToken)
+
+    private async Task SyncPullRequestsAsync(
+        string project,
+        RepositoryRecord repository,
+        SyncRequest request,
+        SyncReport report,
+        CancellationToken cancellationToken)
     {
         var scope = project + "/" + repository.Name + "/pull-requests";
         var result = report.Add(SyncKind.PullRequests, scope);
+
         TimeCursor? cursor = null;
-        var written = new List<(DateTimeOffset At, string Id)>();
+
+        // Thread-safe collection for successfully written PRs.
+        var written = new ConcurrentBag<(DateTimeOffset At, string Id)>();
+
+        var processed = 0;
+        var linksWritten = 0;
+        var total = 0;
+
         try
         {
-            cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
-            var all = await repositories.GetPullRequestsAsync(project, repository, cancellationToken).ConfigureAwait(false);
+            LogPullRequestsStart(log, repository.Name, null);
 
-            // Review R1-06: LastActivity (ClosedDate ?? CreatedDate) never changes while a PR stays
-            // active, so a new push, vote, comment or linked work item on an open PR was otherwise
-            // never picked up again after its creation until it closed or a webhook happened to fire.
-            // Every active PR is re-enriching and re-writing on every run regardless of the cursor;
-            // ContentRevision hashes the PR's full fetched content (commits, threads, work items,
-            // policies), so a re-fetch of an unchanged active PR is a no-op at the evidence layer and
-            // only a genuine change produces a new revision. This trades some per-run cost (one
-            // re-enrich per currently-open PR) for actually-current data on open work.
+            cursor = await LoadCursorAsync(
+                scope, request, cancellationToken).ConfigureAwait(false);
+
+            LogPullRequestsCheckpointLoaded(log, repository.Name, null);
+
+            var all = await repositories.GetPullRequestsAsync(
+                project, repository, cancellationToken).ConfigureAwait(false);
+
+            LogPullRequestsFetched(log, repository.Name, all.Count, null);
+
+            // Always refresh active PRs, even when their creation date
+            // is older than the saved checkpoint.
             var fresh = all
-                .Where(item => item.Status.Equals("active", StringComparison.OrdinalIgnoreCase)
+                .Where(item =>
+                    item.Status.Equals(
+                        "active",
+                        StringComparison.OrdinalIgnoreCase)
                     || (cursor is null
-                        ? request.Since is null || item.LastActivity >= request.Since
-                        : cursor.IsNew(item.LastActivity, Text(item.Id))))
+                        ? request.Since is null
+                          || item.LastActivity >= request.Since
+                        : cursor.IsNew(
+                            item.LastActivity,
+                            Text(item.Id))))
                 .OrderBy(item => item.LastActivity)
-                .ThenBy(item => item.Id);
+                .ThenBy(item => item.Id)
+                .ToList();
 
-            foreach (var pullRequest in fresh)
-            {
-                var enriched = await repositories.EnrichAsync(project, repository, pullRequest, cancellationToken).ConfigureAwait(false);
-                var version = enriched.Status + "@" + Stamp(enriched.LastActivity);
-                await sink.WriteAsync("pull-requests", Key(project, "pull-request", Text(enriched.Id), version), enriched, cancellationToken).ConfigureAwait(false);
-                // One reviewed projection shared with webhook delivery (LRN-12).
-                await PullRequestReviewProjection.WriteAsync(sink, client.Options.Tenant, enriched, cancellationToken)
-                    .ConfigureAwait(false);
+            total = fresh.Count;
 
-                result.Links += await WriteLinksAsync(project, LinkExtractor.FromPullRequest(enriched), cancellationToken).ConfigureAwait(false);
-                result.Records++;
-                written.Add((enriched.LastActivity, Text(enriched.Id)));
-            }
+            // Start conservatively. Never exceed the configured
+            // evidence concurrency limit.
+            var parallelism = Math.Min(4, evidenceConcurrency);
 
-            registry.Register(SourceKind.AzureDevOpsRepos, "pull-requests", CapabilityStatus.Supported);
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, fresh.Count),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = parallelism,
+                    CancellationToken = cancellationToken
+                },
+                async (index, token) =>
+                {
+                    var pullRequest = fresh[index];
+
+                    LogPullRequestEnrichmentStart(
+                        log,
+                        repository.Name,
+                        index + 1,
+                        total,
+                        pullRequest.Id,
+                        null);
+
+                    // 1. Enrich from Azure DevOps.
+                    var enriched = await repositories.EnrichAsync(
+                        project,
+                        repository,
+                        pullRequest,
+                        token).ConfigureAwait(false);
+
+                    // 2. Persist canonical PR evidence.
+                    var version = enriched.Status + "@"
+                        + Stamp(enriched.LastActivity);
+
+                    await sink.WriteAsync(
+                        "pull-requests",
+                        Key(
+                            project,
+                            "pull-request",
+                            Text(enriched.Id),
+                            version),
+                        enriched,
+                        token).ConfigureAwait(false);
+
+                    // 3. Persist the review projection.
+                    await PullRequestReviewProjection.WriteAsync(
+                        sink,
+                        client.Options.Tenant,
+                        enriched,
+                        token).ConfigureAwait(false);
+
+                    // 4. Persist relationship links.
+                    var linkCount = await WriteLinksAsync(
+                        project,
+                        LinkExtractor.FromPullRequest(enriched),
+                        token).ConfigureAwait(false);
+
+                    // Only mark success after ALL writes complete.
+                    written.Add((
+                        enriched.LastActivity,
+                        Text(enriched.Id)));
+
+                    Interlocked.Add(ref linksWritten, linkCount);
+                    var done = Interlocked.Increment(ref processed);
+
+                    LogPullRequestEnrichmentCompleted(
+                        log,
+                        repository.Name,
+                        index + 1,
+                        total,
+                        pullRequest.Id,
+                        null);
+                }).ConfigureAwait(false);
+
+            LogPullRequestsFinished(
+                log,
+                repository.Name,
+                processed,
+                null);
+
+            registry.Register(
+                SourceKind.AzureDevOpsRepos,
+                "pull-requests",
+                CapabilityStatus.Supported);
         }
         catch (AdoSourceException error)
         {
@@ -467,11 +713,32 @@ public sealed class SyncRunner
         catch (CheckpointStoreException error)
         {
             Failed(result, error.Message);
+        }
+        finally
+        {
+            // Preserve counts even when the batch fails.
+            result.Records = Volatile.Read(ref processed);
+            result.Links = Volatile.Read(ref linksWritten);
+
+            // A failure must not be reported as a successful sync.
+            // IsolateAsync handles other unexpected exceptions.
+        }
+
+        // CRITICAL: no checkpoint advancement after a partial
+        // or failed parallel batch.
+        if (result.Status != StreamStatus.Synced
+            || processed != total)
+        {
             return;
         }
 
-        await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
+        await SaveCursorAsync(
+            scope,
+            TimeCursor.Advance(cursor, written.ToList()),
+            result,
+            cancellationToken).ConfigureAwait(false);
     }
+
 
     private async Task SyncCommitsAsync(string project, RepositoryRecord repository, SyncRequest request, SyncReport report, CancellationToken cancellationToken)
     {

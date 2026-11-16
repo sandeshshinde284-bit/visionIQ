@@ -99,6 +99,7 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTo
 
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(TombstoneSql, connection);
+        command.CommandTimeout = 30;     // Prevent a single database command from waiting indefinitely.
         command.Parameters.AddWithValue("key", itemKey);
         command.Parameters.AddWithValue("at", observedAt);
         command.Parameters.AddWithValue("reason", reason);
