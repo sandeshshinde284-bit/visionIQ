@@ -21,6 +21,19 @@ from app.llm.types import EvidenceContext, ModelPolicy, ModelResult, TaskSpec, f
 REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
+def _claude_output_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Strip Anthropic-unsupported array bounds; local gateway validates the original."""
+
+    def visit(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: visit(item) for key, item in value.items() if key != "maxItems"}
+        if isinstance(value, list):
+            return [visit(item) for item in value]
+        return value
+
+    return visit(schema)
+
+
 class ClaudeProvider:
     name = "claude"
 
@@ -64,7 +77,7 @@ class ClaudeProvider:
             "messages": [{"role": "user", "content": task.user_prompt}],
             "output_config": {
                 "effort": self._effort,
-                "format": {"type": "json_schema", "schema": task.output_schema},
+                "format": {"type": "json_schema", "schema": _claude_output_schema(task.output_schema)},
             },
         }
         client = self._client.with_options(timeout=policy.timeout_seconds)
