@@ -8,7 +8,6 @@ and nothing here is a probability.
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
@@ -19,64 +18,6 @@ from app.knowledge.retrieval import Lesson, Result, Signals
 MAX_SCOPE_ITEMS = 12
 MAX_REFERENCES = 10
 MAX_AGREEING_ANCHORS = 3
-MAX_SINGLE_LANE_ANCHORS = 2
-MAX_SINGLE_LANE_PATHS = 3
-
-# UI and workflow vocabulary alone is not a sufficiently specific match.
-_GENERIC_TERMS = {
-    "bug",
-    "regression",
-    "issue",
-    "screen",
-    "page",
-    "button",
-    "option",
-    "selected",
-    "select",
-    "click",
-    "first",
-    "when",
-    "after",
-    "before",
-    "ticket",
-    "error",
-    "failure",
-    "disabled",
-    "enabled",
-    "continue",
-    "test",
-    "tests",
-    "work",
-    "does",
-    "doesnt",
-    "not",
-    "the",
-    "and",
-}
-
-
-def _distinctive_terms(value: str) -> set[str]:
-    """Conservative lexical corroboration, not an AI similarity claim."""
-    words = re.findall(
-        r"[a-z][a-z0-9]{3,}",
-        re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", value).lower(),
-    )
-    return {
-        word[:-1] if word.endswith("s") and len(word) > 5 else word
-        for word in words
-        if word not in _GENERIC_TERMS
-    }
-
-
-def _single_lane_support(signals: Signals, result: Result) -> set[str]:
-    # A single retrieval lane is allowed to suggest investigative paths only
-    # when two distinctive issue terms also appear in the historical title.
-    if result.counterevidence or result.lanes.get("keyword", 999) > 5:
-        return set()
-    incoming = _distinctive_terms(" ".join(signals.terms))
-    historic = _distinctive_terms(result.title)
-    return incoming & historic
-
 
 # Band thresholds. They are an initial, reviewable rule (7.5 asks for an ADR and a labelled
 # hold-out set before they are called predictive); change them here, in one place.
@@ -95,10 +36,10 @@ def predict_scope(
     """Files this ticket probably touches: named in it (exact), or changed by past fixes of the
     most similar tickets (inferred, most often changed first).
 
-    Independent code-path or dual-search agreement remains primary. A top-ranked keyword-only
-    historical ticket may contribute a small number of inferred file paths when its title
-    shares two distinctive issue terms and the file path corroborates one of those terms.
-    This fallback does not establish causality or elevate unsupported model advice.
+    Only close matches may widen the scope: tickets whose fix touched the code the ticket names
+    (a code-path match) or, when there is none, the few results two independent searches agree
+    on. A loosely related result would otherwise drag unrelated files, and their fixes, into the
+    risk count.
     """
     scope = [
         ScopeItem(path=name, basis="named_in_ticket", confidence="exact") for name in signals.files
@@ -106,43 +47,16 @@ def predict_scope(
     named = {name.lower() for name in signals.files}
     changed: Counter[str] = Counter()
     cited: dict[str, list[str]] = {}
-    # Keep independent-lane corroboration as the primary scope signal.
-    primary = [r for r in results if r.lanes.get("code_path")] or [
+    anchors = [r for r in results if r.lanes.get("code_path")] or [
         r for r in results if "keyword" in r.lanes and "vector" in r.lanes
     ][:MAX_AGREEING_ANCHORS]
-    secondary: list[tuple[Result, set[str]]] = []
-    for result in results:
-        if result in primary or result.item_key not in evidence_ids:
-            continue
-        if not fix_paths.get(result.item_key):
-            continue
-        terms = _single_lane_support(signals, result)
-        if len(terms) >= 2:
-            secondary.append((result, terms))
-        if len(secondary) >= MAX_SINGLE_LANE_ANCHORS:
-            break
-
-    for result in primary:
+    for result in anchors:
         for path in fix_paths.get(result.item_key, ()):
             if path.rsplit("/", 1)[-1].lower() in named:
                 continue
             changed[path] += 1
             if result.item_key in evidence_ids:
                 cited.setdefault(path, []).append(evidence_ids[result.item_key])
-
-    # Single-lane results remain weaker: only a few paths whose *recorded
-    # names* also contain a distinctive matching issue term can be suggested.
-    # They never become exact paths or proof of causality.
-    for result, terms in secondary:
-        matching = [
-            path
-            for path in fix_paths[result.item_key]
-            if _distinctive_terms(path.replace("/", " ")) & terms
-            and path.rsplit("/", 1)[-1].lower() not in named
-        ]
-        for path in sorted(set(matching))[:MAX_SINGLE_LANE_PATHS]:
-            changed[path] += 1
-            cited.setdefault(path, []).append(evidence_ids[result.item_key])
     for path, _ in sorted(changed.items(), key=lambda entry: (-entry[1], entry[0])):
         if len(scope) >= MAX_SCOPE_ITEMS:
             break
