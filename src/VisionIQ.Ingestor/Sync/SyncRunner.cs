@@ -746,6 +746,7 @@ public sealed class SyncRunner
         var result = report.Add(SyncKind.Commits, scope);
         TimeCursor? cursor = null;
         var written = new List<(DateTimeOffset At, string Id)>();
+        const int checkpointBatchSize = 25;
         try
         {
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
@@ -768,6 +769,17 @@ public sealed class SyncRunner
                 // seen" by TimeCursor.IsNew forever. The stored record keeps the real, unclamped date.
                 var checkpointAt = enriched.CommitterDate > now ? now : enriched.CommitterDate;
                 written.Add((checkpointAt, enriched.CommitId));
+                if (written.Count >= checkpointBatchSize && !request.Reconcile)
+                {
+                    cursor = TimeCursor.Advance(cursor, written);
+                    await SaveCursorAsync(scope, cursor, result, cancellationToken).ConfigureAwait(false);
+                    if (result.Status != StreamStatus.Synced)
+                    {
+                        return;
+                    }
+
+                    written.Clear();
+                }
             }
 
             registry.Register(SourceKind.AzureDevOpsRepos, "commits", CapabilityStatus.Supported);
@@ -782,7 +794,10 @@ public sealed class SyncRunner
             return;
         }
 
-        await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
+        if (result.Status == StreamStatus.Synced)
+        {
+            await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task SyncBuildsAsync(string project, SyncRequest request, SyncReport report, CancellationToken cancellationToken)
@@ -791,6 +806,7 @@ public sealed class SyncRunner
         var result = report.Add(SyncKind.Builds, scope);
         TimeCursor? cursor = null;
         var written = new List<(DateTimeOffset At, string Id)>();
+        const int checkpointBatchSize = 25;
         try
         {
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
@@ -807,6 +823,17 @@ public sealed class SyncRunner
                 result.Links += await WriteLinksAsync(project, LinkExtractor.FromBuild(enriched), cancellationToken).ConfigureAwait(false);
                 result.Records++;
                 written.Add((enriched.FinishTime!.Value, Text(enriched.Id)));
+                if (written.Count >= checkpointBatchSize && !request.Reconcile)
+                {
+                    cursor = TimeCursor.Advance(cursor, written);
+                    await SaveCursorAsync(scope, cursor, result, cancellationToken).ConfigureAwait(false);
+                    if (result.Status != StreamStatus.Synced)
+                    {
+                        return;
+                    }
+
+                    written.Clear();
+                }
             }
 
             registry.Register(SourceKind.AzureDevOpsPipelines, "builds", CapabilityStatus.Supported);
@@ -821,7 +848,10 @@ public sealed class SyncRunner
             return;
         }
 
-        await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
+        if (result.Status == StreamStatus.Synced)
+        {
+            await SaveCursorAsync(scope, TimeCursor.Advance(cursor, written), result, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task<int> WriteLinksAsync(string project, IReadOnlyList<SourceLink> links, CancellationToken cancellationToken)
