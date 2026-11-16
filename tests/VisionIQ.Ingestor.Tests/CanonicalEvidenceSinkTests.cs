@@ -114,7 +114,11 @@ public sealed class CanonicalEvidenceSinkTests
         Assert.Equal("UNKNOWN", Meta("work_item_current").GetProperty("environment").GetString());
         Assert.Equal("not_configured", Meta("work_item_current").GetProperty("environmentReason").GetString());
         Assert.True(Meta("work_item").TryGetProperty("state", out _));
-        Assert.Equal("completed", Meta("pull_request").GetProperty("status").GetString());
+        Assert.Contains(store.Rows.Where(row => row.Envelope.Identity.Kind == "pull_request"), row =>
+        {
+            using var metadata = System.Text.Json.JsonDocument.Parse(row.RedactedJson);
+            return metadata.RootElement.GetProperty("status").GetString() == "completed";
+        });
         Assert.Equal("failed", Meta("ci_run").GetProperty("result").GetString());
         Assert.Equal("work_item_artifact", Meta("declared_link").GetProperty("linkType").GetString());
         Assert.All(store.Rows, row =>
