@@ -941,6 +941,14 @@ public sealed class SyncRunner
         }
         catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested)
         {
+            // Phase 2: failed PRs need stage timings too, otherwise the slow or
+            // failing stage is missing from the only per-PR performance evidence.
+            if (log.IsEnabled(LogLevel.Information))
+            {
+                LogPullRequestTimings(
+                    log, repository.Name, pullRequest.Id, "failedStage=" + stage,
+                    timings.Timings.Summary(), null);
+            }
             throw new RecordProcessingException("pull request", id, stage, error);
         }
     }
