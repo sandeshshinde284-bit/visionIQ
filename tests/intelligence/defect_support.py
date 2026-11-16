@@ -93,6 +93,7 @@ class FakeFixSources:
         )
     )
     scope: tuple[str, ...] = (SOURCE,)
+    candidates: tuple[str, ...] = ()
     fixes: tuple[HistoricalFix, ...] = (HistoricalFix("101", "PR 201", (SOURCE, OLD_TEST)),)
 
     def load_ticket(self, project_id: str, ticket_id: str) -> TicketText | None:
@@ -100,6 +101,9 @@ class FakeFixSources:
 
     def brief_scope(self, project_id: str, ticket_id: str) -> tuple[str, ...]:
         return self.scope
+
+    def historical_scope(self, ticket: TicketText) -> tuple[str, ...]:
+        return self.candidates
 
     def historical_fixes(self, ticket: TicketText, file_names: Sequence[str]) -> list:
         return list(self.fixes)
