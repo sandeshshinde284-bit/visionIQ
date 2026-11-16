@@ -132,8 +132,8 @@ public static partial class LinkExtractor
     /// <summary>
     /// Review R4-07: Azure DevOps' own "Revert" action titles the new pull request exactly
     /// <c>Revert "&lt;original title&gt;"</c> (or single quotes) — confirmed against real ADO data
-    /// (e.g. PR "Revert 'KioskSpecific - Enable Tremble alarm on Beeston Double '" reverting the PR
-    /// titled exactly "KioskSpecific - Enable Tremble alarm on Beeston Double "). Returns the quoted
+    /// (e.g. PR "Revert 'DeviceSpecific - Enable door alarm on Site A Double '" reverting the PR
+    /// titled exactly "DeviceSpecific - Enable door alarm on Site A Double "). Returns the quoted
     /// original title so the caller can look it up among pull requests already seen in the same
     /// project and repository; a title match is weaker evidence than a full-SHA commit-message revert,
     /// so the caller must still require matching Git SHAs before recording a revert.

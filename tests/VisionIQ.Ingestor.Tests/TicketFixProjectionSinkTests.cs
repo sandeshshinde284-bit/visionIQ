@@ -144,16 +144,16 @@ public sealed class TicketFixProjectionSinkTests
 
         // Once ADO reports it completed, the same association upgrades to Explicit (never downgrades).
         await sink.WriteAsync("pull-requests", "source/completed", active with { Status = "completed" });
-        Assert.Contains(links.Claims, claim => claim.TicketId == "114985" && claim.Classification == TicketFixSourceClassification.Explicit);
+        Assert.Contains(links.Claims, claim => claim.TicketId == "203" && claim.Classification == TicketFixSourceClassification.Explicit);
     }
 
     [Fact]
     public async Task A_pr_titled_as_ados_own_revert_of_a_pr_seen_earlier_records_a_candidate_not_a_confirmed_revert()
     {
         // Review R4-07, second-pass correction (independent review): reproduces real ADO data (PR
-        // 38386 "KioskSpecific - Enable Tremble alarm on Beeston Double " merged as e158cff...; PR
-        // 38394 "Revert 'KioskSpecific - ... Double '" merged as a7c4aadf..., both linked to work item
-        // 110276). A title+SHA match is circumstantial, not proof one commit's diff reverses the
+        // 9001 "DeviceSpecific - Enable door alarm on Site A Double " merged as abc1234...; PR
+        // 9002 "Revert 'DeviceSpecific - ... Double '" merged as def5678a..., both linked to work item
+        // 5001). A title+SHA match is circumstantial, not proof one commit's diff reverses the
         // other's -- so it is recorded as a candidate (a queryable evidence reference), never a
         // confirmed revert that would hide the original fix with the same confidence as a literal
         // "This reverts commit <sha>" message.
@@ -161,17 +161,17 @@ public sealed class TicketFixProjectionSinkTests
         var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
         var originalSha = new string('1', 40);
         var revertSha = new string('2', 40);
-        var original = new PullRequestRecord(38386, "repo-id", "repo", "Project-A", "completed",
-            "KioskSpecific - Enable Tremble alarm on Beeston Double ", DateTimeOffset.UtcNow)
+        var original = new PullRequestRecord(9001, "repo-id", "repo", "Project-A", "completed",
+            "DeviceSpecific - Enable door alarm on Site A Double ", DateTimeOffset.UtcNow)
         {
-            WorkItemIds = [110276],
+            WorkItemIds = [5001],
             CommitIds = [originalSha],
             MergeCommitId = originalSha,
         };
         var revert = original with
         {
-            Id = 38394,
-            Title = "Revert 'KioskSpecific - Enable Tremble alarm on Beeston Double '",
+            Id = 9002,
+            Title = "Revert 'DeviceSpecific - Enable door alarm on Site A Double '",
             CommitIds = [revertSha],
             MergeCommitId = revertSha,
         };
@@ -181,9 +181,9 @@ public sealed class TicketFixProjectionSinkTests
 
         Assert.Empty(links.Reverts);
         Assert.Contains(links.Claims, claim =>
-            claim.PullRequestId == "38386" && claim.TicketId == "110276" && claim.CommitSha == originalSha &&
+            claim.PullRequestId == "9001" && claim.TicketId == "5001" && claim.CommitSha == originalSha &&
             claim.SourceEvidenceRefs.Any(reference =>
-                reference.StartsWith("candidate-revert:pr-title-match:pr38394:", StringComparison.Ordinal) &&
+                reference.StartsWith("candidate-revert:pr-title-match:pr9002:", StringComparison.Ordinal) &&
                 reference.EndsWith(revertSha, StringComparison.OrdinalIgnoreCase)));
     }
 
@@ -200,16 +200,16 @@ public sealed class TicketFixProjectionSinkTests
         var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
         var originalSha = new string('1', 40);
         var revertSha = new string('2', 40);
-        var originalV1 = new PullRequestRecord(38386, "repo-id", "repo", "Project-A", "completed",
-            "KioskSpecific - Enable Tremble alarm on Beeston Double ", DateTimeOffset.UtcNow.AddHours(-2))
+        var originalV1 = new PullRequestRecord(9001, "repo-id", "repo", "Project-A", "completed",
+            "DeviceSpecific - Enable door alarm on Site A Double ", DateTimeOffset.UtcNow.AddHours(-2))
         {
-            WorkItemIds = [110276],
+            WorkItemIds = [5001],
             CommitIds = [originalSha],
             MergeCommitId = originalSha,
             ClosedDate = DateTimeOffset.UtcNow.AddHours(-2),
         };
         var key = new TicketFixClaim(
-            Organization.AbsoluteUri.TrimEnd('/'), originalV1.Project, "110276", originalV1.RepositoryId,
+            Organization.AbsoluteUri.TrimEnd('/'), originalV1.Project, "5001", originalV1.RepositoryId,
             originalV1.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), originalSha,
             TicketFixSourceClassification.Explicit, ["x"], []).AssociationKey();
 
@@ -225,8 +225,8 @@ public sealed class TicketFixProjectionSinkTests
         // A pull request titled as ADO's own revert of the original now arrives.
         var revert = originalV1 with
         {
-            Id = 38394,
-            Title = "Revert 'KioskSpecific - Enable Tremble alarm on Beeston Double '",
+            Id = 9002,
+            Title = "Revert 'DeviceSpecific - Enable door alarm on Site A Double '",
             CommitIds = [revertSha],
             MergeCommitId = revertSha,
             ClosedDate = DateTimeOffset.UtcNow,
@@ -235,9 +235,9 @@ public sealed class TicketFixProjectionSinkTests
 
         // The candidate marker is still recorded as queryable evidence...
         Assert.Contains(links.Claims, claim =>
-            claim.TicketId == "110276" && claim.CommitSha == originalSha &&
+            claim.TicketId == "5001" && claim.CommitSha == originalSha &&
             claim.SourceEvidenceRefs.Any(reference =>
-                reference.StartsWith("candidate-revert:pr-title-match:pr38394:", StringComparison.Ordinal)));
+                reference.StartsWith("candidate-revert:pr-title-match:pr9002:", StringComparison.Ordinal)));
         // ...but must NOT reactivate a retraction a newer, authoritative snapshot already established.
         Assert.Contains(key, links.RetractedKeys);
     }
