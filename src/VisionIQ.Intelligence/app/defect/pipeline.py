@@ -475,14 +475,13 @@ class _FixRun:
             and not matches(path, repo.test_file_patterns)
             and not matches(path, repo.secret_paths)
             and not matches(path, repo.generated_paths)
-            and not any(matches(path, area.patterns) for area in repo.restricted_areas)
         ]
         by_lower = {path.lower(): path for path in eligible}
 
         def resolved(wanted: Sequence[str]) -> list[str]:
             chosen: list[str] = []
             for raw in wanted:
-                target = raw.replace("\\\\", "/").lstrip("/").lower()
+                target = raw.replace("\\", "/").lstrip("/").lower()
                 if not target or not is_safe_path(target):
                     continue
                 if target in by_lower:
