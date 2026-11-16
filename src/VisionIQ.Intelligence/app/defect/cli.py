@@ -57,6 +57,10 @@ class FileSources:
     def brief_scope(self, project_id: str, ticket_id: str) -> tuple[str, ...]:
         return tuple(str(path) for path in self._ticket.get("scope", []))
 
+    def historical_scope(self, ticket: TicketText) -> tuple[str, ...]:
+        """Offline CLI has no authorized search service; do not invent candidate paths."""
+        return ()
+
     def brief_risk_band(self, project_id: str, ticket_id: str) -> str | None:
         """Optional "risk_band" of the ticket file (LOW, MODERATE, HIGH); used only when models
         are selected by complexity."""
