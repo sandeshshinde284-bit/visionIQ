@@ -8,8 +8,8 @@ and nothing here is a probability.
 
 from __future__ import annotations
 
-from collections import Counter
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from app.brief.history import FixRecord, HistoryFacts
