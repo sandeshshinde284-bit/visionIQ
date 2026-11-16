@@ -130,7 +130,8 @@ class PostgresFixSources:
             f"{ticket.title}\n{ticket.text}", exclude=[ticket.item_key], limit=8
         )
         anchors = [
-            result for result in evidence.results
+            result
+            for result in evidence.results
             if result.lanes.get("code_path")
             or ("keyword" in result.lanes and "vector" in result.lanes)
         ]

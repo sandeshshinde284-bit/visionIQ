@@ -77,7 +77,10 @@ class ClaudeProvider:
             "messages": [{"role": "user", "content": task.user_prompt}],
             "output_config": {
                 "effort": self._effort,
-                "format": {"type": "json_schema", "schema": _claude_output_schema(task.output_schema)},
+                "format": {
+                    "type": "json_schema",
+                    "schema": _claude_output_schema(task.output_schema),
+                },
             },
         }
         client = self._client.with_options(timeout=policy.timeout_seconds)
