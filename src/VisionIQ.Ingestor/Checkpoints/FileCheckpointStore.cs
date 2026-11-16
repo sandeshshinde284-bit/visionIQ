@@ -41,7 +41,7 @@ public sealed class FileCheckpointStore : ICheckpointStore
             // one checkpoint file (e.g. a manual run started while a scheduled one is still in flight)
             // must not let the slower one regress what the faster one already recorded.
             if (all.TryGetValue(key, out var existing) &&
-                string.CompareOrdinal(checkpoint.Cursor, existing.Cursor) < 0)
+                TimeCursor.IsBehind(checkpoint.Cursor, existing.Cursor))
             {
                 throw new InvalidOperationException(
                     "Checkpoint not saved: the file already has a checkpoint for " + checkpoint.SourceId + "/"
@@ -57,7 +57,8 @@ public sealed class FileCheckpointStore : ICheckpointStore
             }
 
             // Write then rename, so an interrupted run never leaves a half-written file.
-            var temporary = path + ".tmp";
+            // A unique temporary name, so two processes sharing the file never write the same temp file.
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             File.WriteAllText(temporary, JsonSerializer.Serialize(all, Json));
             File.Move(temporary, path, overwrite: true);
         }

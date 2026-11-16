@@ -16,6 +16,13 @@ public interface IVersionedEvidenceStore
 /// performed separately using the established FND-03 Alembic chain.
 /// </summary>
 /// <summary>N-2: hides source items that were deleted in, or are no longer readable from, their source.</summary>
+/// <summary>Which canonical items are already stored, so a re-read window can skip what it already holds.</summary>
+public interface IEvidenceItemLookup
+{
+    /// <summary>The subset of <paramref name="itemKeys"/> that has a stored item (tombstoned items included).</summary>
+    Task<IReadOnlySet<string>> ExistingItemKeysAsync(IReadOnlyCollection<string> itemKeys, CancellationToken cancellationToken = default);
+}
+
 public interface IEvidenceTombstones
 {
     /// <summary>False when nothing changed (unknown item, already tombstoned, or a newer revision exists).</summary>
@@ -38,7 +45,7 @@ public interface IEvidenceTombstones
 /// append-only (no UPDATE ever changes revision content), so every write here is an INSERT or
 /// a careful conditional UPDATE of "latest" pointers, never an overwrite of stored history.
 /// </summary>
-public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTombstones, IAsyncDisposable
+public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTombstones, IEvidenceItemLookup, IAsyncDisposable
 {
     private readonly NpgsqlDataSource source;
 
@@ -112,6 +119,29 @@ public sealed class PostgresEvidenceStore : IVersionedEvidenceStore, IEvidenceTo
         WHERE provider = @provider AND source_instance = @instance AND kind = @kind
           AND external_id = @external_id AND project_id <> @project AND deleted_at IS NULL
         """;
+
+    public async Task<IReadOnlySet<string>> ExistingItemKeysAsync(
+        IReadOnlyCollection<string> itemKeys, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(itemKeys);
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        if (itemKeys.Count == 0)
+        {
+            return found;
+        }
+
+        await using var connection = await source.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "SELECT item_key FROM evidence.source_items WHERE item_key = ANY(@keys)", connection);
+        command.Parameters.AddWithValue("keys", itemKeys.Distinct(StringComparer.Ordinal).ToArray());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            found.Add(reader.GetString(0));
+        }
+
+        return found;
+    }
 
     public async Task<IReadOnlyList<string>> FindOtherProjectItemKeysAsync(
         string provider, string sourceInstance, string kind, string externalId,

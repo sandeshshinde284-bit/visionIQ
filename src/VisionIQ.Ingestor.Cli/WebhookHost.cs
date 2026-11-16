@@ -49,6 +49,7 @@ public static class WebhookHost
                     settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl)
                 {
                     Tombstones = evidenceStore, // N-2
+                    Lookup = evidenceStore,
                 },
                 linkStore, settings.Ado.OrganizationUrl),
             testLinkStore, settings.Ado.OrganizationUrl),

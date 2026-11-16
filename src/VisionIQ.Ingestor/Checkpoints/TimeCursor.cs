@@ -57,4 +57,24 @@ public sealed record TimeCursor(DateTimeOffset At, IReadOnlySet<string> Boundary
 
     public string Format() =>
         At.UtcDateTime.ToString("O", CultureInfo.InvariantCulture) + "|" + string.Join(',', Boundary.Order(StringComparer.Ordinal));
+
+    /// <summary>
+    /// The timestamp part of a saved cursor (everything before the first '|'). <see cref="Format"/> writes it as
+    /// fixed-width ISO-8601 UTC, so ordinal comparison of this part is chronological comparison.
+    /// </summary>
+    public static string TimestampPart(string formatted)
+    {
+        ArgumentNullException.ThrowIfNull(formatted);
+        var separator = formatted.IndexOf('|', StringComparison.Ordinal);
+        return separator >= 0 ? formatted[..separator] : formatted;
+    }
+
+    /// <summary>
+    /// True when saving <paramref name="candidate"/> over <paramref name="existing"/> would move the checkpoint back
+    /// in time. Only the timestamp is compared: at an equal timestamp the boundary-ID list is a set, not an order
+    /// ("T|10,9" is the set {9, 10} that grew from "T|9"), and comparing it as text wrongly rejected that growth.
+    /// A smaller ID set at an equal timestamp only causes those items to be read again, never skipped.
+    /// </summary>
+    public static bool IsBehind(string candidate, string existing) =>
+        string.CompareOrdinal(TimestampPart(candidate), TimestampPart(existing)) < 0;
 }

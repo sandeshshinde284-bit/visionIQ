@@ -83,11 +83,14 @@ public sealed class ConfluenceSyncRunner
     {
         var scope = space + "/pages";
         TimeCursor? cursor;
+        DateTimeOffset? storedAt;
         try
         {
-            cursor = request.IgnoreCheckpoints
-                ? null
-                : TimeCursor.Parse((await checkpoints.GetAsync(SourceId, scope, cancellationToken).ConfigureAwait(false))?.Cursor);
+            var stored = TimeCursor.Parse((await checkpoints.GetAsync(SourceId, scope, cancellationToken).ConfigureAwait(false))?.Cursor);
+            // --full re-reads everything but keeps the stored checkpoint: saving this run's older progress over it
+            // would be refused by the store's monotonic guard and fail the space after the first batch.
+            storedAt = request.IgnoreCheckpoints ? stored?.At : null;
+            cursor = request.IgnoreCheckpoints ? null : stored;
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
@@ -135,53 +138,66 @@ public sealed class ConfluenceSyncRunner
             {
                 var batch = fresh.Skip(offset).Take(checkpointBatchSize).ToList();
                 var batchWritten = new ConcurrentBag<(DateTimeOffset At, string Id)>();
-                await RunGatedAsync(batch, async (page, token) =>
+                var completedPages = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+                Exception? batchError = null;
+                try
                 {
-                    var enriched = await source.EnrichAsync(page, token).ConfigureAwait(false);
-                    var normalized = ConfluenceText.Normalize(enriched.StorageBody);
-                    var snapshot = new ConfluencePageSnapshot(source.Tenant, space, page.Id, page.Version, page.Title, page.LastModified)
+                    await RunGatedAsync(batch, async (page, token) =>
                     {
-                        ParentId = page.ParentId,
-                        AncestorIds = ConfluenceAccess.AncestorIds(page, byId),
-                        Url = page.Url,
-                        Labels = enriched.Labels,
-                        Text = normalized.Text,
-                        Sections = normalized.Sections,
-                        Properties = normalized.Properties,
-                        Versions = enriched.Versions,
-                    };
-    
-                    var version = page.Version.ToString(CultureInfo.InvariantCulture);
-                    await GatedWriteAsync("confluence-pages", Key(space, "page", page.Id, version), snapshot, token).ConfigureAwait(false);
-    
-                    var done = Interlocked.Increment(ref recordsDone);
-                    if (done % 50 == 0 || done == fresh.Count)
-                    {
-                        Logging.IngestionLog.ConfluencePagePersistProgress(log, space, done, fresh.Count, timer.Elapsed.TotalMilliseconds);
-                    }
-    
-                    batchWritten.Add((page.LastModified, page.Id + "@" + version));
-                }, cancellationToken).ConfigureAwait(false);
-    
-    
-                // Do not advance across a missing page or a failed write.
-                if (batchWritten.Count != batch.Count)
+                        var enriched = await source.EnrichAsync(page, token).ConfigureAwait(false);
+                        var normalized = ConfluenceText.Normalize(enriched.StorageBody);
+                        var snapshot = new ConfluencePageSnapshot(source.Tenant, space, page.Id, page.Version, page.Title, page.LastModified)
+                        {
+                            ParentId = page.ParentId,
+                            AncestorIds = ConfluenceAccess.AncestorIds(page, byId),
+                            Url = page.Url,
+                            Labels = enriched.Labels,
+                            Text = normalized.Text,
+                            Sections = normalized.Sections,
+                            Properties = normalized.Properties,
+                            Versions = enriched.Versions,
+                        };
+
+                        var version = page.Version.ToString(CultureInfo.InvariantCulture);
+                        await GatedWriteAsync("confluence-pages", Key(space, "page", page.Id, version), snapshot, token).ConfigureAwait(false);
+
+                        var done = Interlocked.Increment(ref recordsDone);
+                        if (done % 50 == 0 || done == fresh.Count)
+                        {
+                            Logging.IngestionLog.ConfluencePagePersistProgress(log, space, done, fresh.Count, timer.Elapsed.TotalMilliseconds);
+                        }
+
+                        batchWritten.Add((page.LastModified, page.Id + "@" + version));
+                        completedPages[page.Id] = true;
+                    }, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception error)
                 {
-                    throw new InvalidOperationException("Confluence page batch was incomplete.");
+                    batchError = error;
                 }
 
+                // Pages complete in any order: the checkpoint covers only the completed run of this batch in
+                // (LastModified, Id) order, up to the first failed or unfinished page. Pages completed after it
+                // are written again next run, never skipped.
+                var safe = CheckpointProgress.SafePrefix(
+                    batch,
+                    page => (page.LastModified, page.Id + "@" + page.Version.ToString(CultureInfo.InvariantCulture)),
+                    page => completedPages.ContainsKey(page.Id));
+
                 result.Records = recordsDone;
-                if (!request.Reconcile)
+                if (!request.Reconcile && safe.Count > 0)
                 {
-                    cursor = TimeCursor.Advance(cursor, batchWritten);
-                    if (cursor is not null)
+                    cursor = TimeCursor.Advance(cursor, safe);
+                    if (cursor is not null && !(storedAt is { } stored && cursor.At < stored))
                     {
                         try
                         {
-                            await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
+                            // On cancellation, still record what is complete (a short, best-effort save).
+                            var saveToken = batchError is OperationCanceledException ? CancellationToken.None : cancellationToken;
+                            await sink.FlushAsync(saveToken).ConfigureAwait(false);
                             await checkpoints.SaveAsync(new SyncCheckpoint(
                                 SourceId, scope, cursor.Format(), time.GetUtcNow()),
-                                cancellationToken).ConfigureAwait(false);
+                                saveToken).ConfigureAwait(false);
                         }
                         catch (Exception error) when (error is not OperationCanceledException)
                         {
@@ -189,6 +205,11 @@ public sealed class ConfluenceSyncRunner
                             return;
                         }
                     }
+                }
+
+                if (batchError is not null)
+                {
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(batchError).Throw();
                 }
             }
 

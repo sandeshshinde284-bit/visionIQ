@@ -24,7 +24,9 @@ public sealed class DbCheckpointStore : ICheckpointStore
         "INSERT INTO evidence.connector_checkpoints (source_id, scope, cursor_value, updated_at) "
         + "VALUES (@source_id, @scope, @cursor_value, @updated_at) "
         + "ON CONFLICT (source_id, scope) DO UPDATE SET cursor_value = EXCLUDED.cursor_value, updated_at = EXCLUDED.updated_at "
-        + "WHERE evidence.connector_checkpoints.cursor_value <= EXCLUDED.cursor_value";
+        // Only the timestamp part (before '|') is compared, as in TimeCursor.IsBehind: the boundary IDs after it
+        // are a set, and comparing them as text rejected legitimate progress such as "T|9" -> "T|10,9".
+        + "WHERE split_part(evidence.connector_checkpoints.cursor_value, '|', 1) <= split_part(EXCLUDED.cursor_value, '|', 1)";
 
     private readonly Func<DbConnection> connectionFactory;
 

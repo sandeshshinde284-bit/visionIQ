@@ -41,6 +41,28 @@ public sealed class CanonicalEvidenceSink(
     /// <summary>N-2: where deletions are recorded; without it deletion records are ignored.</summary>
     public IEvidenceTombstones? Tombstones { get; init; }
 
+    /// <summary>Optional: lets the commit sync skip commits already stored (see FindStoredCommitIdsAsync).</summary>
+    public IEvidenceItemLookup? Lookup { get; init; }
+
+    public async Task<IReadOnlySet<string>?> FindStoredCommitIdsAsync(
+        string project, string repositoryId, IReadOnlyCollection<string> commitIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(commitIds);
+        if (Lookup is not { } lookup)
+        {
+            return null;
+        }
+
+        // The same identity the commit record is stored under (see Map, "commits").
+        var adoInstance = organizationUrl.AbsoluteUri.TrimEnd('/');
+        var byKey = commitIds.Distinct(StringComparer.Ordinal).ToDictionary(
+            id => new EvidenceIdentity("azure_devops", adoInstance, project, repositoryId, "commit", id).ItemKey(),
+            id => id,
+            StringComparer.Ordinal);
+        var stored = await lookup.ExistingItemKeysAsync(byKey.Keys, cancellationToken).ConfigureAwait(false);
+        return byKey.Where(pair => stored.Contains(pair.Key)).Select(pair => pair.Value).ToHashSet(StringComparer.Ordinal);
+    }
+
     public async Task WriteAsync(
         string stream,
         string key,

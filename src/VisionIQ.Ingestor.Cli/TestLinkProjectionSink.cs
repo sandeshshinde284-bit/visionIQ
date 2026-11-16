@@ -19,6 +19,10 @@ public sealed class TestLinkProjectionSink(
 {
     private readonly string sourceInstance = adoOrganization.AbsoluteUri.TrimEnd('/');
 
+    public Task<IReadOnlySet<string>?> FindStoredCommitIdsAsync(
+        string project, string repositoryId, IReadOnlyCollection<string> commitIds, CancellationToken cancellationToken = default) =>
+        evidence.FindStoredCommitIdsAsync(project, repositoryId, commitIds, cancellationToken);
+
     public async Task WriteAsync(string stream, string key, object record, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stream);

@@ -31,8 +31,26 @@ public sealed class TicketFixProjectionSink(
     /// process started, or from a run that never saw the original, is not resolved here. A persisted
     /// title index would close that gap; not implemented without a migration (see the review's open
     /// items).
+    /// <para>
+    /// Pull requests are projected in parallel, so this index is guarded by <see cref="titleGate"/>, and a
+    /// revert is matched from both sides: when the revert is seen (against originals seen so far) and when the
+    /// original is seen (against reverts seen so far). Each original/revert pair is recorded once, so the outcome
+    /// does not depend on which of the two finished first.
+    /// </para>
     /// </summary>
     private readonly Dictionary<(string Project, string RepositoryId, string Title), List<PullRequestRecord>> pullRequestsByTitle = new();
+
+    /// <summary>Revert pull requests seen so far, by the (project, repository, title) of the PR they revert.</summary>
+    private readonly Dictionary<(string Project, string RepositoryId, string Title), List<PullRequestRecord>> revertsByOriginalTitle = new();
+
+    /// <summary>Original/revert pairs already recorded in this process, so a pair found from both sides is recorded once.</summary>
+    private readonly HashSet<(string Project, string RepositoryId, int Original, int Revert)> recordedReverts = [];
+
+    private readonly Lock titleGate = new();
+
+    public Task<IReadOnlySet<string>?> FindStoredCommitIdsAsync(
+        string project, string repositoryId, IReadOnlyCollection<string> commitIds, CancellationToken cancellationToken = default) =>
+        evidence.FindStoredCommitIdsAsync(project, repositoryId, commitIds, cancellationToken);
 
     /// <summary>
     /// Archives the complete source record before persisting any links derived
@@ -113,18 +131,10 @@ public sealed class TicketFixProjectionSink(
     private async Task ProjectPullRequestAsync(
         PullRequestRecord pr, CancellationToken cancellationToken)
     {
-        // Review R4-07: resolve before recording this PR's own claims, so an exact self-title match
-        // (impossible in practice, but kept defensive) can never record a PR as reverting itself.
-        await RecordTitleRevertAsync(pr, cancellationToken).ConfigureAwait(false);
-        var titleKey = (pr.Project, pr.RepositoryId, pr.Title);
-        if (!pullRequestsByTitle.TryGetValue(titleKey, out var sameTitle))
+        // Review R4-07: a PR never matches itself (the original/revert pair needs two different IDs).
+        foreach (var (original, revert) in RegisterForTitleReverts(pr))
         {
-            pullRequestsByTitle[titleKey] = sameTitle = [];
-        }
-
-        if (sameTitle.All(seen => seen.Id != pr.Id))
-        {
-            sameTitle.Add(pr);
+            await RecordTitleRevertAsync(original, revert, cancellationToken).ConfigureAwait(false);
         }
 
         // Review R4-03: a pull request that never merged changed nothing on the target branch, so its
@@ -186,22 +196,80 @@ public sealed class TicketFixProjectionSink(
     /// records anything: both sides must also agree on a real commit SHA, and an ambiguous title (more
     /// than one earlier match) resolves nothing.
     /// </summary>
-    private async Task RecordTitleRevertAsync(PullRequestRecord pr, CancellationToken cancellationToken)
+    private List<(PullRequestRecord Original, PullRequestRecord Revert)> RegisterForTitleReverts(PullRequestRecord pr)
     {
-        var originalTitle = LinkExtractor.QuotedRevertOriginalTitle(pr.Title);
-        if (originalTitle is null ||
-            !pullRequestsByTitle.TryGetValue((pr.Project, pr.RepositoryId, originalTitle), out var candidates))
+        var pairs = new List<(PullRequestRecord Original, PullRequestRecord Revert)>();
+        lock (titleGate)
         {
-            return;
+            // As before: the first record seen of each PR is the one a revert is matched against.
+            AddIfAbsent(pullRequestsByTitle, (pr.Project, pr.RepositoryId, pr.Title), pr);
+            var originalTitle = LinkExtractor.QuotedRevertOriginalTitle(pr.Title);
+            if (originalTitle is not null)
+            {
+                AddIfAbsent(revertsByOriginalTitle, (pr.Project, pr.RepositoryId, originalTitle), pr);
+            }
+
+            // This PR as the revert: exactly one other PR must carry the original title (otherwise ambiguous).
+            if (originalTitle is not null &&
+                UniqueOriginal(pr.Project, pr.RepositoryId, originalTitle, excludeId: pr.Id) is { } original)
+            {
+                AddPair(original, pr);
+            }
+
+            // This PR as the original: every revert already seen that names its title, provided this PR is the
+            // only one with that title.
+            if (revertsByOriginalTitle.TryGetValue((pr.Project, pr.RepositoryId, pr.Title), out var reverts) &&
+                UniqueOriginal(pr.Project, pr.RepositoryId, pr.Title, excludeId: null) is { } self && self.Id == pr.Id)
+            {
+                foreach (var revert in reverts.Where(revert => revert.Id != pr.Id))
+                {
+                    AddPair(pr, revert);
+                }
+            }
         }
 
-        var matches = candidates.Where(candidate => candidate.Id != pr.Id).ToList();
-        if (matches.Count != 1)
+        return pairs;
+
+        void AddPair(PullRequestRecord original, PullRequestRecord revert)
         {
-            return; // no earlier match, or an ambiguous title shared by several pull requests
+            if (recordedReverts.Add((original.Project, original.RepositoryId, original.Id, revert.Id)))
+            {
+                pairs.Add((original, revert));
+            }
+        }
+    }
+
+    /// <summary>The one PR carrying exactly this title (other than <paramref name="excludeId"/>), or null when
+    /// there is none or more than one. Callers hold <see cref="titleGate"/>.</summary>
+    private PullRequestRecord? UniqueOriginal(string project, string repositoryId, string title, int? excludeId)
+    {
+        if (!pullRequestsByTitle.TryGetValue((project, repositoryId, title), out var candidates))
+        {
+            return null;
         }
 
-        var original = matches[0];
+        var matches = candidates.Where(candidate => candidate.Id != excludeId).ToList();
+        return matches.Count == 1 ? matches[0] : null;
+    }
+
+    private static void AddIfAbsent(
+        Dictionary<(string Project, string RepositoryId, string Title), List<PullRequestRecord>> index,
+        (string Project, string RepositoryId, string Title) key,
+        PullRequestRecord pr)
+    {
+        if (!index.TryGetValue(key, out var list))
+        {
+            index[key] = list = [];
+        }
+
+        if (list.All(seen => seen.Id != pr.Id))
+        {
+            list.Add(pr);
+        }
+    }
+
+    private async Task RecordTitleRevertAsync(PullRequestRecord original, PullRequestRecord pr, CancellationToken cancellationToken)
+    {
         var shaPairs = (
             from originalSha in FixCommitCandidates(original)
             from revertSha in FixCommitCandidates(pr)

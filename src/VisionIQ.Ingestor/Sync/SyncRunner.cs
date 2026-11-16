@@ -165,6 +165,32 @@ public sealed class SyncRunner
     /// real network concurrency, not unbounded fan-out.</summary>
     public const int DefaultEvidenceConcurrency = 8;
 
+    /// <summary>
+    /// How far behind the commit checkpoint each run looks again. A commit's committer date is set by the developer's
+    /// Git client, not when it reached the branch: a feature-branch commit merged later keeps its older date and
+    /// would otherwise fall behind a checkpoint that already passed it. Commits in this window that are not stored
+    /// yet are ingested; stored ones are skipped (when the sink can tell). Older stragglers need a --full run.
+    /// </summary>
+    public static readonly TimeSpan DefaultCommitLookback = TimeSpan.FromDays(30);
+
+    private static readonly Action<ILogger, string, string, string, string, string, Exception?> LogRecordFailed =
+        LoggerMessage.Define<string, string, string, string, string>(
+            LogLevel.Error,
+            new EventId(1024, nameof(LogRecordFailed)),
+            "ADO {Kind} {Id} FAILED at {Stage}: {ErrorType}: {Message}");
+
+    private static readonly Action<ILogger, string, string, string, Exception?> LogCheckpointKept =
+        LoggerMessage.Define<string, string, string>(
+            LogLevel.Information,
+            new EventId(1025, nameof(LogCheckpointKept)),
+            "ADO ingestion checkpoint KEPT scope={Scope}: this --full run is at {RunAt}, behind the stored {StoredAt}");
+
+    private static readonly Action<ILogger, string, int, Exception?> LogLateCommits =
+        LoggerMessage.Define<string, int>(
+            LogLevel.Information,
+            new EventId(1026, nameof(LogLateCommits)),
+            "ADO Commits repository={Repository}: {Count} commit(s) older than the checkpoint were not stored yet (merged later); ingesting them");
+
     private readonly AdoClient client;
     private readonly ICheckpointStore checkpoints;
     private readonly IRecordSink sink;
@@ -175,8 +201,16 @@ public sealed class SyncRunner
     private readonly AdoCommitSource commits;
     private readonly AdoBuildSource builds;
     private readonly int evidenceConcurrency;
+    private readonly TimeSpan commitLookback;
 
-    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null, ISyncQuarantine? quarantine = null, Microsoft.Extensions.Logging.ILogger? logger = null, int evidenceConcurrency = DefaultEvidenceConcurrency)
+    /// <summary>
+    /// True when failed items can be recorded durably and retried later (a database quarantine), so a checkpoint may
+    /// move past them. The default in-memory quarantine forgets everything at exit, so with it the checkpoint always
+    /// stops before the first failed item instead.
+    /// </summary>
+    private readonly bool durableQuarantine;
+
+    public SyncRunner(AdoClient client, ICheckpointStore checkpoints, IRecordSink sink, SourceCapabilityRegistry registry, TimeProvider? time = null, Defects.DefectEnvironmentClassifier? environments = null, ISyncQuarantine? quarantine = null, Microsoft.Extensions.Logging.ILogger? logger = null, int evidenceConcurrency = DefaultEvidenceConcurrency, TimeSpan? commitLookback = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(checkpoints);
@@ -190,6 +224,8 @@ public sealed class SyncRunner
         this.time = time ?? TimeProvider.System;
         workItems = new AdoWorkItemSource(client, environments);
         this.quarantine = quarantine ?? new InMemorySyncQuarantine();
+        durableQuarantine = this.quarantine is not InMemorySyncQuarantine;
+        this.commitLookback = commitLookback is { } lookback && lookback >= TimeSpan.Zero ? lookback : DefaultCommitLookback;
         log = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         repositories = new AdoRepositorySource(client);
         commits = new AdoCommitSource(client);
@@ -215,6 +251,8 @@ public sealed class SyncRunner
     private async Task<SyncReport> RunCoreAsync(SyncRequest request, CancellationToken cancellationToken)
     {
         reconciling = request.Reconcile;
+        ignoringCheckpoints = request.IgnoreCheckpoints;
+        storedCheckpointAt.Clear();
         var report = new SyncReport { Tenant = client.Options.Tenant, StartedAt = time.GetUtcNow() };
 
         foreach (var project in client.Options.Projects)
@@ -359,6 +397,18 @@ public sealed class SyncRunner
             var open = await quarantine.OpenAsync(SourceId, scope, "work_item", cancellationToken).ConfigureAwait(false);
             LogWorkItemsQuarantineLoaded(log, timer.ElapsedMilliseconds, null);
             var fresh = new List<WorkItemRecord>();
+
+            // The WIQL result is ordered by (ChangedDate, Id), so an unreadable item's position in it is its
+            // position in time even though its record (and ChangedDate) is unknown. The checkpoint may advance up
+            // to, never past, the first unreadable item: everything before it is complete, and it is read again
+            // next run. (Previously one unreadable item disabled every checkpoint save of the stream.)
+            var wiqlIndex = new Dictionary<int, int>(ids.Count);
+            for (var position = 0; position < ids.Count; position++)
+            {
+                wiqlIndex.TryAdd(ids[position], position);
+            }
+
+            var firstUnreadable = int.MaxValue;
             for (var index = 0; index < outcomes.Count; index++)
             {
                 var outcome = outcomes[index];
@@ -375,6 +425,7 @@ public sealed class SyncRunner
 
                 if (outcome.Record is null)
                 {
+                    firstUnreadable = Math.Min(firstUnreadable, index);
                     result.NotStored++;
                     // Unreadable items go to quarantine. By NOT advancing the checkpoint past them,
                     // we guarantee retry on the next run. The checkpoint tracks the *last written* item,
@@ -406,6 +457,10 @@ public sealed class SyncRunner
             // so overlapping records/revisions/links cannot turn into unbounded concurrent network calls.
             using var writeGate = new SemaphoreSlim(evidenceConcurrency);
             var writtenBag = new ConcurrentBag<(DateTimeOffset At, string Id)>();
+            var completedIds = new ConcurrentDictionary<int, bool>();
+            // Progress may be saved while the stream is complete so far, or only partial because of unreadable
+            // (quarantined) items, which the checkpoint stops in front of.
+            var canSaveProgress = result.Status == StreamStatus.Synced || result.Quarantined > 0;
             var recordsDone = 0;
             var linksWritten = 0;
 
@@ -452,7 +507,17 @@ public sealed class SyncRunner
                 // snapshot. ChangedDate stored in the record itself is never clamped (real source data).
                 var checkpointAt = query.AsOf is { } asOf && record.ChangedDate > asOf ? asOf : record.ChangedDate;
                 writtenBag.Add((checkpointAt, Text(record.Id)));
+                completedIds[record.Id] = true;
             }
+
+            (DateTimeOffset At, string Id) Position(WorkItemRecord record) => (
+                query.AsOf is { } asOf && record.ChangedDate > asOf ? asOf : record.ChangedDate,
+                Text(record.Id));
+
+            // Safe to leave behind: fully written, and before the first unreadable item in WIQL order.
+            bool Safe(WorkItemRecord record) =>
+                completedIds.ContainsKey(record.Id) &&
+                wiqlIndex.TryGetValue(record.Id, out var position) && position < firstUnreadable;
 
             try
             {
@@ -462,30 +527,41 @@ public sealed class SyncRunner
                 for (var offset = 0; offset < ordered.Count; offset += checkpointBatchSize)
                 {
                     var batch = ordered.Skip(offset).Take(checkpointBatchSize).ToList();
-                    await Parallel.ForEachAsync(batch, new ParallelOptions
+                    Exception? batchError = null;
+                    try
                     {
-                        MaxDegreeOfParallelism = evidenceConcurrency,
-                        CancellationToken = cancellationToken,
-                    }, ProcessWorkItemAsync).ConfigureAwait(false);
+                        await Parallel.ForEachAsync(batch, new ParallelOptions
+                        {
+                            MaxDegreeOfParallelism = evidenceConcurrency,
+                            CancellationToken = cancellationToken,
+                        }, ProcessWorkItemAsync).ConfigureAwait(false);
+                    }
+                    catch (Exception error)
+                    {
+                        batchError = error;
+                    }
 
                     result.Records = recordsDone;
                     result.Links = linksWritten;
 
-                    // Quarantined or otherwise incomplete work items must not be
-                    // passed by the cursor. All revisions and links above must
-                    // finish before a batch can be committed.
-                    if (result.Status == StreamStatus.Synced && !request.Reconcile)
+                    // The checkpoint covers only the completed run of this batch in (ChangedDate, Id) order, up to
+                    // the first failed, unfinished or unreadable item. Items completed after that point (parallel
+                    // completion is out of order) are written again next run; never skipped.
+                    var safe = CheckpointProgress.SafePrefix(batch, Position, Safe);
+                    if (safe.Count > 0 && canSaveProgress && !request.Reconcile)
                     {
-                        var completed = batch.Select(record => (
-                            At: query.AsOf is { } asOf && record.ChangedDate > asOf
-                                ? asOf : record.ChangedDate,
-                            Id: Text(record.Id)));
-                        cursor = TimeCursor.Advance(cursor, completed);
-                        await SaveCursorAsync(scope, cursor, result, cancellationToken).ConfigureAwait(false);
-                        if (result.Status != StreamStatus.Synced)
+                        cursor = TimeCursor.Advance(cursor, safe);
+                        // On cancellation, still record what is complete (a short, best-effort save).
+                        if (!await SaveCursorAsync(scope, cursor, result,
+                            batchError is OperationCanceledException ? CancellationToken.None : cancellationToken).ConfigureAwait(false))
                         {
-                            return;
+                            return; // the checkpoint could not be saved; SaveCursorAsync reported why
                         }
+                    }
+
+                    if (batchError is not null)
+                    {
+                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(batchError).Throw();
                     }
                 }
             }
@@ -635,13 +711,18 @@ public sealed class SyncRunner
 
             LogPullRequestsFetched(log, repository.Name, all.Count, null);
 
+            // PRs that failed in an earlier run and were quarantined (durable quarantine only): read again
+            // whatever the checkpoint says, until they succeed.
+            var retry = durableQuarantine
+                ? await quarantine.OpenAsync(SourceId, scope, "pull_request", cancellationToken).ConfigureAwait(false)
+                : new HashSet<string>(StringComparer.Ordinal);
+
             // Always refresh active PRs, even when their creation date
             // is older than the saved checkpoint.
             var fresh = all
                 .Where(item =>
-                    item.Status.Equals(
-                        "active",
-                        StringComparison.OrdinalIgnoreCase)
+                    IsActive(item)
+                    || retry.Contains(Text(item.Id))
                     || (cursor is null
                         ? request.Since is null
                           || item.LastActivity >= request.Since
@@ -658,77 +739,114 @@ public sealed class SyncRunner
             // evidence concurrency limit.
             var parallelism = Math.Min(4, evidenceConcurrency);
 
-            // Checkpoint only after a complete, durably written batch. A failed batch
-        // is replayed on the next run; previously committed batches are retained.
-        const int checkpointBatchSize = 25;
-        for (var offset = 0; offset < fresh.Count; offset += checkpointBatchSize)
-        {
-            var start = offset;
-            var count = Math.Min(checkpointBatchSize, fresh.Count - start);
-            var batchWritten = new ConcurrentBag<(DateTimeOffset At, string Id)>();
-
-            await Parallel.ForEachAsync(
-                Enumerable.Range(start, count),
-                new ParallelOptions
-                {
-                    MaxDegreeOfParallelism = parallelism,
-                    CancellationToken = cancellationToken
-                },
-                async (index, token) =>
-                {
-                    var pullRequest = fresh[index];
-
-                    LogPullRequestEnrichmentStart(
-                        log, repository.Name, index + 1, total, pullRequest.Id, null);
-
-                    var enriched = await repositories.EnrichAsync(
-                        project, repository, pullRequest, token).ConfigureAwait(false);
-
-                    var version = enriched.Status + "@" + Stamp(enriched.LastActivity);
-                    await sink.WriteAsync(
-                        "pull-requests",
-                        Key(project, "pull-request", Text(enriched.Id), version),
-                        enriched, token).ConfigureAwait(false);
-
-                    await PullRequestReviewProjection.WriteAsync(
-                        sink, client.Options.Tenant, enriched, token).ConfigureAwait(false);
-
-                    var linkCount = await WriteLinksAsync(
-                        project, LinkExtractor.FromPullRequest(enriched), token).ConfigureAwait(false);
-
-                    // Mark complete only after all related evidence has been written.
-                    batchWritten.Add((enriched.LastActivity, Text(enriched.Id)));
-                    Interlocked.Add(ref linksWritten, linkCount);
-                    Interlocked.Increment(ref processed);
-
-                    LogPullRequestEnrichmentCompleted(
-                        log, repository.Name, index + 1, total, pullRequest.Id, null);
-                }).ConfigureAwait(false);
-
-            // Parallel completion order is immaterial because the *entire* sorted
-            // batch succeeded. Never checkpoint beyond an incomplete batch.
-            if (batchWritten.Count != count)
+            // Each PR is processed on its own: a failure is captured with its PR ID and step, the other PRs of
+            // the batch still finish, and the checkpoint then covers only what is safe to leave behind.
+            const int checkpointBatchSize = 25;
+            for (var offset = 0; offset < fresh.Count; offset += checkpointBatchSize)
             {
-                throw new InvalidOperationException("Not all PRs in the checkpoint batch completed.");
-            }
+                var start = offset;
+                var count = Math.Min(checkpointBatchSize, fresh.Count - start);
+                var completed = new ConcurrentDictionary<int, bool>();
+                var failures = new ConcurrentDictionary<int, RecordProcessingException>();
 
-            foreach (var item in batchWritten)
-            {
-                written.Add(item);
-            }
-
-            // Active PRs are deliberately re-enriched on every run, even before
-            // this cursor. The cursor still allows completed closed PRs to resume.
-            if (!request.Reconcile)
-            {
-                cursor = TimeCursor.Advance(cursor, batchWritten);
-                await SaveCursorAsync(scope, cursor, result, cancellationToken).ConfigureAwait(false);
-                if (result.Status != StreamStatus.Synced)
+                Exception? interrupted = null;
+                try
                 {
+                    await Parallel.ForEachAsync(
+                        Enumerable.Range(start, count),
+                        new ParallelOptions
+                        {
+                            MaxDegreeOfParallelism = parallelism,
+                            CancellationToken = cancellationToken
+                        },
+                        async (index, token) =>
+                        {
+                            var pullRequest = fresh[index];
+                            LogPullRequestEnrichmentStart(
+                                log, repository.Name, index + 1, total, pullRequest.Id, null);
+                            try
+                            {
+                                var linkCount = await ProcessPullRequestAsync(project, repository, pullRequest, token).ConfigureAwait(false);
+
+                                // Mark complete only after all related evidence has been written.
+                                completed[pullRequest.Id] = true;
+                                written.Add((pullRequest.LastActivity, Text(pullRequest.Id)));
+                                Interlocked.Add(ref linksWritten, linkCount);
+                                Interlocked.Increment(ref processed);
+                                LogPullRequestEnrichmentCompleted(
+                                    log, repository.Name, index + 1, total, pullRequest.Id, null);
+                            }
+                            catch (RecordProcessingException error)
+                            {
+                                failures[pullRequest.Id] = error;
+                                LogRecordFailed(log, "pull request", pullRequest.Id.ToString(CultureInfo.InvariantCulture),
+                                    error.Stage, error.InnerException?.GetType().Name ?? nameof(Exception),
+                                    error.InnerException?.Message ?? error.Message, error.InnerException);
+                            }
+                        }).ConfigureAwait(false);
+                }
+                catch (Exception error) when (error is OperationCanceledException or AggregateException)
+                {
+                    // Cancellation (or several cancellations at once): save what is complete, then stop.
+                    interrupted = error;
+                }
+
+                // Record every failure durably where possible, so the checkpoint may move past it and it is
+                // retried next run. Without a durable quarantine the checkpoint stops in front of it instead.
+                var quarantinedNow = new HashSet<int>();
+                foreach (var (id, failure) in failures.OrderBy(pair => pair.Key))
+                {
+                    Partial(result, failure.Message);
+                    if (durableQuarantine && interrupted is null)
+                    {
+                        var nativeId = id.ToString(CultureInfo.InvariantCulture);
+                        await quarantine.AddAsync(new QuarantinedItem(
+                            SourceId, scope, "pull_request", nativeId, "processing_failed",
+                            Truncate(failure.Message, 2000), time.GetUtcNow()), cancellationToken).ConfigureAwait(false);
+                        Logging.IngestionLog.Quarantined(log, "pull_request", nativeId, scope, "processing_failed");
+                        result.Quarantined++;
+                        quarantinedNow.Add(id);
+                    }
+                }
+
+                // A PR that was quarantined earlier and now succeeded is resolved.
+                foreach (var resolvedId in completed.Keys.Select(Text).Where(retry.Contains))
+                {
+                    await quarantine.ResolveAsync(SourceId, scope, "pull_request", resolvedId, time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+                    Logging.IngestionLog.QuarantineResolved(log, "pull_request", resolvedId, scope);
+                }
+
+                // Safe to leave behind: written; or failed but read again next run anyway (an active PR is
+                // always re-selected; a quarantined one is re-selected until it succeeds).
+                bool Safe(PullRequestRecord item) =>
+                    completed.ContainsKey(item.Id) ||
+                    (failures.ContainsKey(item.Id) && (IsActive(item) || quarantinedNow.Contains(item.Id)));
+
+                var batch = fresh.GetRange(start, count);
+                var safe = CheckpointProgress.SafePrefix(batch, item => (item.LastActivity, Text(item.Id)), Safe);
+                if (safe.Count > 0 && !request.Reconcile)
+                {
+                    cursor = TimeCursor.Advance(cursor, safe);
+                    if (!await SaveCursorAsync(scope, cursor, result,
+                        interrupted is null ? cancellationToken : CancellationToken.None).ConfigureAwait(false))
+                    {
+                        return;
+                    }
+                }
+
+                if (interrupted is not null)
+                {
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(interrupted).Throw();
+                }
+
+                if (safe.Count < count)
+                {
+                    // A failed PR the checkpoint cannot pass (no durable quarantine): stop here rather than
+                    // write PRs the next run has to read again anyway. The failure is in the stream's reason.
+                    Partial(result, "Stopped at the first PR that failed; it and the PRs after it are read again next run.");
                     return;
                 }
             }
-        }
 
             LogPullRequestsFinished(
                 log,
@@ -759,18 +877,46 @@ public sealed class SyncRunner
             // IsolateAsync handles other unexpected exceptions.
         }
 
-        // CRITICAL: no checkpoint advancement after a partial
-        // or failed parallel batch.
-        if (result.Status != StreamStatus.Synced
-            || processed != total)
-        {
-            return;
-        }
-
-        // Each successful batch has already been checkpointed. Reconcile runs
+        // Each batch has already been checkpointed up to its safe prefix. Reconcile runs
         // intentionally preserve the previous cursor.
-
     }
+
+    /// <summary>
+    /// Enriches one PR and writes its evidence, reviews and links. Any failure is reported as a
+    /// <see cref="RecordProcessingException"/> naming the PR and the step that failed. Returns the link count.
+    /// </summary>
+    private async Task<int> ProcessPullRequestAsync(
+        string project, RepositoryRecord repository, PullRequestRecord pullRequest, CancellationToken token)
+    {
+        var id = Text(pullRequest.Id);
+        var stage = "ADO enrichment";
+        try
+        {
+            var enriched = await repositories.EnrichAsync(project, repository, pullRequest, token).ConfigureAwait(false);
+
+            stage = "evidence write and projections";
+            var version = enriched.Status + "@" + Stamp(enriched.LastActivity);
+            await sink.WriteAsync(
+                "pull-requests",
+                Key(project, "pull-request", Text(enriched.Id), version),
+                enriched, token).ConfigureAwait(false);
+
+            stage = "review projection";
+            await PullRequestReviewProjection.WriteAsync(sink, client.Options.Tenant, enriched, token).ConfigureAwait(false);
+
+            stage = "link write";
+            return await WriteLinksAsync(project, LinkExtractor.FromPullRequest(enriched), token).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested)
+        {
+            throw new RecordProcessingException("pull request", id, stage, error);
+        }
+    }
+
+    private static bool IsActive(PullRequestRecord item) =>
+        item.Status.Equals("active", StringComparison.OrdinalIgnoreCase);
+
+    private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length];
 
 
     private async Task SyncCommitsAsync(string project, RepositoryRecord repository, SyncRequest request, SyncReport report, CancellationToken cancellationToken)
@@ -783,9 +929,39 @@ public sealed class SyncRunner
         try
         {
             cursor = await LoadCursorAsync(scope, request, cancellationToken).ConfigureAwait(false);
-            var all = await commits.GetCommitsAsync(project, repository, cursor?.At ?? request.Since, cancellationToken).ConfigureAwait(false);
+
+            // The committer date is the developer's clock, not when the commit reached this branch, so a commit
+            // merged after the checkpoint passed its date would never match "from the checkpoint" again. Re-read a
+            // window behind the checkpoint and ingest the commits in it that are not stored yet.
+            // A zero look-back keeps the previous behaviour: read from the checkpoint only.
+            var lookBack = cursor is not null && commitLookback > TimeSpan.Zero;
+            var from = cursor is null ? request.Since : lookBack ? cursor.At - commitLookback : cursor.At;
+            if (lookBack && request.Since is { } since && from < since)
+            {
+                from = since; // never read before the configured INGESTION_SINCE
+            }
+
+            var all = await commits.GetCommitsAsync(project, repository, from, cancellationToken).ConfigureAwait(false);
+            var behindCursor = lookBack
+                ? all.Where(item => !cursor!.IsNew(item.CommitterDate, item.CommitId)).ToList()
+                : [];
+            var late = behindCursor;
+            if (behindCursor.Count > 0)
+            {
+                var stored = await sink.FindStoredCommitIdsAsync(
+                    project, repository.Id, behindCursor.Select(item => item.CommitId).ToList(), cancellationToken).ConfigureAwait(false);
+                // null: the sink cannot tell, so the whole window is written again (idempotent, never skipped).
+                late = stored is null ? behindCursor : behindCursor.Where(item => !stored.Contains(item.CommitId)).ToList();
+            }
+
+            if (late.Count > 0)
+            {
+                LogLateCommits(log, repository.Name, late.Count, null);
+            }
+
+            var lateIds = late.Select(item => item.CommitId).ToHashSet(StringComparer.Ordinal);
             var fresh = all
-                .Where(item => cursor is null || cursor.IsNew(item.CommitterDate, item.CommitId))
+                .Where(item => cursor is null || cursor.IsNew(item.CommitterDate, item.CommitId) || lateIds.Contains(item.CommitId))
                 .OrderBy(item => item.CommitterDate)
                 .ThenBy(item => item.CommitId, StringComparer.Ordinal);
 
@@ -899,21 +1075,27 @@ public sealed class SyncRunner
 
     private async Task<TimeCursor?> LoadCursorAsync(string scope, SyncRequest request, CancellationToken cancellationToken)
     {
-        if (request.IgnoreCheckpoints)
-        {
-            if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
-            {
-                var from = request.Since?.ToString("O", CultureInfo.InvariantCulture) ?? "all history";
-                Logging.IngestionLog.Checkpoint(log, scope, "ignored for this run", from);
-            }
-            return null;
-        }
-
         try
         {
             var checkpoint = await checkpoints.GetAsync(SourceId, scope, cancellationToken).ConfigureAwait(false);
+            var stored = TimeCursor.Parse(checkpoint?.Cursor);
+            if (request.IgnoreCheckpoints)
+            {
+                // --full re-reads from INGESTION_SINCE, but the stored checkpoint is kept: saving this run's
+                // (older) progress over it would be refused by the store's monotonic guard and fail the stream
+                // after the first batch. SaveCursorAsync only saves once this run has caught up with it.
+                storedCheckpointAt[scope] = stored?.At;
+                if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
+                {
+                    var from = request.Since?.ToString("O", CultureInfo.InvariantCulture) ?? "all history";
+                    Logging.IngestionLog.Checkpoint(log, scope, "ignored for this run", from);
+                }
+
+                return null;
+            }
+
             Logging.IngestionLog.Checkpoint(log, scope, "loaded", checkpoint?.Cursor ?? "none (first run)");
-            return TimeCursor.Parse(checkpoint?.Cursor);
+            return stored;
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
@@ -924,14 +1106,31 @@ public sealed class SyncRunner
     }
 
     private bool reconciling;
+    private bool ignoringCheckpoints;
+
+    /// <summary>For a --full run: the timestamp of each scope's stored checkpoint, which this run must not regress.</summary>
+    private readonly ConcurrentDictionary<string, DateTimeOffset?> storedCheckpointAt = new(StringComparer.Ordinal);
     private readonly ISyncQuarantine quarantine;
     private readonly Microsoft.Extensions.Logging.ILogger log;
 
-    private async Task SaveCursorAsync(string scope, TimeCursor? cursor, StreamResult result, CancellationToken cancellationToken)
+    /// <summary>Saves the checkpoint; false (and the stream marked failed) when it could not be saved.</summary>
+    private async Task<bool> SaveCursorAsync(string scope, TimeCursor? cursor, StreamResult result, CancellationToken cancellationToken)
     {
         if (cursor is null || reconciling)
         {
-            return; // a reconciliation sweep never moves the delta checkpoint (LRN-05)
+            return true; // a reconciliation sweep never moves the delta checkpoint (LRN-05)
+        }
+
+        if (ignoringCheckpoints &&
+            storedCheckpointAt.TryGetValue(scope, out var storedAt) &&
+            storedAt is { } stored &&
+            cursor.At < stored)
+        {
+            // A --full run behind the stored checkpoint: everything up to here is written, and the stored
+            // checkpoint already covers it. Keep it; this is not a failure.
+            LogCheckpointKept(log, scope, cursor.At.ToString("O", CultureInfo.InvariantCulture),
+                stored.ToString("O", CultureInfo.InvariantCulture), null);
+            return true;
         }
 
         try
@@ -946,10 +1145,13 @@ public sealed class SyncRunner
                 var saved = cursor.Format();
                 Logging.IngestionLog.Checkpoint(log, scope, "saved", saved);
             }
+
+            return true;
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
             Failed(result, "Records were written but the checkpoint could not be saved: " + error.Message);
+            return false;
         }
     }
 

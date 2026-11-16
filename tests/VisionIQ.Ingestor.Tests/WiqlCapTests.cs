@@ -67,7 +67,7 @@ public sealed class WiqlCapTests
     }
 
     [Fact]
-    public async Task A_capped_batch_with_a_missing_item_does_not_advance_the_checkpoint()
+    public async Task A_capped_batch_with_a_missing_item_never_advances_the_checkpoint_past_it()
     {
         var checkpoints = new InMemoryCheckpointStore();
         var runner = new SyncRunner(DemoAdo.Client(CappedServer(omitId: 50)), checkpoints, new MemorySink(), new SourceCapabilityRegistry());
@@ -75,6 +75,14 @@ public sealed class WiqlCapTests
         var report = await runner.RunAsync(WorkItemsOnly());
 
         Assert.Equal(StreamStatus.Partial, Assert.Single(report.Streams).Status);
-        Assert.Null(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
+        // Progress up to item 49 (everything in front of the missing item 50) is kept; item 50 and everything
+        // after it are newer than the checkpoint, so the next run reads them again.
+        var saved = await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items");
+        var cursor = TimeCursor.Parse(saved!.Cursor)!;
+        Assert.Equal(Changed(49), cursor.At);
+        Assert.True(cursor.IsNew(Changed(50), "50"));
+        Assert.True(cursor.IsNew(Changed(AdoWorkItemSource.WiqlLimit), Text(AdoWorkItemSource.WiqlLimit)));
     }
+
+    private static string Text(int value) => value.ToString(CultureInfo.InvariantCulture);
 }

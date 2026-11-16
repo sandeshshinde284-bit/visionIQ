@@ -169,4 +169,25 @@ internal sealed class MemorySink : IRecordSink
             return Items.Count(item => item.Stream == stream);
         }
     }
+
+    /// <summary>
+    /// Commit IDs this sink reports as already stored (the canonical store's lookup). Null: cannot tell, like a
+    /// sink without a store, so the commit sync writes its whole look-back window again.
+    /// </summary>
+    public HashSet<string>? StoredCommitIds { get; set; }
+
+    public Task<IReadOnlySet<string>?> FindStoredCommitIdsAsync(
+        string project, string repositoryId, IReadOnlyCollection<string> commitIds, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlySet<string>?>(StoredCommitIds is null
+            ? null
+            : commitIds.Where(StoredCommitIds.Contains).ToHashSet(StringComparer.Ordinal));
+
+    public IReadOnlyList<string> CommitIds()
+    {
+        lock (gate)
+        {
+            return Items.Where(item => item.Stream == "commits")
+                .Select(item => ((VisionIQ.Ingestor.Ado.CommitRecord)item.Record).CommitId).ToList();
+        }
+    }
 }

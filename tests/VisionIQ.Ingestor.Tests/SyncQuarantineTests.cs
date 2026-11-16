@@ -36,7 +36,12 @@ public sealed class SyncQuarantineTests
         Assert.Null(resolved);
         Assert.Contains("missing", item.Reason, StringComparison.Ordinal);
         Assert.Single(sink.Items, i => i.Stream == "sync-quarantine");
-        Assert.Null(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items")); // retried next run
+        // The checkpoint stops in front of the unreadable item (WIQL order is ChangedDate, Id): item 1 is behind
+        // it, item 2 is not, so item 2 is read again next run while item 1 is not.
+        var saved = await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items");
+        var cursor = TimeCursor.Parse(saved!.Cursor)!;
+        Assert.False(cursor.IsNew(cursor.At, "1"));
+        Assert.True(cursor.IsNew(cursor.At, "2"));
         var audit = Assert.Single(SourceSyncAuditProjector.Project(report, VisionIQ.Api.Features.Backfill.SourceSyncMode.Delta));
         Assert.Equal((2, 1, 1), (audit.RecordsReceived, audit.RecordsStored, audit.RecordsQuarantined));
     }

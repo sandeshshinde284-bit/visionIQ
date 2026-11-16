@@ -13,6 +13,16 @@ public interface IRecordSink
     /// Sinks that write synchronously and transactionally (the canonical database sink) need nothing.
     /// </summary>
     Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    /// <summary>
+    /// The commit IDs among <paramref name="commitIds"/> this sink already holds durably, or null when it cannot
+    /// tell (the default). The commit sync uses it to find commits that reached the branch after the checkpoint
+    /// passed their committer date; with null, every commit in the re-read window is written again (idempotent).
+    /// Decorating sinks must forward this to the sink they wrap.
+    /// </summary>
+    Task<IReadOnlySet<string>?> FindStoredCommitIdsAsync(
+        string project, string repositoryId, IReadOnlyCollection<string> commitIds, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlySet<string>?>(null);
 }
 
 /// <summary>

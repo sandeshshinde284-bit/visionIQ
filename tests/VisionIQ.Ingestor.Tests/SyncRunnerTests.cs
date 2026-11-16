@@ -49,8 +49,11 @@ public sealed class SyncRunnerTests
     public async Task A_second_run_resumes_from_checkpoints_without_duplicates()
     {
         var checkpoints = new InMemoryCheckpointStore();
-        await Runner(DemoAdo.Server(), checkpoints, new MemorySink()).RunAsync(All());
-        var second = new MemorySink();
+        var first = new MemorySink();
+        await Runner(DemoAdo.Server(), checkpoints, first).RunAsync(All());
+        // The canonical store knows the commits the first run stored, so the commit look-back window
+        // (late-merged commits) finds nothing new to write.
+        var second = new MemorySink { StoredCommitIds = first.CommitIds().ToHashSet(StringComparer.Ordinal) };
 
         var report = await Runner(DemoAdo.Server(), checkpoints, second).RunAsync(All());
 

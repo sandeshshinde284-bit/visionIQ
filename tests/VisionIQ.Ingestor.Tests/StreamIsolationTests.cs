@@ -1,3 +1,4 @@
+using VisionIQ.Ingestor.Ado;
 using VisionIQ.Ingestor.Checkpoints;
 using VisionIQ.Ingestor.Sources;
 using VisionIQ.Ingestor.Sync;
@@ -71,7 +72,7 @@ public sealed class StreamIsolationTests
     }
 
     [Fact]
-    public async Task Mid_stream_sink_failure_does_not_advance_checkpoint_and_retry_recovers_without_duplicate_keys()
+    public async Task Mid_stream_sink_failure_keeps_only_completed_progress_and_retry_recovers_without_duplicate_keys()
     {
         var sink = new FailOnceAfterFirstWorkItemSink();
         var checkpoints = new InMemoryCheckpointStore();
@@ -85,13 +86,25 @@ public sealed class StreamIsolationTests
         Assert.NotEqual(StreamStatus.Synced, first.Status);
         Assert.Contains("injected mid-stream sink failure", first.Reason, StringComparison.Ordinal);
         Assert.Equal(1, sink.Inner.Count("work-items"));
-        Assert.Null(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));
+        var completedId = ((WorkItemRecord)sink.Inner.Items.Single(item => item.Stream == "work-items").Record).Id;
+        // The two items are written in parallel, so which one failed varies. The checkpoint may only cover the
+        // completed item when it is the older one; it must never cover the failed item.
+        var saved = await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items");
 
         var recovered = await new SyncRunner(DemoAdo.Client(DemoAdo.Server()), checkpoints, sink, new SourceCapabilityRegistry())
             .RunAsync(request);
 
         Assert.True(recovered.AllSynced);
-        Assert.Equal(2, Assert.Single(recovered.Streams).Records);
+        var all = sink.Inner.Items.Where(item => item.Stream == "work-items").Select(item => (WorkItemRecord)item.Record).ToList();
+        var failed = all.Single(item => item.Id != completedId);
+        if (saved is not null)
+        {
+            var cursor = TimeCursor.Parse(saved.Cursor)!;
+            Assert.True(cursor.IsNew(failed.ChangedDate, failed.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                "the checkpoint must never cover the item whose write failed");
+            Assert.Equal(1, Assert.Single(recovered.Streams).Records); // the completed item is not repeated
+        }
+
         Assert.Equal(2, sink.Inner.Count("work-items"));
         Assert.Equal(2, sink.Inner.Items.Where(item => item.Stream == "work-items").Select(item => item.Key).Distinct(StringComparer.Ordinal).Count());
         Assert.NotNull(await checkpoints.GetAsync("contoso/ado", "VisionIQ Demo/work-items"));

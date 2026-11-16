@@ -70,6 +70,12 @@ var evidenceConcurrency = int.TryParse(configuration.GetValueOrDefault("INGESTIO
     ? configuredConcurrency
     : SyncRunner.DefaultEvidenceConcurrency;
 
+// How many days behind the commit checkpoint each run looks again for commits merged after the checkpoint passed
+// their (developer-set) committer date. Defaults to SyncRunner.DefaultCommitLookback; 0 turns the look-back off.
+var commitLookback = int.TryParse(configuration.GetValueOrDefault("INGESTION_COMMIT_LOOKBACK_DAYS"), out var lookbackDays) && lookbackDays >= 0
+    ? TimeSpan.FromDays(lookbackDays)
+    : SyncRunner.DefaultCommitLookback;
+
 if (options.Command == CliCommand.ServeWebhooks)
 {
     // LRN-05: webhooks write canonical evidence, so they need the same database and archive as canonical sync.
@@ -219,6 +225,7 @@ using (var localSink = new JsonLinesSink(runDirectory))
             settings.Ado.OrganizationUrl, settings.Ado.Tenant, settings.Confluence?.BaseUrl)
         {
             Tombstones = evidenceStore, // N-2
+            Lookup = evidenceStore, // late-merged commits: skip what is already stored
         };
         sink = new FixChangeSetProjectionSink( // LRN-10: what each fix changed
             new BuildLinkProjectionSink(
@@ -233,7 +240,7 @@ using (var localSink = new JsonLinesSink(runDirectory))
         : "Evidence destination: local JSONL (restricted/unverified Confluence bodies withheld)");
     if (kinds.Overlaps([SyncKind.WorkItems, SyncKind.PullRequests, SyncKind.Commits, SyncKind.Builds]))
     {
-        reports.Add(await new SyncRunner(client, checkpoints, sink, registry, environments: settings.Environments, quarantine: quarantineStore, logger: loggerFactory.CreateLogger<SyncRunner>(), evidenceConcurrency: evidenceConcurrency).RunAsync(request));
+        reports.Add(await new SyncRunner(client, checkpoints, sink, registry, environments: settings.Environments, quarantine: quarantineStore, logger: loggerFactory.CreateLogger<SyncRunner>(), evidenceConcurrency: evidenceConcurrency, commitLookback: commitLookback).RunAsync(request));
     }
 
     if (confluenceSource is not null && kinds.Contains(SyncKind.Confluence))
