@@ -54,23 +54,30 @@ public sealed class EvidenceIngestionService(
         // Archive first. If Cloud Storage fails, no database revision is written.
         // Object names are content-addressed; a DB failure leaves a safe,
         // unreferenced object for later lifecycle cleanup/retry.
-        var archiveUri = await archive.StoreAsync(
-            key, utc.ProviderRevisionId, utc.RawJson, sha, cancellationToken);
+        string archiveUri;
+        using (VisionIQ.Ingestor.Diagnostics.StageTimings.Measure("gcs_archive"))
+        {
+            archiveUri = await archive.StoreAsync(
+                key, utc.ProviderRevisionId, utc.RawJson, sha, cancellationToken);
+        }
 
         if (!archiveUri.StartsWith("gs://", StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Archive must return a Cloud Storage object URI.");
         }
 
-        return await store.SaveAsync(
-            new ArchivedEvidence(
-                utc,
-                key,
-                sha,
-                archiveUri,
-                redacted,
-                EvidenceNormalizer.Version,
-                EvidenceNormalizer.Version),
-            cancellationToken);
+        using (VisionIQ.Ingestor.Diagnostics.StageTimings.Measure("pg_evidence"))
+        {
+            return await store.SaveAsync(
+                new ArchivedEvidence(
+                    utc,
+                    key,
+                    sha,
+                    archiveUri,
+                    redacted,
+                    EvidenceNormalizer.Version,
+                    EvidenceNormalizer.Version),
+                cancellationToken);
+        }
     }
 }

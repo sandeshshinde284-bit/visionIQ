@@ -66,6 +66,8 @@ public sealed class TicketFixProjectionSink(
 
         await evidence.WriteAsync(stream, key, record, cancellationToken).ConfigureAwait(false);
 
+        // Timed separately from the evidence write above (Phase 2 instrumentation).
+        using var timing = VisionIQ.Ingestor.Diagnostics.StageTimings.Measure("ticket_fix");
         if (stream == "work-items" && record is WorkItemRecord item)
         {
             await ProjectWorkItemAsync(item, cancellationToken).ConfigureAwait(false);
@@ -176,6 +178,8 @@ public sealed class TicketFixProjectionSink(
         // continuation-token handling in AdoRepositorySource; if Azure DevOps ever caps that response
         // without signalling it, this would be treated as complete when it was not. Not independently
         // verified against a live organization.
+        // Claims = linked tickets x fix commits: the size that drives the projection's database cost.
+        VisionIQ.Ingestor.Diagnostics.StageTimings.Count("ticket_fix_claims", claims.Count);
         await links.ReconcileSourceAsync(
             sourceKey, revision, pr.LastActivity, isCompleteSnapshot: true, claims, cancellationToken)
             .ConfigureAwait(false);

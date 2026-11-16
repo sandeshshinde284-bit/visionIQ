@@ -185,6 +185,12 @@ public sealed class SyncRunner
             new EventId(1025, nameof(LogCheckpointKept)),
             "ADO ingestion checkpoint KEPT scope={Scope}: this --full run is at {RunAt}, behind the stored {StoredAt}");
 
+    private static readonly Action<ILogger, string, int, string, string, Exception?> LogPullRequestTimings =
+        LoggerMessage.Define<string, int, string, string>(
+            LogLevel.Information,
+            new EventId(1027, nameof(LogPullRequestTimings)),
+            "ADO PR TIMINGS repository={Repository}, PR={PullRequestId}, size=[{Size}]: {Timings}");
+
     private static readonly Action<ILogger, string, int, Exception?> LogLateCommits =
         LoggerMessage.Define<string, int>(
             LogLevel.Information,
@@ -888,22 +894,50 @@ public sealed class SyncRunner
     {
         var id = Text(pullRequest.Id);
         var stage = "ADO enrichment";
+
+        // Phase 2 instrumentation: every stage of this PR adds its time here, including the Cloud Storage
+        // archive, PostgreSQL write and ticket-fix projection inside the sinks; one log line per PR at the end.
+        using var timings = Diagnostics.StageTimings.Begin();
         try
         {
-            var enriched = await repositories.EnrichAsync(project, repository, pullRequest, token).ConfigureAwait(false);
+            PullRequestRecord enriched;
+            using (Diagnostics.StageTimings.Measure("ado_enrich"))
+            {
+                enriched = await repositories.EnrichAsync(project, repository, pullRequest, token).ConfigureAwait(false);
+            }
 
             stage = "evidence write and projections";
             var version = enriched.Status + "@" + Stamp(enriched.LastActivity);
-            await sink.WriteAsync(
-                "pull-requests",
-                Key(project, "pull-request", Text(enriched.Id), version),
-                enriched, token).ConfigureAwait(false);
+            using (Diagnostics.StageTimings.Measure("pr_write"))
+            {
+                await sink.WriteAsync(
+                    "pull-requests",
+                    Key(project, "pull-request", Text(enriched.Id), version),
+                    enriched, token).ConfigureAwait(false);
+            }
 
             stage = "review projection";
-            await PullRequestReviewProjection.WriteAsync(sink, client.Options.Tenant, enriched, token).ConfigureAwait(false);
+            using (Diagnostics.StageTimings.Measure("reviews"))
+            {
+                await PullRequestReviewProjection.WriteAsync(sink, client.Options.Tenant, enriched, token).ConfigureAwait(false);
+            }
 
             stage = "link write";
-            return await WriteLinksAsync(project, LinkExtractor.FromPullRequest(enriched), token).ConfigureAwait(false);
+            var links = LinkExtractor.FromPullRequest(enriched);
+            int linkCount;
+            using (Diagnostics.StageTimings.Measure("links"))
+            {
+                linkCount = await WriteLinksAsync(project, links, token).ConfigureAwait(false);
+            }
+
+            if (log.IsEnabled(LogLevel.Information))
+            {
+                var size = string.Create(CultureInfo.InvariantCulture,
+                    $"workItems={enriched.WorkItemIds.Count} commits={enriched.CommitIds.Count} reviewers={enriched.Reviewers.Count} links={linkCount}");
+                LogPullRequestTimings(log, repository.Name, pullRequest.Id, size, timings.Timings.Summary(), null);
+            }
+
+            return linkCount;
         }
         catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested)
         {

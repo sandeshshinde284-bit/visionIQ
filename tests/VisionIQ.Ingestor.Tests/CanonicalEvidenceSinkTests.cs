@@ -105,22 +105,29 @@ public sealed class CanonicalEvidenceSinkTests
             await sink.WriteAsync(stream, key, record);
         }
 
-        System.Text.Json.JsonElement Meta(string kind) =>
-            System.Text.Json.JsonDocument.Parse(store.Rows.First(row => row.Envelope.Identity.Kind == kind).RedactedJson).RootElement;
+        // Records are written in parallel, so the order of the stored rows varies from run to run: every check
+        // picks its record by kind AND id, never "the first row of this kind".
+        System.Text.Json.JsonElement Meta(string kind, string externalId) =>
+            System.Text.Json.JsonDocument.Parse(store.Rows.Single(row =>
+                row.Envelope.Identity.Kind == kind && row.Envelope.Identity.ExternalId == externalId).RedactedJson).RootElement;
 
-        Assert.Equal("Bug", Meta("work_item_current").GetProperty("workItemType").GetString());
-        Assert.Equal("Resolved", Meta("work_item_current").GetProperty("state").GetString());
+        IEnumerable<System.Text.Json.JsonElement> AllMeta(string kind) => store.Rows
+            .Where(row => row.Envelope.Identity.Kind == kind)
+            .Select(row => System.Text.Json.JsonDocument.Parse(row.RedactedJson).RootElement);
+
+        var bug = Meta("work_item_current", "1234");
+        Assert.Equal("Bug", bug.GetProperty("workItemType").GetString());
+        Assert.Equal("Resolved", bug.GetProperty("state").GetString());
         // Environment classification is part of the safe metadata (UNKNOWN: demo project has no rules).
-        Assert.Equal("UNKNOWN", Meta("work_item_current").GetProperty("environment").GetString());
-        Assert.Equal("not_configured", Meta("work_item_current").GetProperty("environmentReason").GetString());
-        Assert.True(Meta("work_item").TryGetProperty("state", out _));
-        Assert.Contains(store.Rows.Where(row => row.Envelope.Identity.Kind == "pull_request"), row =>
-        {
-            using var metadata = System.Text.Json.JsonDocument.Parse(row.RedactedJson);
-            return metadata.RootElement.GetProperty("status").GetString() == "completed";
-        });
-        Assert.Equal("failed", Meta("ci_run").GetProperty("result").GetString());
-        Assert.Equal("work_item_artifact", Meta("declared_link").GetProperty("linkType").GetString());
+        Assert.Equal("UNKNOWN", bug.GetProperty("environment").GetString());
+        Assert.Equal("not_configured", bug.GetProperty("environmentReason").GetString());
+        Assert.Equal("User Story", Meta("work_item_current", "1240").GetProperty("workItemType").GetString());
+        Assert.NotEmpty(AllMeta("work_item"));
+        Assert.All(AllMeta("work_item"), revision => Assert.True(revision.TryGetProperty("state", out _)));
+        Assert.Equal("completed", Meta("pull_request", "77").GetProperty("status").GetString());
+        Assert.Equal("active", Meta("pull_request", "78").GetProperty("status").GetString());
+        Assert.Equal("failed", Assert.Single(AllMeta("ci_run")).GetProperty("result").GetString());
+        Assert.Contains(AllMeta("declared_link"), link => link.GetProperty("linkType").GetString() == "work_item_artifact");
         Assert.All(store.Rows, row =>
         {
             Assert.DoesNotContain("Retry loop", row.RedactedJson, StringComparison.OrdinalIgnoreCase);

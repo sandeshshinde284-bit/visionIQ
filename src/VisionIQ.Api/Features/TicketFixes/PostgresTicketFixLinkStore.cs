@@ -241,7 +241,8 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
     /// </summary>
     private static async Task<string> UpsertCoreAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
-        TicketFixClaim claim, bool clearRetraction, CancellationToken cancellationToken)
+        TicketFixClaim claim, bool clearRetraction, CancellationToken cancellationToken,
+        bool recomputeRevertState = true)
     {
         var key = claim.AssociationKey();
         const string sql = """
@@ -329,8 +330,10 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
 
         // Review R4-04: a brand-new claim may be created for a commit that already has (possibly
         // chained) revert history; fold in the current, correctly-cancelled-if-applicable state
-        // rather than the raw, un-cancelled observation list.
-        if (hasCommitScope)
+        // rather than the raw, un-cancelled observation list. A caller writing many claims in one
+        // transaction (ReconcileSourceAsync) passes recomputeRevertState: false and recomputes once per
+        // distinct commit afterwards: the recompute updates every row of that commit, so the result is the same.
+        if (hasCommitScope && recomputeRevertState)
         {
             await RecomputeRevertStateAsync(connection, transaction, claim.SourceInstance,
                 claim.ProjectId, claim.RepositoryId!, claim.CommitSha!.ToLowerInvariant(), cancellationToken)
@@ -374,10 +377,25 @@ public sealed class PostgresTicketFixLinkStore : ITicketFixLinkStore, IAsyncDisp
             .ConfigureAwait(false);
 
         var keys = new List<string>(claims.Count);
+        // Phase 2: a PR with W linked tickets and C commits writes W x C claims, but only C distinct commits.
+        // Their revert state used to be recomputed once per claim (W times per commit, at least three
+        // statements each); it is now recomputed once per distinct commit, after all claims are written, still
+        // inside this transaction and under the same per-commit advisory locks the upserts took.
+        var commitsToRecompute = new HashSet<(string Source, string Project, string Repository, string Commit)>();
         foreach (var claim in claims)
         {
-            keys.Add(await UpsertCoreAsync(connection, transaction, claim, clearRetraction: accepted, cancellationToken)
-                .ConfigureAwait(false));
+            keys.Add(await UpsertCoreAsync(connection, transaction, claim, clearRetraction: accepted, cancellationToken,
+                recomputeRevertState: false).ConfigureAwait(false));
+            if (claim.RepositoryId is not null && IsFullSha(claim.CommitSha))
+            {
+                commitsToRecompute.Add((claim.SourceInstance, claim.ProjectId, claim.RepositoryId, claim.CommitSha!.ToLowerInvariant()));
+            }
+        }
+
+        foreach (var (sourceInstance, projectId, repositoryId, commit) in commitsToRecompute)
+        {
+            await RecomputeRevertStateAsync(connection, transaction, sourceInstance, projectId, repositoryId, commit, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (accepted)

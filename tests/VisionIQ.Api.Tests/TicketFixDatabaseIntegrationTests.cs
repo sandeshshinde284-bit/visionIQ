@@ -245,6 +245,158 @@ public sealed class TicketFixDatabaseIntegrationTests
         }
     }
 
+    private static DatabaseOptions ApiOptions()
+    {
+        var password = Environment.GetEnvironmentVariable("DB_API_PASSWORD");
+        Assert.False(string.IsNullOrWhiteSpace(password));
+        return new DatabaseOptions(
+            Environment.GetEnvironmentVariable("DB_HOST") ?? "127.0.0.1",
+            int.TryParse(Environment.GetEnvironmentVariable("DB_PORT"), out var port) ? port : 5432,
+            Environment.GetEnvironmentVariable("DB_NAME") ?? "visioniq",
+            Environment.GetEnvironmentVariable("DB_API_USER") ?? "visioniq_api",
+            password!, "disable");
+    }
+
+    /// <summary>
+    /// Cleanup after ReconcileSourceAsync, which also writes source associations and lifecycle events that
+    /// reference the links (and so must go first).
+    /// </summary>
+    private static async Task CleanupReconciledTestDataAsync(string uniqueSource, string sourceItemKey, DatabaseOptions apiOptions)
+    {
+        var adminPassword = Environment.GetEnvironmentVariable("DB_LOCAL_PASSWORD");
+        Assert.False(string.IsNullOrWhiteSpace(adminPassword));
+        await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
+        {
+            Host = apiOptions.Host,
+            Port = apiOptions.Port,
+            Database = apiOptions.Name,
+            Username = Environment.GetEnvironmentVariable("DB_LOCAL_USER") ?? "visioniq",
+            Password = adminPassword,
+        }.ConnectionString);
+        await db.OpenAsync();
+        foreach (var sql in new[]
+        {
+            "DELETE FROM evidence.ticket_fix_link_source_associations WHERE source_item_key = @item",
+            "DELETE FROM evidence.ticket_fix_link_sources WHERE source_item_key = @item",
+            "DELETE FROM evidence.ticket_fix_link_lifecycle_events WHERE association_key IN " +
+                "(SELECT association_key FROM evidence.ticket_fix_links WHERE source_instance = @source)",
+        })
+        {
+            await using var cmd = new NpgsqlCommand(sql, db);
+            cmd.Parameters.AddWithValue("item", sourceItemKey);
+            cmd.Parameters.AddWithValue("source", uniqueSource);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await CleanupSourceScopedTestDataAsync(uniqueSource, apiOptions);
+    }
+
+    private static IReadOnlyList<TicketFixClaim> PullRequestClaims(
+        string source, string project, string repo, int tickets, IReadOnlyList<string> shas, string ticketPrefix = "ticket-") =>
+        Enumerable.Range(1, tickets)
+            .SelectMany(ticket => shas.Select(sha => new TicketFixClaim(
+                source, project, ticketPrefix + ticket.ToString(System.Globalization.CultureInfo.InvariantCulture), repo, "pr-1", sha,
+                TicketFixSourceClassification.Explicit, ["evidence:pr-1"], [])))
+            .ToList();
+
+    [DatabaseFact("VISIONIQ_TICKET_FIX_DB_INTEGRATION")]
+    public async Task A_pull_request_reconcile_applies_existing_revert_history_to_every_ticket_of_the_commit()
+    {
+        // Phase 2: revert state is recomputed once per distinct commit after all claims are written, not once
+        // per (ticket x commit) claim. Every row of the reverted commit must still carry the reverter, and the
+        // commits that were not reverted none.
+        var options = ApiOptions();
+        var uniqueSource = "phase2-revert-" + Guid.NewGuid().ToString("N");
+        const string project = "phase2-project";
+        const string repo = "phase2-repo";
+        var shas = new[] { new string('1', 40), new string('2', 40), new string('3', 40), new string('4', 40) };
+        var reverter = new string('9', 40);
+        var sourceItemKey = "pr-source-" + uniqueSource;
+        await using var store = new PostgresTicketFixLinkStore(options);
+
+        try
+        {
+            // The revert is observed BEFORE the pull request's associations exist (arrival-order independent).
+            await store.RecordRevertAsync(uniqueSource, project, repo, shas[1], reverter);
+            await store.ReconcileSourceAsync(sourceItemKey, "rev1", DateTimeOffset.UtcNow,
+                isCompleteSnapshot: true, PullRequestClaims(uniqueSource, project, repo, tickets: 3, shas));
+
+            await using var db = new NpgsqlConnection(new NpgsqlConnectionStringBuilder
+            {
+                Host = options.Host,
+                Port = options.Port,
+                Database = options.Name,
+                Username = options.User,
+                Password = options.Password,
+            }.ConnectionString);
+            await db.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "SELECT commit_sha, revert_commit_shas::text, count(*) FROM evidence.ticket_fix_links WHERE source_instance=@source GROUP BY 1, 2 ORDER BY 1",
+                db);
+            cmd.Parameters.AddWithValue("source", uniqueSource);
+            var rows = new List<(string Sha, string Reverts, long Count)>();
+            await using (var reader = await cmd.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    rows.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+                }
+            }
+
+            Assert.Equal(4, rows.Count); // one revert state per commit, the same for all 3 tickets
+            Assert.All(rows, row => Assert.Equal(3, row.Count));
+            Assert.Equal("[\"" + reverter + "\"]", rows.Single(row => row.Sha == shas[1]).Reverts);
+            Assert.All(rows.Where(row => row.Sha != shas[1]), row => Assert.Equal("[]", row.Reverts));
+        }
+        finally
+        {
+            await CleanupReconciledTestDataAsync(uniqueSource, sourceItemKey, options);
+        }
+    }
+
+    [DatabaseFact("VISIONIQ_TICKET_FIX_DB_INTEGRATION")]
+    public async Task A_large_pull_request_projects_in_bounded_time()
+    {
+        // Phase 2 measurement: a merge/release-style PR, 5 linked tickets x 300 commits = 1,500 claims in one
+        // transaction. The elapsed time is written to the test output (and the file named by
+        // VISIONIQ_BENCHMARK_OUTPUT, when set) so before/after runs can be compared; the bound is generous.
+        // VISIONIQ_BENCHMARK_SOURCE (throwaway databases only): run inside a fixed, pre-seeded scope so the table
+        // size a real repository reaches is part of the measurement; those rows are then left in place.
+        var options = ApiOptions();
+        var run = Guid.NewGuid().ToString("N");
+        var fixedSource = Environment.GetEnvironmentVariable("VISIONIQ_BENCHMARK_SOURCE");
+        var uniqueSource = string.IsNullOrWhiteSpace(fixedSource) ? "phase2-bench-" + run : fixedSource;
+        var shas = Enumerable.Range(1, 300)
+            .Select(n => (run[..8] + n.ToString("x32", System.Globalization.CultureInfo.InvariantCulture))[..40])
+            .ToList();
+        var claims = PullRequestClaims(uniqueSource, "bench-project", "bench-repo", tickets: 5, shas, ticketPrefix: "ticket-" + run + "-");
+        var sourceItemKey = "pr-source-" + run; // a new PR each run: nothing from an earlier run is retracted
+        await using var store = new PostgresTicketFixLinkStore(options);
+
+        try
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            await store.ReconcileSourceAsync(sourceItemKey, "rev1", DateTimeOffset.UtcNow,
+                isCompleteSnapshot: true, claims);
+            watch.Stop();
+
+            var line = $"ticket-fix reconcile: {claims.Count} claims ({shas.Count} commits) in {watch.ElapsedMilliseconds} ms";
+            if (Environment.GetEnvironmentVariable("VISIONIQ_BENCHMARK_OUTPUT") is { Length: > 0 } output)
+            {
+                await File.AppendAllTextAsync(output, line + Environment.NewLine);
+            }
+
+            Assert.True(watch.Elapsed < TimeSpan.FromMinutes(2), line);
+        }
+        finally
+        {
+            if (string.IsNullOrWhiteSpace(fixedSource))
+            {
+                await CleanupReconciledTestDataAsync(uniqueSource, sourceItemKey, options);
+            }
+        }
+    }
+
     [DatabaseFact("VISIONIQ_TICKET_FIX_DB_INTEGRATION")]
     public async Task Reconcile_retracts_a_dropped_link_and_rejects_a_stale_replay()
     {
