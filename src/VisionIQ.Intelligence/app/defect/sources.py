@@ -138,8 +138,7 @@ class PostgresFixSources:
         # Scope inference already limits anchors and caps its number of paths. Supply
         # provenance IDs so we only return paths tied to a readable evidence item.
         evidence_ids = {
-            result.item_key: f"E{index}"
-            for index, result in enumerate(evidence.results, start=1)
+            result.item_key: f"E{index}" for index, result in enumerate(evidence.results, start=1)
         }
         inferred = risk_rules.predict_scope(
             extract_signals(f"{ticket.title}\n{ticket.text}"),
@@ -148,7 +147,8 @@ class PostgresFixSources:
             evidence_ids,
         )
         return tuple(
-            item.path for item in inferred
+            item.path
+            for item in inferred
             if item.basis == "changed_by_past_fix" and item.evidence_ids
         )
 
