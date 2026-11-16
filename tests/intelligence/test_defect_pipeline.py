@@ -562,9 +562,7 @@ def test_historical_basename_ambiguity_blocks_instead_of_guessing(tmp_path: Path
     ).strip()
     demo = replace(demo, base_sha=sha)
     ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
-    sources = FakeFixSources(
-        ticket=ticket, scope=(), candidates=("historical/retry_policy.py",)
-    )
+    sources = FakeFixSources(ticket=ticket, scope=(), candidates=("historical/retry_policy.py",))
 
     result = run(tmp_path, [TEST_ANSWER], honest, sources, demo)
     assert result.reason_codes == ["scope_not_resolved"]
