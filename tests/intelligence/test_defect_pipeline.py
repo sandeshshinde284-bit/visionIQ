@@ -1,6 +1,8 @@
 """DEF-01 to DEF-06: the fix pipeline on a real Git workspace, with a scripted model and runner."""
 
 import json
+import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,7 @@ from defect_support import (
 )
 from jsonschema import Draft202012Validator
 
+from app.brief.history import TicketText
 from app.defect import schema
 from app.defect.pipeline import FixOutcome, run_fix
 from app.defect.schema import FixResult
@@ -490,8 +493,6 @@ def test_an_unreadable_ticket_and_an_unknown_scope_block_the_run(tmp_path: Path)
 
 
 def test_missing_brief_scope_recovers_an_authorized_historical_file(tmp_path: Path) -> None:
-    from app.brief.history import TicketText
-
     ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
     sources = FakeFixSources(
         ticket=ticket,
@@ -506,8 +507,6 @@ def test_missing_brief_scope_recovers_an_authorized_historical_file(tmp_path: Pa
 
 
 def test_missing_brief_scope_without_historical_evidence_stays_blocked(tmp_path: Path) -> None:
-    from app.brief.history import TicketText
-
     ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
     model = claude(TEST_ANSWER, SAFE_FIX)
     result = run(
@@ -523,8 +522,6 @@ def test_missing_brief_scope_without_historical_evidence_stays_blocked(tmp_path:
 
 
 def test_historical_scope_does_not_select_nonexistent_or_unsafe_paths(tmp_path: Path) -> None:
-    from app.brief.history import TicketText
-
     ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
     sources = FakeFixSources(
         ticket=ticket,
@@ -539,19 +536,26 @@ def test_historical_scope_does_not_select_nonexistent_or_unsafe_paths(tmp_path: 
 
 
 def test_historical_basename_ambiguity_blocks_instead_of_guessing(tmp_path: Path) -> None:
-    import subprocess
-    from dataclasses import replace
-    from app.brief.history import TicketText
-
     demo = make_demo(tmp_path)
     second = demo.repo / "src" / "another" / "retry_policy.py"
     second.parent.mkdir(parents=True, exist_ok=True)
     second.write_text((demo.repo / SOURCE).read_text(encoding="utf-8"), encoding="utf-8")
     subprocess.run(["git", "-C", str(demo.repo), "add", "."], check=True)
     subprocess.run(
-        ["git", "-C", str(demo.repo), "-c", "user.name=Test",
-         "-c", "user.email=test@example.invalid", "commit", "-m", "add ambiguous file"],
-        check=True, capture_output=True,
+        [
+            "git",
+            "-C",
+            str(demo.repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "add ambiguous file",
+        ],
+        check=True,
+        capture_output=True,
     )
     sha = subprocess.check_output(
         ["git", "-C", str(demo.repo), "rev-parse", "HEAD"], text=True
@@ -568,8 +572,6 @@ def test_historical_basename_ambiguity_blocks_instead_of_guessing(tmp_path: Path
 
 
 def test_instructions_in_the_ticket_are_data(tmp_path: Path) -> None:
-    from app.brief.history import TicketText
-
     ticket = TicketText(
         "0" * 64,
         "file",
