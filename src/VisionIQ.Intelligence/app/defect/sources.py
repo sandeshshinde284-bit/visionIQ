@@ -12,7 +12,9 @@ from typing import Literal, Protocol
 
 import psycopg
 
+from app.brief import risk as risk_rules
 from app.brief.history import _FIX_JOIN, BriefSources, TicketText
+from app.knowledge.retrieval import extract_signals
 
 MAX_HISTORICAL_FIXES = 50
 
@@ -33,6 +35,10 @@ class FixSources(Protocol):
 
     def brief_scope(self, project_id: str, ticket_id: str) -> tuple[str, ...]:
         """The files the ticket's latest brief predicted (BRF-03); empty when there is none."""
+        ...
+
+    def historical_scope(self, ticket: TicketText) -> tuple[str, ...]:
+        """Citable, authorized historical fix paths when no saved source scope resolves."""
         ...
 
     def brief_risk_band(self, project_id: str, ticket_id: str) -> str | None:
@@ -110,6 +116,43 @@ class PostgresFixSources:
                 BRIEF_RISK_BAND_SQL, {"project": project_id, "ticket": ticket_id}
             ).fetchone()
         return str(row[0]) if row is not None and row[0] else None
+
+    def historical_scope(self, ticket: TicketText) -> tuple[str, ...]:
+        """Find historical candidates using the same independent retrieval anchors as BRIEF.
+
+        Retrieval and fix paths are ACL-filtered by BriefSources. These are *candidate*
+        paths, not a claimed root cause; the caller must match them against the pinned
+        tree and the repository's path policy before showing them to a model.
+        """
+        if not self._scopes:
+            return ()
+        evidence = self._brief_sources.search(
+            f"{ticket.title}\n{ticket.text}", exclude=[ticket.item_key], limit=8
+        )
+        anchors = [
+            result for result in evidence.results
+            if result.lanes.get("code_path")
+            or ("keyword" in result.lanes and "vector" in result.lanes)
+        ]
+        if not anchors:
+            return ()
+        fix_paths = self._brief_sources.changed_files([result.item_key for result in anchors])
+        # Scope inference already limits anchors and caps its number of paths. Supply
+        # provenance IDs so we only return paths tied to a readable evidence item.
+        evidence_ids = {
+            result.item_key: f"E{index}"
+            for index, result in enumerate(evidence.results, start=1)
+        }
+        inferred = risk_rules.predict_scope(
+            extract_signals(f"{ticket.title}\n{ticket.text}"),
+            evidence.results,
+            fix_paths,
+            evidence_ids,
+        )
+        return tuple(
+            item.path for item in inferred
+            if item.basis == "changed_by_past_fix" and item.evidence_ids
+        )
 
     def historical_fixes(self, ticket: TicketText, paths: Sequence[str]) -> list[HistoricalFix]:
         names = sorted({path.replace("\\", "/").lstrip("/").lower() for path in paths} - {""})
