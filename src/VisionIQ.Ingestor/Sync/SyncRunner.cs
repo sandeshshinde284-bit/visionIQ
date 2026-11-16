@@ -154,6 +154,12 @@ public sealed class SyncRunner
                 new EventId(1017, nameof(LogPullRequestsFetched)),
                 "ADO PullRequests FETCHED repository={Repository}, count={Count}");
 
+    private static readonly Action<ILogger, string, Exception?> LogCheckpointSaved =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(1023, nameof(LogCheckpointSaved)),
+            "ADO ingestion checkpoint SAVED scope={Scope}");
+
     /// <summary>R2-01: how many evidence writes (GCS archive + PostgreSQL) run at once. One at a time made
     /// 116 real work items take over 20 minutes in canonical mode; this is a deliberate, bounded cap on
     /// real network concurrency, not unbounded fan-out.</summary>
@@ -934,6 +940,7 @@ public sealed class SyncRunner
             // moves past it, or a crash between the two loses records the next run will skip.
             await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
             await checkpoints.SaveAsync(new SyncCheckpoint(SourceId, scope, cursor.Format(), time.GetUtcNow()), cancellationToken).ConfigureAwait(false);
+            LogCheckpointSaved(log, scope, null);
             if (log.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
             {
                 var saved = cursor.Format();
