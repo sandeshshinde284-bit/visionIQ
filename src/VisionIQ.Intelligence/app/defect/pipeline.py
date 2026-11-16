@@ -470,7 +470,8 @@ class _FixRun:
         """
         repo, _ = self._ready()
         eligible = [
-            path for path in files
+            path
+            for path in files
             if is_safe_path(path)
             and not matches(path, repo.test_file_patterns)
             and not matches(path, repo.secret_paths)
@@ -487,15 +488,11 @@ class _FixRun:
                 if target in by_lower:
                     hits = [by_lower[target]]
                 else:
-                    hits = [
-                        path for path in eligible
-                        if path.lower().endswith("/" + target)
-                    ]
+                    hits = [path for path in eligible if path.lower().endswith("/" + target)]
                     if not hits:
                         name = target.rsplit("/", 1)[-1]
                         hits = [
-                            path for path in eligible
-                            if path.lower().rsplit("/", 1)[-1] == name
+                            path for path in eligible if path.lower().rsplit("/", 1)[-1] == name
                         ]
                 # A basename-only match can be a renamed file, but is only
                 # defensible when exactly one permitted file has that name.
