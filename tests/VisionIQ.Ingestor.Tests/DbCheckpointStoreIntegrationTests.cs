@@ -120,6 +120,70 @@ public sealed class DbCheckpointStoreIntegrationTests
     }
 
     [DatabaseFact("VISIONIQ_CHECKPOINT_DB_INTEGRATION")]
+    public async Task Same_timestamp_saves_merge_the_boundary_and_never_shrink_it()
+    {
+        // "T|9" -> "T|10,9" used to be refused (text order); "T|10,9" -> "T|9" would have dropped 10.
+        var credentials = ApiCredentials();
+        var sourceId = "lrn01-checkpoint-" + Guid.NewGuid().ToString("N");
+        const string scope = "work-items";
+        const string t = "2026-01-01T00:00:00.0000000Z";
+        var store = CreateStore(credentials);
+
+        try
+        {
+            await store.SaveAsync(new SyncCheckpoint(sourceId, scope, t + "|9", DateTimeOffset.UtcNow));
+            await store.SaveAsync(new SyncCheckpoint(sourceId, scope, t + "|10,9", DateTimeOffset.UtcNow));
+            Assert.Equal(t + "|10,9", (await store.GetAsync(sourceId, scope))!.Cursor);
+
+            await store.SaveAsync(new SyncCheckpoint(sourceId, scope, t + "|9", DateTimeOffset.UtcNow));
+            Assert.Equal(t + "|10,9", (await store.GetAsync(sourceId, scope))!.Cursor); // 10 kept
+
+            await store.SaveAsync(new SyncCheckpoint(sourceId, scope, t + "|11", DateTimeOffset.UtcNow));
+            Assert.Equal(t + "|10,11,9", (await store.GetAsync(sourceId, scope))!.Cursor); // union, ordinal order
+
+            // A later timestamp replaces the boundary; an earlier one is still refused.
+            await store.SaveAsync(new SyncCheckpoint(sourceId, scope, "2026-01-01T00:00:01.0000000Z|1", DateTimeOffset.UtcNow));
+            Assert.Equal("2026-01-01T00:00:01.0000000Z|1", (await store.GetAsync(sourceId, scope))!.Cursor);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                store.SaveAsync(new SyncCheckpoint(sourceId, scope, t + "|12", DateTimeOffset.UtcNow)));
+
+            // The SQL merge and the in-process merge (file store) agree.
+            Assert.Equal(t + "|10,11,9", TimeCursor.MergeAtSameTimestamp(t + "|11", TimeCursor.MergeAtSameTimestamp(t + "|9", t + "|10,9")));
+        }
+        finally
+        {
+            await CleanupAsync(credentials, sourceId);
+        }
+    }
+
+    [DatabaseFact("VISIONIQ_CHECKPOINT_DB_INTEGRATION")]
+    public async Task Concurrent_same_timestamp_saves_keep_every_boundary_id()
+    {
+        // Overlapping runs saving different IDs at one timestamp: the row lock taken by ON CONFLICT serializes
+        // the merges, so no ID is lost however they interleave.
+        var credentials = ApiCredentials();
+        var sourceId = "lrn01-checkpoint-" + Guid.NewGuid().ToString("N");
+        const string scope = "pull-requests";
+        const string t = "2026-01-01T00:00:00.0000000Z";
+        var store = CreateStore(credentials);
+
+        try
+        {
+            await store.SaveAsync(new SyncCheckpoint(sourceId, scope, t + "|0", DateTimeOffset.UtcNow));
+            await Task.WhenAll(Enumerable.Range(1, 20).Select(id => Task.Run(() =>
+                store.SaveAsync(new SyncCheckpoint(sourceId, scope, t + "|" + id.ToString(System.Globalization.CultureInfo.InvariantCulture), DateTimeOffset.UtcNow)))));
+
+            var cursor = TimeCursor.Parse((await store.GetAsync(sourceId, scope))!.Cursor)!;
+            Assert.Equal(Enumerable.Range(0, 21).Select(id => id.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToHashSet(),
+                cursor.Boundary.ToHashSet());
+        }
+        finally
+        {
+            await CleanupAsync(credentials, sourceId);
+        }
+    }
+
+    [DatabaseFact("VISIONIQ_CHECKPOINT_DB_INTEGRATION")]
     public async Task Concurrent_saves_never_let_the_checkpoint_regress()
     {
         var credentials = ApiCredentials();

@@ -23,7 +23,18 @@ public sealed class DbCheckpointStore : ICheckpointStore
     public const string UpsertSql =
         "INSERT INTO evidence.connector_checkpoints (source_id, scope, cursor_value, updated_at) "
         + "VALUES (@source_id, @scope, @cursor_value, @updated_at) "
-        + "ON CONFLICT (source_id, scope) DO UPDATE SET cursor_value = EXCLUDED.cursor_value, updated_at = EXCLUDED.updated_at "
+        // At a later timestamp the new cursor replaces the old one. At the SAME timestamp the two boundary-ID sets
+        // are merged in this one statement (atomic under the row lock ON CONFLICT takes), so overlapping runs can
+        // never shrink the set: "T|9" saved over "T|10,9" keeps "T|10,9". Same rule as TimeCursor.MergeAtSameTimestamp
+        // (IDs in byte order, COLLATE "C", like the ordinal order Format writes).
+        + "ON CONFLICT (source_id, scope) DO UPDATE SET cursor_value = CASE "
+        + "WHEN position('|' in EXCLUDED.cursor_value) > 0 "
+        + "AND split_part(evidence.connector_checkpoints.cursor_value, '|', 1) = split_part(EXCLUDED.cursor_value, '|', 1) "
+        + "THEN split_part(EXCLUDED.cursor_value, '|', 1) || '|' || COALESCE(("
+        + "SELECT string_agg(boundary.id, ',' ORDER BY boundary.id COLLATE \"C\") FROM (SELECT DISTINCT trim(part) AS id FROM unnest("
+        + "string_to_array(split_part(evidence.connector_checkpoints.cursor_value, '|', 2), ',') || "
+        + "string_to_array(split_part(EXCLUDED.cursor_value, '|', 2), ',')) AS part WHERE trim(part) <> '') AS boundary), '') "
+        + "ELSE EXCLUDED.cursor_value END, updated_at = EXCLUDED.updated_at "
         // Only the timestamp part (before '|') is compared, as in TimeCursor.IsBehind: the boundary IDs after it
         // are a set, and comparing them as text rejected legitimate progress such as "T|9" -> "T|10,9".
         + "WHERE split_part(evidence.connector_checkpoints.cursor_value, '|', 1) <= split_part(EXCLUDED.cursor_value, '|', 1)";

@@ -73,8 +73,37 @@ public sealed record TimeCursor(DateTimeOffset At, IReadOnlySet<string> Boundary
     /// True when saving <paramref name="candidate"/> over <paramref name="existing"/> would move the checkpoint back
     /// in time. Only the timestamp is compared: at an equal timestamp the boundary-ID list is a set, not an order
     /// ("T|10,9" is the set {9, 10} that grew from "T|9"), and comparing it as text wrongly rejected that growth.
-    /// A smaller ID set at an equal timestamp only causes those items to be read again, never skipped.
+    /// At an equal timestamp the stores merge the two ID sets (<see cref="MergeAtSameTimestamp"/>), so a save can
+    /// never shrink the boundary either.
     /// </summary>
     public static bool IsBehind(string candidate, string existing) =>
         string.CompareOrdinal(TimestampPart(candidate), TimestampPart(existing)) < 0;
+
+    /// <summary>
+    /// The cursor to store when <paramref name="candidate"/> replaces <paramref name="existing"/>. At a later
+    /// timestamp that is the candidate. At the same timestamp it is the union of both boundary-ID sets: every ID in
+    /// either set was processed at exactly that time (by this run or an overlapping one), so "T|9" saved over
+    /// "T|10,9" keeps "T|10,9" instead of dropping 10. Formatted like <see cref="Format"/> (IDs in ordinal order).
+    /// The database store does the same merge atomically in SQL (DbCheckpointStore.UpsertSql).
+    /// </summary>
+    public static string MergeAtSameTimestamp(string candidate, string existing)
+    {
+        var timestamp = TimestampPart(candidate);
+        if (!candidate.Contains('|', StringComparison.Ordinal) ||
+            !string.Equals(timestamp, TimestampPart(existing), StringComparison.Ordinal))
+        {
+            return candidate; // a later timestamp, or a cursor without a boundary list: stored as given
+        }
+
+        var ids = BoundaryPart(candidate).Union(BoundaryPart(existing), StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        return timestamp + "|" + string.Join(',', ids);
+    }
+
+    private static string[] BoundaryPart(string formatted)
+    {
+        var separator = formatted.IndexOf('|', StringComparison.Ordinal);
+        return separator < 0
+            ? []
+            : formatted[(separator + 1)..].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
 }

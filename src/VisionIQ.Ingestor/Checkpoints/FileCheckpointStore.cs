@@ -49,7 +49,10 @@ public sealed class FileCheckpointStore : ICheckpointStore
                     + "records were already written; only this checkpoint write was skipped.");
             }
 
-            all[key] = checkpoint;
+            // At the same timestamp, keep every boundary ID either save recorded (never shrink the set).
+            all[key] = existing is null
+                ? checkpoint
+                : checkpoint with { Cursor = TimeCursor.MergeAtSameTimestamp(checkpoint.Cursor, existing.Cursor) };
             var directory = Path.GetDirectoryName(Path.GetFullPath(path));
             if (!string.IsNullOrEmpty(directory))
             {

@@ -690,9 +690,8 @@ public sealed class SyncRunner
 
         TimeCursor? cursor = null;
 
-        // Thread-safe collection for successfully written PRs.
-        var written = new ConcurrentBag<(DateTimeOffset At, string Id)>();
-
+        // Checkpoint progress comes only from each batch's completed set, read in the batch's sorted order
+        // (CheckpointProgress.SafePrefix below); the parallel workers record nothing else.
         var processed = 0;
         var linksWritten = 0;
         var total = 0;
@@ -770,7 +769,6 @@ public sealed class SyncRunner
 
                                 // Mark complete only after all related evidence has been written.
                                 completed[pullRequest.Id] = true;
-                                written.Add((pullRequest.LastActivity, Text(pullRequest.Id)));
                                 Interlocked.Add(ref linksWritten, linkCount);
                                 Interlocked.Increment(ref processed);
                                 LogPullRequestEnrichmentCompleted(

@@ -57,6 +57,11 @@ public sealed class IngestionRecoveryTests : IDisposable
         await store.SaveAsync(new SyncCheckpoint(Source, WorkItemScope, "2026-01-01T00:00:00.0000000Z|10,9", Start));
 
         Assert.Equal("2026-01-01T00:00:00.0000000Z|10,9", (await store.GetAsync(Source, WorkItemScope))!.Cursor);
+
+        // A smaller set at the same timestamp (an overlapping run) never shrinks the stored boundary.
+        await store.SaveAsync(new SyncCheckpoint(Source, WorkItemScope, "2026-01-01T00:00:00.0000000Z|9", Start));
+        Assert.Equal("2026-01-01T00:00:00.0000000Z|10,9", (await store.GetAsync(Source, WorkItemScope))!.Cursor);
+
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             store.SaveAsync(new SyncCheckpoint(Source, WorkItemScope, "2025-12-31T23:59:59.0000000Z|1", Start)));
     }
