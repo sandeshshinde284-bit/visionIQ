@@ -111,7 +111,9 @@ def test_single_lane_generic_overlap_or_unverified_fix_does_not_expand_scope() -
         unrelated.item_key: ("/src/ITSO/SelectRailcard.vue",),
     }
     scope = risk.predict_scope(
-        signals, [generic, unrelated], paths,
+        signals,
+        [generic, unrelated],
+        paths,
         {generic.item_key: "E1", unrelated.item_key: "E2"},
     )
     assert scope == []
