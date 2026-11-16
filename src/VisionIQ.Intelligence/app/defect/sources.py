@@ -129,12 +129,14 @@ class PostgresFixSources:
         evidence = self._brief_sources.search(
             f"{ticket.title}\n{ticket.text}", exclude=[ticket.item_key], limit=8
         )
-        # Let predict_scope enforce the evidence rules for both dual-lane and
-        # tightly corroborated single-lane candidates. Do not prefilter the
-        # candidate paths to dual-lane results or the fallback cannot improve.
-        fix_paths = self._brief_sources.changed_files(
-            [result.item_key for result in evidence.results]
-        )
+        anchors = [
+            result for result in evidence.results
+            if result.lanes.get("code_path")
+            or ("keyword" in result.lanes and "vector" in result.lanes)
+        ]
+        if not anchors:
+            return ()
+        fix_paths = self._brief_sources.changed_files([result.item_key for result in anchors])
         # Scope inference already limits anchors and caps its number of paths. Supply
         # provenance IDs so we only return paths tied to a readable evidence item.
         evidence_ids = {
