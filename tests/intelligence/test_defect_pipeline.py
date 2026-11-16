@@ -538,6 +538,35 @@ def test_historical_scope_does_not_select_nonexistent_or_unsafe_paths(tmp_path: 
     assert result.generation.calls == 0
 
 
+def test_historical_basename_ambiguity_blocks_instead_of_guessing(tmp_path: Path) -> None:
+    import subprocess
+    from dataclasses import replace
+    from app.brief.history import TicketText
+
+    demo = make_demo(tmp_path)
+    second = demo.repo / "src" / "another" / "retry_policy.py"
+    second.parent.mkdir(parents=True, exist_ok=True)
+    second.write_text((demo.repo / SOURCE).read_text(encoding="utf-8"), encoding="utf-8")
+    subprocess.run(["git", "-C", str(demo.repo), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(demo.repo), "-c", "user.name=Test",
+         "-c", "user.email=test@example.invalid", "commit", "-m", "add ambiguous file"],
+        check=True, capture_output=True,
+    )
+    sha = subprocess.check_output(
+        ["git", "-C", str(demo.repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    demo = replace(demo, base_sha=sha)
+    ticket = TicketText("0" * 64, "file", "Bug 4711", "Payment gets retried after capture.")
+    sources = FakeFixSources(
+        ticket=ticket, scope=(), candidates=("historical/retry_policy.py",)
+    )
+
+    result = run(tmp_path, [TEST_ANSWER], honest, sources, demo)
+    assert result.reason_codes == ["scope_not_resolved"]
+    assert result.generation.calls == 0
+
+
 def test_instructions_in_the_ticket_are_data(tmp_path: Path) -> None:
     from app.brief.history import TicketText
 
