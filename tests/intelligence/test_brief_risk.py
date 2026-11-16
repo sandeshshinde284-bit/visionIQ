@@ -55,6 +55,68 @@ def test_scope_is_capped() -> None:
     assert len(risk.predict_scope(extract_signals("x"), [PRINTED], changed, IDS)) == 12
 
 
+def test_strong_keyword_only_historical_railcard_fix_contributes_inferred_paths() -> None:
+    from brief_support import result
+
+    signals = extract_signals(
+        "ITSO railcard selection: Continue remains disabled after choosing None."
+    )
+    related = result(
+        "116353",
+        "ITSO Fares screen: Railcards dropdown refreshes instead of opening",
+        "The ITSO railcard dropdown refreshes on first click.",
+        lanes={"keyword": 5},
+    )
+    unrelated = result(
+        "115988",
+        "Payment approved receipt unexpectedly returns kiosk to home screen",
+        "Receipt after payment approval.",
+        lanes={"keyword": 1},
+    )
+    paths = {
+        related.item_key: (
+            "/src/components/ITSO/SelectRailcard/SelectRailcard.vue",
+            "/src/store/ItsoStore.ts",
+            "/src/components/Payment/Receipt.vue",
+        ),
+        unrelated.item_key: ("/src/Payments/Receipt.vue",),
+    }
+    ids = {related.item_key: "E1", unrelated.item_key: "E2"}
+
+    scope = risk.predict_scope(signals, [unrelated, related], paths, ids)
+
+    assert any("SelectRailcard.vue" in item.path for item in scope)
+    assert any(item.evidence_ids == ["E1"] and item.confidence == "inferred" for item in scope)
+    assert not any("Receipt.vue" in item.path for item in scope)
+
+
+def test_single_lane_generic_overlap_or_unverified_fix_does_not_expand_scope() -> None:
+    from brief_support import result
+
+    signals = extract_signals("The screen button is disabled when selected.")
+    generic = result(
+        "301",
+        "Bug: Screen button disabled after selection",
+        "Clicking a button does not continue.",
+        lanes={"keyword": 1},
+    )
+    unrelated = result(
+        "302",
+        "ITSO railcard selection unexpectedly refreshes",
+        "A railcard regression.",
+        lanes={"keyword": 1},
+    )
+    paths = {
+        generic.item_key: ("/src/screen/Button.vue",),
+        unrelated.item_key: ("/src/ITSO/SelectRailcard.vue",),
+    }
+    scope = risk.predict_scope(
+        signals, [generic, unrelated], paths,
+        {generic.item_key: "E1", unrelated.item_key: "E2"},
+    )
+    assert scope == []
+
+
 # ---- S10-13: the band and its thresholds -----------------------------------------------------
 
 
