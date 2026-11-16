@@ -33,7 +33,10 @@ _GENERIC_TERMS = {
 
 def _distinctive_terms(value: str) -> set[str]:
     """Conservative lexical corroboration, not an AI similarity claim."""
-    words = re.findall(r"[a-z][a-z0-9]{3,}", value.lower())
+    words = re.findall(
+        r"[a-z][a-z0-9]{3,}",
+        re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", value).lower(),
+    )
     return {
         word[:-1] if word.endswith("s") and len(word) > 5 else word
         for word in words if word not in _GENERIC_TERMS
