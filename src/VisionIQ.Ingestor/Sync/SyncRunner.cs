@@ -625,8 +625,17 @@ public sealed class SyncRunner
             // evidence concurrency limit.
             var parallelism = Math.Min(4, evidenceConcurrency);
 
+            // Checkpoint only after a complete, durably written batch. A failed batch
+        // is replayed on the next run; previously committed batches are retained.
+        const int checkpointBatchSize = 25;
+        for (var offset = 0; offset < fresh.Count; offset += checkpointBatchSize)
+        {
+            var start = offset;
+            var count = Math.Min(checkpointBatchSize, fresh.Count - start);
+            var batchWritten = new ConcurrentBag<(DateTimeOffset At, string Id)>();
+
             await Parallel.ForEachAsync(
-                Enumerable.Range(0, fresh.Count),
+                Enumerable.Range(start, count),
                 new ParallelOptions
                 {
                     MaxDegreeOfParallelism = parallelism,
@@ -637,63 +646,56 @@ public sealed class SyncRunner
                     var pullRequest = fresh[index];
 
                     LogPullRequestEnrichmentStart(
-                        log,
-                        repository.Name,
-                        index + 1,
-                        total,
-                        pullRequest.Id,
-                        null);
+                        log, repository.Name, index + 1, total, pullRequest.Id, null);
 
-                    // 1. Enrich from Azure DevOps.
                     var enriched = await repositories.EnrichAsync(
-                        project,
-                        repository,
-                        pullRequest,
-                        token).ConfigureAwait(false);
+                        project, repository, pullRequest, token).ConfigureAwait(false);
 
-                    // 2. Persist canonical PR evidence.
-                    var version = enriched.Status + "@"
-                        + Stamp(enriched.LastActivity);
-
+                    var version = enriched.Status + "@" + Stamp(enriched.LastActivity);
                     await sink.WriteAsync(
                         "pull-requests",
-                        Key(
-                            project,
-                            "pull-request",
-                            Text(enriched.Id),
-                            version),
-                        enriched,
-                        token).ConfigureAwait(false);
+                        Key(project, "pull-request", Text(enriched.Id), version),
+                        enriched, token).ConfigureAwait(false);
 
-                    // 3. Persist the review projection.
                     await PullRequestReviewProjection.WriteAsync(
-                        sink,
-                        client.Options.Tenant,
-                        enriched,
-                        token).ConfigureAwait(false);
+                        sink, client.Options.Tenant, enriched, token).ConfigureAwait(false);
 
-                    // 4. Persist relationship links.
                     var linkCount = await WriteLinksAsync(
-                        project,
-                        LinkExtractor.FromPullRequest(enriched),
-                        token).ConfigureAwait(false);
+                        project, LinkExtractor.FromPullRequest(enriched), token).ConfigureAwait(false);
 
-                    // Only mark success after ALL writes complete.
-                    written.Add((
-                        enriched.LastActivity,
-                        Text(enriched.Id)));
-
+                    // Mark complete only after all related evidence has been written.
+                    batchWritten.Add((enriched.LastActivity, Text(enriched.Id)));
                     Interlocked.Add(ref linksWritten, linkCount);
-                    var done = Interlocked.Increment(ref processed);
+                    Interlocked.Increment(ref processed);
 
                     LogPullRequestEnrichmentCompleted(
-                        log,
-                        repository.Name,
-                        index + 1,
-                        total,
-                        pullRequest.Id,
-                        null);
+                        log, repository.Name, index + 1, total, pullRequest.Id, null);
                 }).ConfigureAwait(false);
+
+            // Parallel completion order is immaterial because the *entire* sorted
+            // batch succeeded. Never checkpoint beyond an incomplete batch.
+            if (batchWritten.Count != count)
+            {
+                throw new InvalidOperationException("Not all PRs in the checkpoint batch completed.");
+            }
+
+            foreach (var item in batchWritten)
+            {
+                written.Add(item);
+            }
+
+            // Active PRs are deliberately re-enriched on every run, even before
+            // this cursor. The cursor still allows completed closed PRs to resume.
+            if (!request.Reconcile)
+            {
+                cursor = TimeCursor.Advance(cursor, batchWritten);
+                await SaveCursorAsync(scope, cursor, result, cancellationToken).ConfigureAwait(false);
+                if (result.Status != StreamStatus.Synced)
+                {
+                    return;
+                }
+            }
+        }
 
             LogPullRequestsFinished(
                 log,
@@ -732,11 +734,9 @@ public sealed class SyncRunner
             return;
         }
 
-        await SaveCursorAsync(
-            scope,
-            TimeCursor.Advance(cursor, written.ToList()),
-            result,
-            cancellationToken).ConfigureAwait(false);
+        // Each successful batch has already been checkpointed. Reconcile runs
+        // intentionally preserve the previous cursor.
+
     }
 
 
