@@ -64,7 +64,7 @@ def test_the_header_is_scoped_as_the_address_is_written() -> None:
     )
     assert header("https://DEV.Azure.com/acme/Shop/_git/shop") is not None
     # A user name in the address, a trailing slash and spaces in a project name are all fine.
-    assert header("https://acme@dev.azure.com/acme/Genoa%20Kiosk/_git/KIOSK_TVM") == (
+    assert header("https://acme@dev.azure.com/acme/Example%20Project/_git/example-repo") == (
         "http.https://dev.azure.com/acme/.extraHeader"
     )
     assert header(ADO, "https://dev.azure.com/acme/") is not None
