@@ -450,11 +450,38 @@ public sealed class SyncRunner
 
             try
             {
-                await Parallel.ForEachAsync(ordered, new ParallelOptions
+                // Persist each fully completed batch before processing the next
+                // batch, so an interrupted backfill does not lose its cursor.
+                const int checkpointBatchSize = 25;
+                for (var offset = 0; offset < ordered.Count; offset += checkpointBatchSize)
                 {
-                    MaxDegreeOfParallelism = evidenceConcurrency,
-                    CancellationToken = cancellationToken,
-                }, ProcessWorkItemAsync).ConfigureAwait(false);
+                    var batch = ordered.Skip(offset).Take(checkpointBatchSize).ToList();
+                    await Parallel.ForEachAsync(batch, new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = evidenceConcurrency,
+                        CancellationToken = cancellationToken,
+                    }, ProcessWorkItemAsync).ConfigureAwait(false);
+
+                    result.Records = recordsDone;
+                    result.Links = linksWritten;
+
+                    // Quarantined or otherwise incomplete work items must not be
+                    // passed by the cursor. All revisions and links above must
+                    // finish before a batch can be committed.
+                    if (result.Status == StreamStatus.Synced && !request.Reconcile)
+                    {
+                        var completed = batch.Select(record => (
+                            At: query.AsOf is { } asOf && record.ChangedDate > asOf
+                                ? asOf : record.ChangedDate,
+                            Id: Text(record.Id)));
+                        cursor = TimeCursor.Advance(cursor, completed);
+                        await SaveCursorAsync(scope, cursor, result, cancellationToken).ConfigureAwait(false);
+                        if (result.Status != StreamStatus.Synced)
+                        {
+                            return;
+                        }
+                    }
+                }
             }
             catch (AggregateException aggregate)
             {
@@ -469,7 +496,7 @@ public sealed class SyncRunner
             }
 
             result.Records = recordsDone;
-            result.Links += linksWritten;
+            result.Links = linksWritten;
             written.AddRange(writtenBag);
 
             if (ids.Count >= AdoWorkItemSource.WiqlLimit)
