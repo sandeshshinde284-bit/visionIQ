@@ -461,35 +461,66 @@ class _FixRun:
         return tier_for_attempt(self.complexity.tier, attempt)
 
     def _context_files(self, ticket: TicketText, files: Sequence[str]) -> list[CodeFile]:
-        """The source files a model is shown: those the brief predicted or the ticket names."""
+        """Resolve ticket/BRIEF paths, falling back to authorized historical fix evidence.
+
+        A historical path is an investigation candidate, not a confirmed fix location.
+        Ambiguous basenames are never chosen: the tree at the pinned SHA is the
+        authority, not the path in an old PR. Repository path policy applies to both
+        primary and fallback candidates.
+        """
         repo, _ = self._ready()
-        wanted = [
-            *self.sources.brief_scope(self.request.ticket.project, self.request.ticket.id),
-            *extract_signals(f"{ticket.title}\n{ticket.text}").files,
-        ]
         eligible = [
-            path
-            for path in files
+            path for path in files
             if is_safe_path(path)
             and not matches(path, repo.test_file_patterns)
             and not matches(path, repo.secret_paths)
             and not matches(path, repo.generated_paths)
+            and not any(matches(path, area.patterns) for area in repo.restricted_areas)
         ]
         by_lower = {path.lower(): path for path in eligible}
-        chosen: list[str] = []
-        for raw in wanted:
-            target = raw.replace("\\", "/").lstrip("/").lower()
-            if not target:
-                continue
-            name = target.rsplit("/", 1)[-1]
-            hits = (
-                [by_lower[target]]
-                if target in by_lower
-                else [path for path in eligible if path.lower().endswith(f"/{target}")]
-                or [path for path in eligible if path.lower().rsplit("/", 1)[-1] == name]
-            )
-            chosen += [hit for hit in hits[:2] if hit not in chosen]
-        return self._read(chosen[: repo.limits.max_context_files])
+
+        def resolved(wanted: Sequence[str]) -> list[str]:
+            chosen: list[str] = []
+            for raw in wanted:
+                target = raw.replace("\\\\", "/").lstrip("/").lower()
+                if not target or not is_safe_path(target):
+                    continue
+                if target in by_lower:
+                    hits = [by_lower[target]]
+                else:
+                    hits = [
+                        path for path in eligible
+                        if path.lower().endswith("/" + target)
+                    ]
+                    if not hits:
+                        name = target.rsplit("/", 1)[-1]
+                        hits = [
+                            path for path in eligible
+                            if path.lower().rsplit("/", 1)[-1] == name
+                        ]
+                # A basename-only match can be a renamed file, but is only
+                # defensible when exactly one permitted file has that name.
+                if len(hits) == 1 and hits[0] not in chosen:
+                    chosen.append(hits[0])
+                if len(chosen) >= repo.limits.max_context_files:
+                    break
+            return chosen
+
+        wanted = [
+            *self.sources.brief_scope(self.request.ticket.project, self.request.ticket.id),
+            *extract_signals(f"{ticket.title}\\n{ticket.text}").files,
+        ]
+        chosen = resolved(wanted)
+        if not chosen:
+            candidates = self.sources.historical_scope(ticket)
+            chosen = resolved(candidates)
+            if chosen:
+                _log().info(
+                    "fix_historical_scope_resolved",
+                    candidate_count=len(candidates),
+                    resolved_paths=chosen,
+                )
+        return self._read(chosen)
 
     def _read(self, paths: Sequence[str]) -> list[CodeFile]:
         repo, workspace = self._ready()
