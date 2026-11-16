@@ -131,14 +131,11 @@ public sealed class TicketFixProjectionSinkTests
     [Fact]
     public async Task An_abandoned_or_still_active_pr_is_kept_as_associated_work_never_as_a_fix()
     {
-        // Review R4-03: confirmed against real ADO data (6 abandoned and 7 active PRs in the
-        // Genoa Kiosk org carry WorkItemIds, e.g. abandoned PR 38497 -> work items 116399/116556).
-        // The relationship ADO declared is kept, classified Unknown, so it is never mistaken for a
-        // fix by any reader (they all require Explicit or Inferred) but is not silently discarded.
+        // Synthetic abandoned/active PRs must remain associated work, not confirmed fixes.
         var links = new RecordingLinkStore();
         var sink = new TicketFixProjectionSink(new RecordingEvidenceSink(), links, Organization);
-        var abandoned = PullRequest() with { Id = 38497, Status = "abandoned", WorkItemIds = [116399, 116556] };
-        var active = PullRequest() with { Id = 38241, Status = "active", WorkItemIds = [114985] };
+        var abandoned = PullRequest() with { Id = 101, Status = "abandoned", WorkItemIds = [201, 202] };
+        var active = PullRequest() with { Id = 102, Status = "active", WorkItemIds = [203] };
 
         await sink.WriteAsync("pull-requests", "source/abandoned", abandoned);
         await sink.WriteAsync("pull-requests", "source/active", active);
