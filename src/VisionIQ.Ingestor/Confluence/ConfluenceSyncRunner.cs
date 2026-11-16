@@ -95,7 +95,6 @@ public sealed class ConfluenceSyncRunner
             return;
         }
 
-        var written = new List<(DateTimeOffset At, string Id)>();
         var timer = System.Diagnostics.Stopwatch.StartNew();
         try
         {
@@ -131,40 +130,70 @@ public sealed class ConfluenceSyncRunner
                 .ToList();
 
             var recordsDone = 0;
-            var linksDone = 0;
-            var writtenBag = new ConcurrentBag<(DateTimeOffset At, string Id)>();
-
-            await RunGatedAsync(fresh, async (page, token) =>
+            const int checkpointBatchSize = 25;
+            for (var offset = 0; offset < fresh.Count; offset += checkpointBatchSize)
             {
-                var enriched = await source.EnrichAsync(page, token).ConfigureAwait(false);
-                var normalized = ConfluenceText.Normalize(enriched.StorageBody);
-                var snapshot = new ConfluencePageSnapshot(source.Tenant, space, page.Id, page.Version, page.Title, page.LastModified)
+                var batch = fresh.Skip(offset).Take(checkpointBatchSize).ToList();
+                var batchWritten = new ConcurrentBag<(DateTimeOffset At, string Id)>();
+                await RunGatedAsync(batch, async (page, token) =>
                 {
-                    ParentId = page.ParentId,
-                    AncestorIds = ConfluenceAccess.AncestorIds(page, byId),
-                    Url = page.Url,
-                    Labels = enriched.Labels,
-                    Text = normalized.Text,
-                    Sections = normalized.Sections,
-                    Properties = normalized.Properties,
-                    Versions = enriched.Versions,
-                };
-
-                var version = page.Version.ToString(CultureInfo.InvariantCulture);
-                await GatedWriteAsync("confluence-pages", Key(space, "page", page.Id, version), snapshot, token).ConfigureAwait(false);
-
-                var done = Interlocked.Increment(ref recordsDone);
-                if (done % 50 == 0 || done == fresh.Count)
+                    var enriched = await source.EnrichAsync(page, token).ConfigureAwait(false);
+                    var normalized = ConfluenceText.Normalize(enriched.StorageBody);
+                    var snapshot = new ConfluencePageSnapshot(source.Tenant, space, page.Id, page.Version, page.Title, page.LastModified)
+                    {
+                        ParentId = page.ParentId,
+                        AncestorIds = ConfluenceAccess.AncestorIds(page, byId),
+                        Url = page.Url,
+                        Labels = enriched.Labels,
+                        Text = normalized.Text,
+                        Sections = normalized.Sections,
+                        Properties = normalized.Properties,
+                        Versions = enriched.Versions,
+                    };
+    
+                    var version = page.Version.ToString(CultureInfo.InvariantCulture);
+                    await GatedWriteAsync("confluence-pages", Key(space, "page", page.Id, version), snapshot, token).ConfigureAwait(false);
+    
+                    var done = Interlocked.Increment(ref recordsDone);
+                    if (done % 50 == 0 || done == fresh.Count)
+                    {
+                        Logging.IngestionLog.ConfluencePagePersistProgress(log, space, done, fresh.Count, timer.Elapsed.TotalMilliseconds);
+                    }
+    
+                    batchWritten.Add((page.LastModified, page.Id + "@" + version));
+                }, cancellationToken).ConfigureAwait(false);
+    
+    
+                // Do not advance across a missing page or a failed write.
+                if (batchWritten.Count != batch.Count)
                 {
-                    Logging.IngestionLog.ConfluencePagePersistProgress(log, space, done, fresh.Count, timer.Elapsed.TotalMilliseconds);
+                    throw new InvalidOperationException("Confluence page batch was incomplete.");
                 }
 
-                writtenBag.Add((page.LastModified, page.Id + "@" + version));
-            }, cancellationToken).ConfigureAwait(false);
+                result.Records = recordsDone;
+                if (!request.Reconcile)
+                {
+                    cursor = TimeCursor.Advance(cursor, batchWritten);
+                    if (cursor is not null)
+                    {
+                        try
+                        {
+                            await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
+                            await checkpoints.SaveAsync(new SyncCheckpoint(
+                                SourceId, scope, cursor.Format(), time.GetUtcNow()),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception error) when (error is not OperationCanceledException)
+                        {
+                            Fail(result, "Pages were written but the checkpoint could not be saved: " + error.Message);
+                            return;
+                        }
+                    }
+                }
+            }
 
             result.Records = recordsDone;
-            result.Links = linksDone;
-            written.AddRange(writtenBag);
+            result.Links = 0;
 
             registry.Register(SourceKind.Confluence, "pages", CapabilityStatus.Supported);
             registry.Register(SourceKind.Confluence, "page-restrictions", CapabilityStatus.Supported);
@@ -174,19 +203,7 @@ public sealed class ConfluenceSyncRunner
             Fail(result, error.Message);
         }
 
-        if (!request.Reconcile && result.Status == StreamStatus.Synced && TimeCursor.Advance(cursor, written) is { } next)
-        {
-            try
-            {
-                // Review R1-04: written pages must be durable before the checkpoint moves past them.
-                await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
-                await checkpoints.SaveAsync(new SyncCheckpoint(SourceId, scope, next.Format(), time.GetUtcNow()), cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception error) when (error is not OperationCanceledException)
-            {
-                Fail(result, "Pages were written but the checkpoint could not be saved: " + error.Message);
-            }
-        }
+
     }
 
     /// <summary>Bounded-concurrency ForEachAsync that unwraps a single real exception instead of
