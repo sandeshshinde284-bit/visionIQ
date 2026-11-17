@@ -66,12 +66,14 @@ def discover(
     # together with the same file; they could not exercise the change, failed to restore, and
     # took the place of the component's own test. When every changed file is code, only tests
     # of the same kinds are candidates; a changed data or configuration file (JSON, XML...) may
-    # be read by tests of any kind, so then nothing is filtered.
+    # be read by tests of any kind, so then tests of every kind stay. Whatever the change, a
+    # candidate must itself be code: mock data, project and settings files sit in test folders
+    # (so a fix may not change them) but cannot be run as a test.
     kinds = {kind(path) for path in changed_paths}
     same_kind_only = bool(kinds) and kinds <= _CODE_KINDS
 
     def relevant(path: str) -> bool:
-        return not same_kind_only or kind(path) in kinds
+        return kind(path) in _CODE_KINDS and (not same_kind_only or kind(path) in kinds)
 
     def add(candidate: RegressionCandidate) -> None:
         current = found.get(candidate.test_path)
