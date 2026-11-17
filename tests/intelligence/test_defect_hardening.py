@@ -492,8 +492,8 @@ def test_ticket_and_model_text_cannot_become_markup_in_the_pull_request() -> Non
 
 VITEST = (
     "import { describe, it, expect } from 'vitest'\n"
-    "describe('SelectRailcard', () => {\n"
-    "  it('keeps Continue enabled after choosing None', () => {\n"
+    "describe('CheckoutScreen', () => {\n"
+    "  it('keeps Continue enabled after choosing nothing', () => {\n"
     "    expect(true).toBe(false)\n"
     "  })\n"
     "})\n"
@@ -503,8 +503,8 @@ VITEST = (
 @pytest.mark.parametrize(
     "test_id",
     [
-        "keeps Continue enabled after choosing None",  # the it() title
-        "SelectRailcard > keeps Continue enabled after choosing None",  # with its describe()
+        "keeps Continue enabled after choosing nothing",  # the it() title
+        "CheckoutScreen > keeps Continue enabled after choosing nothing",  # with its describe()
     ],
 )
 def test_a_vitest_title_is_a_test_name(tmp_path: Path, test_id: str) -> None:
@@ -513,7 +513,7 @@ def test_a_vitest_title_is_a_test_name(tmp_path: Path, test_id: str) -> None:
     repo = demo.policy.repositories[0]
     ledger = RunLedger(request(demo).run_id, DataClassification.INTERNAL, Budget(6, 400_000, 1800))
     context_ = EvidenceContext(snapshot_id=None, ticket_title="Bug", ticket_text="x", evidence=())
-    answer = {**TEST_ANSWER, "test_path": "tests/select_railcard.spec.ts", "test_id": test_id}
+    answer = {**TEST_ANSWER, "test_path": "tests/checkout_screen.spec.ts", "test_id": test_id}
     answer["test_content"] = VITEST
 
     proposal = propose_test(gateway(answer), ledger, context_, repo, set())
@@ -537,7 +537,7 @@ def test_a_title_the_file_does_not_define_or_that_is_not_a_name_is_refused(
     repo = demo.policy.repositories[0]
     ledger = RunLedger(request(demo).run_id, DataClassification.INTERNAL, Budget(6, 400_000, 1800))
     context_ = EvidenceContext(snapshot_id=None, ticket_title="Bug", ticket_text="x", evidence=())
-    answer = {**TEST_ANSWER, "test_path": "tests/select_railcard.spec.ts", "test_id": test_id}
+    answer = {**TEST_ANSWER, "test_path": "tests/checkout_screen.spec.ts", "test_id": test_id}
     answer["test_content"] = VITEST
 
     proposal = propose_test(gateway(answer), ledger, context_, repo, set())
@@ -548,14 +548,14 @@ def test_a_title_the_file_does_not_define_or_that_is_not_a_name_is_refused(
 def test_a_vitest_case_is_found_by_its_title_under_its_describe() -> None:
     # vitest's JUnit report names a case "Describe > title".
     case = Case(
-        "SelectRailcard > keeps Continue enabled after choosing None", "x.spec.ts", "failed"
+        "CheckoutScreen > keeps Continue enabled after choosing nothing", "x.spec.ts", "failed"
     )
-    other = Case("SelectRailcard > shows the list", "x.spec.ts", "passed")
+    other = Case("CheckoutScreen > shows the list", "x.spec.ts", "passed")
 
-    assert find_cases([case, other], "keeps Continue enabled after choosing None") == [case]
+    assert find_cases([case, other], "keeps Continue enabled after choosing nothing") == [case]
     assert find_cases(
-        [case, other], "SelectRailcard > keeps Continue enabled after choosing None"
+        [case, other], "CheckoutScreen > keeps Continue enabled after choosing nothing"
     ) == [case]
     assert (
-        find_cases([case, other], "Continue enabled after choosing None") == []
+        find_cases([case, other], "Continue enabled after choosing nothing") == []
     )  # no partial titles

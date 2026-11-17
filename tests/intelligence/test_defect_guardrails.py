@@ -325,29 +325,29 @@ def test_regression_tests_are_of_the_same_kind_as_the_changed_code() -> None:
         "101",
         "PR 201",
         (
-            "web/src/RailcardList.vue",
-            "Api/Cash.Tests/RefundTests.cs",
-            "web/src/RailcardList.test.ts",
+            "web/src/OptionList.vue",
+            "Api/Orders.Tests/OrderTests.cs",
+            "web/src/OptionList.test.ts",
         ),
     )
 
-    vue_fix = discover([past], changed=("web/src/RailcardList.vue",), test_file_patterns=patterns)
-    cs_fix = discover([past], changed=("Api/Cash/Refund.cs",), test_file_patterns=patterns)
+    vue_fix = discover([past], changed=("web/src/OptionList.vue",), test_file_patterns=patterns)
+    cs_fix = discover([past], changed=("Api/Orders/Order.cs",), test_file_patterns=patterns)
 
-    assert [c.test_path for c in vue_fix] == ["web/src/RailcardList.test.ts"]
-    assert [c.test_path for c in cs_fix] == ["Api/Cash.Tests/RefundTests.cs"]
+    assert [c.test_path for c in vue_fix] == ["web/src/OptionList.test.ts"]
+    assert [c.test_path for c in cs_fix] == ["Api/Orders.Tests/OrderTests.cs"]
 
 
 def test_a_changed_data_file_keeps_tests_of_every_kind() -> None:
     # A JSON or XML file may be read by tests of any kind, so nothing is filtered then.
     patterns = ["**/*.Tests/**/*.cs", "**/*.test.ts"]
     past = HistoricalFix(
-        "101", "PR 201", ("Api/Cash.Tests/RefundTests.cs", "web/src/RailcardList.test.ts")
+        "101", "PR 201", ("Api/Orders.Tests/OrderTests.cs", "web/src/OptionList.test.ts")
     )
 
     found = discover([past], changed=("config/fares.json",), test_file_patterns=patterns)
 
     assert sorted(c.test_path for c in found) == [
-        "Api/Cash.Tests/RefundTests.cs",
-        "web/src/RailcardList.test.ts",
+        "Api/Orders.Tests/OrderTests.cs",
+        "web/src/OptionList.test.ts",
     ]

@@ -309,17 +309,32 @@ def _kind(path: str) -> str:
     return regression_rules.kind(path)
 
 
+def order_imports(paths: Sequence[str]) -> list[str]:
+    """Imported files, what a test must set up or mock first (stores, composables, services,
+    helpers), then child components, which a component test usually stubs. Seen live, child
+    components took the room and the screen's own composable, whose missing service crashed the
+    test, was left out."""
+    return [
+        *(p for p in paths if not p.endswith(".vue")),
+        *(p for p in paths if p.endswith(".vue")),
+    ]
+
+
 def order_tests(code: Sequence[str], tests: Sequence[str]) -> list[str]:
-    """Existing tests, the most useful first: same subject, then the same kind as the code shown
-    (a .spec.ts for a Vue component, a .cs for C#), nearest folder first. Another kind comes last:
-    its conventions would mislead the model."""
-    subjects = {regression_rules.stem(path) for path in code}
+    """Existing tests, the most useful first. ``code`` is ordered from the defect outwards (the
+    files in scope, the files that use them, then what they import), and a test of a file earlier
+    in it comes first: seen live, ties broken by path put a calendar's test before the screen's
+    own. Then the same kind as the code shown (a .spec.ts for a Vue component, a .cs for C#),
+    nearest folder first; another kind comes last, its conventions would mislead the model."""
+    position: dict[str, int] = {}
+    for index, path in enumerate(code):
+        position.setdefault(regression_rules.stem(path), index)
     kinds = {_kind(path) for path in code}
 
     def rank(test: str) -> tuple[int, int, int, str]:
         near = max((_shared_folders(test, path) for path in code), default=0)
         return (
-            0 if regression_rules.stem(test) in subjects else 1,
+            position.get(regression_rules.stem(test), len(code)),
             0 if _kind(test) in kinds else 1,
             -near,
             test,
@@ -634,16 +649,13 @@ class _FixRun:
         if room <= 0:
             return []
         allowed = set(eligible)
-        added: list[str] = []
+        found: list[str] = []
         for path in shown:
             content = workspace.read(path, "base", limit=repo.limits.max_file_bytes) or ""
             for target in local_imports(path, content, allowed):
-                if target not in shown and target not in added:
-                    added.append(target)
-                if len(added) >= room:
-                    break
-            if len(added) >= room:
-                break
+                if target not in shown and target not in found:
+                    found.append(target)
+        added = order_imports(found)[:room]
         if added:
             _log().info("fix_imported_files_added", resolved_paths=added)
         return added
