@@ -315,3 +315,39 @@ def test_what_a_replay_adds_up_to(tests, status: str, historical: bool) -> None:
     assert (result.status, result.historical_found) == (status, historical)
     if not historical:
         assert regression.NOT_FOUND in result.detail
+
+
+def test_regression_tests_are_of_the_same_kind_as_the_changed_code() -> None:
+    # Seen live: a Vue fix was "regression-checked" with C# tests (and their data files) that past
+    # fixes had touched together with the same component; the component's own test was crowded out.
+    patterns = ["**/*.Tests/**/*.cs", "**/*.test.ts"]
+    past = HistoricalFix(
+        "101",
+        "PR 201",
+        (
+            "web/src/RailcardList.vue",
+            "Api/Cash.Tests/RefundTests.cs",
+            "web/src/RailcardList.test.ts",
+        ),
+    )
+
+    vue_fix = discover([past], changed=("web/src/RailcardList.vue",), test_file_patterns=patterns)
+    cs_fix = discover([past], changed=("Api/Cash/Refund.cs",), test_file_patterns=patterns)
+
+    assert [c.test_path for c in vue_fix] == ["web/src/RailcardList.test.ts"]
+    assert [c.test_path for c in cs_fix] == ["Api/Cash.Tests/RefundTests.cs"]
+
+
+def test_a_changed_data_file_keeps_tests_of_every_kind() -> None:
+    # A JSON or XML file may be read by tests of any kind, so nothing is filtered then.
+    patterns = ["**/*.Tests/**/*.cs", "**/*.test.ts"]
+    past = HistoricalFix(
+        "101", "PR 201", ("Api/Cash.Tests/RefundTests.cs", "web/src/RailcardList.test.ts")
+    )
+
+    found = discover([past], changed=("config/fares.json",), test_file_patterns=patterns)
+
+    assert sorted(c.test_path for c in found) == [
+        "Api/Cash.Tests/RefundTests.cs",
+        "web/src/RailcardList.test.ts",
+    ]

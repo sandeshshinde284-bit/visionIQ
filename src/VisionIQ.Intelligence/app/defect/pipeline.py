@@ -253,7 +253,7 @@ class FixOutcome:
 # Local imports of JavaScript, TypeScript and Vue files: `import x from "./a"`, `import "./a"`,
 # `require("./a")`, `import("./a")`. Only relative paths and the "@/" source alias are local; any
 # other specifier is a package and is never followed.
-SCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue")
+SCRIPT_SUFFIXES = regression_rules.SCRIPT_SUFFIXES  # one definition of what is JS / TS / Vue
 _IMPORT_SPEC = re.compile(
     r"""(?:\bimport\s+(?:type\s+)?(?:[\w*{}\s,$]+?\s+from\s+)?|\brequire\s*\(\s*|\bimport\s*\(\s*)"""
     r"""["']([^"'\n]+)["']"""
@@ -303,10 +303,7 @@ def imported_names(content: str) -> list[str]:
 
 def _kind(path: str) -> str:
     """What a file is written in, for choosing example tests of the same kind."""
-    suffix = PurePosixPath(path).suffix.lower()
-    if suffix in SCRIPT_SUFFIXES:
-        return "script"
-    return suffix or path
+    return regression_rules.kind(path)
 
 
 def order_tests(code: Sequence[str], tests: Sequence[str]) -> list[str]:
