@@ -260,6 +260,9 @@ _IMPORT_SPEC = re.compile(
 )
 _IMPORT_NAMES = re.compile(r"""\bimport\s+(?:type\s+)?([\w*{}\s,$]+?)\s+from\s+["'](\.{1,2}/|@/)""")
 MAX_TEST_DATA = 2
+# Existing tests of the code shown, given to the fix step read only (A), and tests a candidate
+# broke, given to the next attempt (C).
+MAX_EXISTING_TESTS = 3
 MAX_IMPORTED_NAMES = 12
 
 
@@ -691,6 +694,27 @@ class _FixRun:
                     CodeFile(path=path, content=content, truncated=workspace.size(path) > limit)
                 )
         return code
+
+    def _existing_tests(
+        self, code: Sequence[CodeFile], files: Sequence[str], reproduction: str
+    ) -> list[CodeFile]:
+        """The existing tests of the code shown: tests named after a shown file, of the same
+        kind, nearest first. They are what the regression replay will run, shown before the fix
+        is written so it can keep them passing."""
+        repo, _ = self._ready()
+        subjects = {regression_rules.stem(file.path) for file in code} - {""}
+        kinds = {_kind(file.path) for file in code}
+        tests = [
+            path
+            for path in files
+            if path != reproduction
+            and is_safe_path(path)
+            and matches(path, repo.test_file_patterns)
+            and regression_rules.stem(path) in subjects
+            and _kind(path) in kinds
+        ]
+        ordered = order_tests([file.path for file in code], tests)
+        return self._read(ordered[:MAX_EXISTING_TESTS])
 
     def _test_examples(self, code: Sequence[CodeFile], tests: Sequence[str]) -> list[CodeFile]:
         """The two most useful existing tests, so the model sees this project's conventions."""
@@ -1140,7 +1164,19 @@ class _FixRun:
             f"Only files under these paths may be changed: {', '.join(repo.writable_paths)}.",
             "A file marked [file truncated] is shown for context only and may not be edited.",
         )
-        context_code = [*code, CodeFile(path=test.path, content=test.content)]
+        # A: the existing tests of this code, read only, before any fix is written. Seen live: a
+        # fix broke the screen's own test three times over, because the model never saw it.
+        existing = self._existing_tests(code, files, test.path)
+        if existing:
+            facts = (
+                *facts,
+                "These existing tests of this code are shown read only. They describe behaviour "
+                "that must not change; the fix must keep them passing: "
+                + ", ".join(file.path for file in existing)
+                + ".",
+            )
+            _log().info("fix_existing_tests_shown", paths=[file.path for file in existing])
+        context_code = [*code, CodeFile(path=test.path, content=test.content), *existing]
         red = self.reproduction.evidence.failure_signature if self.reproduction.evidence else None
         feedback = [f"On the current code the test fails with: {red}"] if red else []
         tested = False
@@ -1304,6 +1340,16 @@ class _FixRun:
                     f"Attempt {iteration} made the test pass but broke tests that passed "
                     f"before: {'; '.join(broken[:3])}"
                 )
+                # C: show the broken tests themselves (read only), not just their names.
+                shown_paths = {file.path for file in context_code}
+                missing = [
+                    item.test_path
+                    for item in self.regression.tests
+                    if item.outcome in _FAILED
+                    and item.baseline_outcome == "PASS"
+                    and item.test_path not in shown_paths
+                ]
+                context_code.extend(self._read(missing[:MAX_EXISTING_TESTS]))
                 continue
             if self._suite(manifest) == "FAIL":
                 tested = True

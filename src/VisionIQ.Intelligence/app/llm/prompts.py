@@ -113,12 +113,16 @@ The failing test reproduces a reported defect; it was run on the current code an
 Rules:
 - Change production code only. Never edit, delete or weaken the failing test or any other test.
 - Fix the cause in the layer where it belongs; do not special-case the test's inputs.
+- Existing tests of this code may be shown, read only. They describe behaviour that must not
+  change. Before writing the fix, work out the cause and which behaviour those tests protect,
+  then write ONE fix that makes the failing test pass AND keeps those tests passing.
 - Keep the change small: touch only the files that must change, and return the COMPLETE new
   content of each changed file.
 - Do not add or upgrade dependencies, do not touch secrets or configuration, and do not add
   generated files.
 - In cause, say in one or two sentences what the code did wrong, as shown by the code and the
-  test. In summary, say what you changed. Do not claim the fix is proven: it will be tested.
+  test. In summary, say what you changed and which existing behaviour you kept. Do not claim
+  the fix is proven: it will be tested.
 - If earlier attempts are listed, they failed for the reason given. Do not repeat them."""
 
 REPRODUCTION_SCHEMA: dict[str, Any] = {
@@ -284,7 +288,7 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
     TaskKind.REPRODUCTION_TEST: PromptTemplate(
         "defect.reproduction", 2, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
     ),
-    TaskKind.CODE_FIX: PromptTemplate("defect.fix", 1, _FIX_SYSTEM, FIX_SCHEMA),
+    TaskKind.CODE_FIX: PromptTemplate("defect.fix", 2, _FIX_SYSTEM, FIX_SCHEMA),
 }
 
 
