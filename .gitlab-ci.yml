@@ -22,8 +22,9 @@ variables:
   DB_HOST: "10.102.16.8"
   DB_PORT: "5432"
   DB_NAME: "visioniq_dev"
-  # Set GCS_EVIDENCE_BUCKET as a protected GitLab CI variable after verifying the canonical evidence bucket.
-  # Do not silently choose between the legacy and team-owned buckets.
+  # The architect-provisioned bucket is gs://gbr-mts-wgh-hkt-ps04-t11.
+  # Set GCS_EVIDENCE_BUCKET in protected GitLab CI variables only after confirming
+  # persisted gs:// evidence URIs. Do not move or overwrite existing evidence implicitly.
 
 stages:
   - security
@@ -72,7 +73,7 @@ prepare-gcp-session:
       - gcp-session/docker-config.json
     reports:
       dotenv: gcp-session/gcp.env
-    expire_in: 24 hours
+    expire_in: 1 hour
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
 
@@ -258,8 +259,8 @@ deploy-visioniq-api:
         --memory "1Gi"
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
-        --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=false,BRIEF_PUBLISH_MODE=off,FIX_PR_MODE=off,PICKUP_SWEEP_INTERVAL_MINUTES=0"
-        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest"
+        --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=false,BRIEF_PUBLISH_MODE=off,FIX_PR_MODE=off,PICKUP_SWEEP_INTERVAL_MINUTES=0,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET}"
+        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
     - gcloud run services describe "visioniq-api" --region "${SERVICE_REGION}" --format='value(status.url)'
 
 deploy-visioniq-intelligence:
@@ -293,7 +294,7 @@ deploy-visioniq-intelligence:
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "APP_ENV=production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_INTELLIGENCE_USER=visioniq_intelligence,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=false,BRIEF_PIPELINE_ENABLED=false,DEFECT_PIPELINE_ENABLED=false,CLAUDE_ROUTE=off,LLM_MODE=live,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},EMBEDDING_PROVIDER=vertex,EMBEDDING_MODEL=gemini-embedding-001,EMBEDDING_DIMENSION=768,VERTEX_LOCATION=${SERVICE_REGION},GCP_PROJECT_ID=${GCP_PROJECT},GEMINI_MODEL=gemini-2.5-flash"
-        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
+        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
     - gcloud run services describe "visioniq-intelligence" --region "${SERVICE_REGION}" --format='value(status.url)'
 
 deploy-visioniq-ingestor-webhooks:
@@ -328,7 +329,7 @@ deploy-visioniq-ingestor-webhooks:
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "INGESTION_OUTPUT_MODE=canonical,CHECKPOINT_STORE=postgres,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,ADO_ORG_URL=https://dev.azure.com/WLMTS,ADO_PROJECTS=Genoa Kiosk,ADO_WEBHOOK_USERNAME=visioniq-webhook"
-        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,DB_PASSWORD=visioniq-db-api-password:latest,ADO_WEBHOOK_SECRET=visioniq-ado-webhook-secret:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
+        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,ADO_WEBHOOK_SECRET=visioniq-ado-webhook-secret:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
     - gcloud run services describe "visioniq-ingestor-webhooks" --region "${SERVICE_REGION}" --format='value(status.url)'
 
 deploy-visioniq-ingestion-job:
@@ -358,7 +359,7 @@ deploy-visioniq-ingestion-job:
         --args "VisionIQ.Ingestor.Cli.dll,sync,--source,all"
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "INGESTION_OUTPUT_MODE=canonical,CHECKPOINT_STORE=postgres,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,ADO_ORG_URL=https://dev.azure.com/WLMTS,ADO_PROJECTS=Genoa Kiosk"
-        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
+        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
 
 deploy-visioniq-indexing-job:
   stage: deploy
@@ -387,7 +388,7 @@ deploy-visioniq-indexing-job:
         --args "-m,app.knowledge.index_cli"
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "APP_ENV=production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_INTELLIGENCE_USER=visioniq_intelligence,DB_SSL_MODE=require,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},EMBEDDING_PROVIDER=vertex,VERTEX_LOCATION=${SERVICE_REGION},GCP_PROJECT_ID=${GCP_PROJECT}"
-        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
+        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
 
 # ------------------------------------------------------------------------------
 # Post-deployment metadata verification: no mutation.
