@@ -1,0 +1,17 @@
+{
+  "description": "Cloud Run job schedules; provision only after corresponding jobs are deployed. Both start paused.",
+  "jobs": [
+    {
+      "name": "visioniq-ingestion-hourly",
+      "cloud_run_job": "visioniq-ingestion-job",
+      "schedule": "0 * * * *",
+      "time_zone": "Etc/UTC"
+    },
+    {
+      "name": "visioniq-indexing-daily",
+      "cloud_run_job": "visioniq-indexing-job",
+      "schedule": "0 2 * * *",
+      "time_zone": "Etc/UTC"
+    }
+  ]
+}
