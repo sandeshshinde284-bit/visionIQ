@@ -59,6 +59,7 @@
       // Recorded by hash in the execution manifest.
       "lock_files": ["packages.lock.json", "global.json"],
       "fixture_paths": [],
+      "test_data_paths": [],
       // Budgets are this repository's own, agreed with its owners. A broader change stops for review.
       "limits": {
         "max_test_attempts": 2,

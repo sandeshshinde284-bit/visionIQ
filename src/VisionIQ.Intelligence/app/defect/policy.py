@@ -177,6 +177,10 @@ class RepositoryPolicy(_Model):
     restricted_areas: tuple[RestrictedArea, ...] = ()
     lock_files: tuple[str, ...] = ()
     fixture_paths: tuple[str, ...] = ()
+    # Patterns of mock or test data (e.g. "**/mocks/**"). A file here that mentions a name the
+    # shown code imports (an API call, a store) is shown to the model with the example tests,
+    # read only, so a reproduction test can use the project's own mock payloads. Empty: none.
+    test_data_paths: tuple[str, ...] = ()
     limits: Limits = Field(default_factory=Limits)
     benchmark: BenchmarkPolicy | None = None
     # 8.6.4: a draft PR with accurately reported failed or incomplete checks, when owners allow.

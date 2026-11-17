@@ -625,6 +625,7 @@ def test_a_run_logs_each_stage_with_ids_and_codes(tmp_path: Path) -> None:
         "fix_started",
         "fix_related_files_added",
         "fix_workspace_ready",
+        "fix_test_context",
         "fix_manifest_written",
         "fix_reproduction_attempt",
         # Iteration 1: passes the new test, breaks the old one.
