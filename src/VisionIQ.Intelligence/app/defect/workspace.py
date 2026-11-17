@@ -339,6 +339,16 @@ class Workspace:
             :-1
         ]
 
+    def referrers(self, name: str) -> list[str]:
+        """Files at the baseline commit whose text mentions ``name`` as a whole word.
+
+        One ``git grep`` of the pinned commit: a fixed string (never a pattern), text files only.
+        """
+        arguments = ("grep", "-l", "-z", "-I", "-w", "-F", "-e", name, self.base_sha, "--")
+        output = self._git("base", *arguments, check=False)
+        prefix = f"{self.base_sha}:"
+        return [p[len(prefix) :] if p.startswith(prefix) else p for p in output.split("\0") if p]
+
     def read(self, path: str, tree: Tree = "base", limit: int | None = None) -> str | None:
         """A text file of a tree, or None when it is missing, unsafe or not text."""
         target = self._resolve(tree, path)

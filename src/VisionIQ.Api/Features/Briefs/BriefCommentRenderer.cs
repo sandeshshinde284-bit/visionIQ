@@ -25,6 +25,7 @@ public static class BriefCommentRenderer
 
     private const int MaxEvidence = 12;
     private const int MaxScope = 8;
+    private const int MaxOtherTitle = 90;
 
     // The order and labels are contract-owned, not taken from the stored model document.
     private static readonly (string Code, string Title)[] EnhancementSections =
@@ -77,8 +78,12 @@ public static class BriefCommentRenderer
             html.Append(" &middot; Risk: <b>").Append(Encode(RiskLabel(brief.Risk.Band))).Append("</b>");
         }
 
-        html.Append("<br>Run <code>").Append(target.RunId.ToString("D")).Append("</code> &middot; ticket revision ")
-            .Append(target.TicketRevision.ToString(CultureInfo.InvariantCulture)).Append("</div>");
+        html.Append("</div>");
+        // The answer in one sentence, before any detail.
+        if (brief is not null && !string.IsNullOrWhiteSpace(brief.Risk.Explanation))
+        {
+            html.Append("<p><i>").Append(Encode(brief.Risk.Explanation)).Append("</i></p>");
+        }
 
         if (target.ReasonCodes.Count > 0)
         {
@@ -89,53 +94,67 @@ public static class BriefCommentRenderer
         if (brief is null)
         {
             html.Append("<p>No brief is available for this run.</p>");
+            AppendFooter(html, target, canRateAdvice: false);
             return Finish(html, target);
         }
 
-        AppendRisk(html, brief.Risk);
-        var canRateAdvice = brief.Advice is { Count: > 0 };
+        // What to act on first; the background (files, risk, evidence) after it; run details last.
+        var advice = brief.Advice ?? [];
+        var disputes = (brief.Disagreements ?? []).ToLookup(d => d.AdviceId, StringComparer.Ordinal);
+        bool canRateAdvice;
+        HashSet<string> usedEvidence;
         if (guidance)
         {
             canRateAdvice = AppendGuidance(html, brief);
+            usedEvidence = EvidenceOf(advice);
         }
         else
         {
-            AppendAdvice(html, brief);
+            var confirmed = advice.Where(a => !disputes.Contains(a.AdviceId)).ToList();
+            AppendAdvice(html, brief, confirmed, disputes);
+            canRateAdvice = advice.Count > 0;
+            usedEvidence = EvidenceOf(confirmed);
         }
 
         AppendScope(html, brief.PredictedScope ?? []);
-        AppendEvidence(html, brief.Evidence ?? []);
-        AppendLimits(html, brief);
-        if (canRateAdvice)
+        AppendRisk(html, brief.Risk);
+        AppendEvidence(html, brief.Evidence ?? [], usedEvidence);
+        if (!guidance)
         {
-            html.Append("<p><b>Rate the advice</b> by replying on this ticket, one line per item: ")
-                .Append("<code>ADV-001 accepted</code>, <code>ADV-002 rejected: why</code>, ")
-                .Append("<code>ADV-003 modified: what you did instead</code> or <code>ADV-004 n/a</code>. ")
-                .Append("A rating records what you did with the advice; it does not mark the advice as correct.</p>");
+            AppendDisputed(html, brief, disputes);
         }
 
+        AppendLimits(html, brief);
+        AppendFooter(html, target, canRateAdvice);
         return Finish(html, target);
     }
 
+    private static HashSet<string> EvidenceOf(IEnumerable<BriefAdvice> advice) =>
+        advice.SelectMany(a => a.EvidenceIds ?? []).ToHashSet(StringComparer.Ordinal);
+
     private static void AppendRisk(StringBuilder html, BriefRisk risk)
     {
-        html.Append("<p><b>Risk: ").Append(Encode(RiskLabel(risk.Band))).Append("</b> &mdash; ")
-            .Append(Encode(risk.Explanation)).Append("</p>");
         var factors = risk.Factors ?? [];
         if (factors.Count == 0)
         {
             return;
         }
 
-        html.Append("<ul>");
+        html.Append("<p><b>Why the risk is ").Append(Encode(RiskLabel(risk.Band))).Append("</b></p><ul>");
+        var missing = new List<string>();
         foreach (var factor in factors)
         {
+            // A factor without data is never shown as a count: it is listed once, as not available.
+            if (factor.Missing || factor.Value is null)
+            {
+                missing.Add(factor.Label);
+                continue;
+            }
+
             html.Append("<li>").Append(Encode(factor.Label)).Append(": <b>")
-                .Append(factor.Missing || factor.Value is null
-                    ? "no data"
-                    : factor.Value.Value.ToString(CultureInfo.InvariantCulture))
-                .Append("</b>");
-            if (factor.References is { Count: > 0 } references)
+                .Append(factor.Value.Value.ToString(CultureInfo.InvariantCulture)).Append("</b>");
+            var references = (factor.References ?? []).Distinct(StringComparer.Ordinal).ToList();
+            if (references.Count > 0)
             {
                 html.Append(" (").Append(Encode(string.Join("; ", references))).Append(')');
             }
@@ -143,27 +162,72 @@ public static class BriefCommentRenderer
             html.Append("</li>");
         }
 
+        if (missing.Count > 0)
+        {
+            html.Append("<li><i>Not available:</i> ").Append(Encode(string.Join("; ", missing))).Append("</li>");
+        }
+
         html.Append("</ul>");
     }
 
-    private static void AppendAdvice(StringBuilder html, BriefDocument brief)
+    private static void AppendAdvice(
+        StringBuilder html, BriefDocument brief, List<BriefAdvice> confirmed, ILookup<string, BriefDisagreement> disputes)
     {
-        var advice = brief.Advice ?? [];
-        if (advice.Count == 0)
+        if ((brief.Advice ?? []).Count == 0)
         {
             html.Append("<p><b>Advice</b>: none. VisionIQ does not guess when the history does not support advice.</p>");
             return;
         }
 
+        if (confirmed.Count == 0)
+        {
+            html.Append("<p><b>Advice</b>: none confirmed. A second review questioned every item (listed below).</p>");
+            return;
+        }
+
         var evidence = (brief.Evidence ?? []).ToDictionary(e => e.Id, StringComparer.Ordinal);
-        var disputes = (brief.Disagreements ?? []).ToLookup(d => d.AdviceId, StringComparer.Ordinal);
         html.Append("<p><b>Advice</b></p><ul>");
-        foreach (var item in advice)
+        foreach (var item in confirmed)
         {
             AppendItem(html, item, evidence, disputes);
         }
 
         html.Append("</ul>");
+    }
+
+    /// <summary>Advice a second review questioned: kept for transparency, apart from the advice to act on.</summary>
+    private static void AppendDisputed(StringBuilder html, BriefDocument brief, ILookup<string, BriefDisagreement> disputes)
+    {
+        var items = (brief.Advice ?? []).Where(a => disputes.Contains(a.AdviceId)).ToList();
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var evidence = (brief.Evidence ?? []).ToDictionary(e => e.Id, StringComparer.Ordinal);
+        html.Append("<p><b>Not confirmed by a second review</b> (shown for transparency; treat with care)</p><ul>");
+        foreach (var item in items)
+        {
+            AppendItem(html, item, evidence, disputes);
+        }
+
+        html.Append("</ul>");
+    }
+
+    private static void AppendFooter(StringBuilder html, BriefTarget target, bool canRateAdvice)
+    {
+        html.Append("<p><small>");
+        if (canRateAdvice)
+        {
+            html.Append("<b>Rate the advice</b> (optional): reply on this ticket with what you did, one line per item: ")
+                .Append("<code>ADV-001 accepted</code>, <code>ADV-002 rejected: why</code>, ")
+                .Append("<code>ADV-003 modified: what you did instead</code> or <code>ADV-004 n/a</code>. ")
+                .Append("It is feedback only: VisionIQ records it to learn which advice helps. It does not create a pull request, ")
+                .Append("start a run or mark the advice as correct.<br>");
+        }
+
+        html.Append("Run <code>").Append(target.RunId.ToString("D")).Append("</code> &middot; ticket revision ")
+            .Append(target.TicketRevision.ToString(CultureInfo.InvariantCulture)).Append("</small></p>");
     }
 
     /// <summary>
@@ -267,25 +331,30 @@ public static class BriefCommentRenderer
         html.Append("</ul>");
     }
 
-    private static void AppendEvidence(StringBuilder html, IReadOnlyList<BriefEvidence> evidence)
+    private static void AppendEvidence(StringBuilder html, IReadOnlyList<BriefEvidence> evidence, HashSet<string> used)
     {
         if (evidence.Count == 0)
         {
             return;
         }
 
-        html.Append("<p><b>Evidence</b></p><ul>");
-        foreach (var item in evidence.Take(MaxEvidence))
+        var shown = evidence.Take(MaxEvidence).ToList();
+        var primary = shown.Where(e => used.Contains(e.Id)).ToList();
+        var other = shown.Where(e => !used.Contains(e.Id)).ToList();
+        if (primary.Count == 0)
         {
-            html.Append("<li>").Append(Link(item.Url, item.Id)).Append(" &mdash; ").Append(Encode(item.Title))
-                .Append(" (").Append(Encode(item.Kind.Replace('_', ' '))).Append(", ")
-                .Append(item.Relevance == "strong" ? "strong match" : "related").Append(')');
-            foreach (var note in item.Notes ?? [])
+            html.Append("<p><b>Evidence</b></p><ul>");
+            other.ForEach(item => AppendEvidenceItem(html, item, shorten: false));
+        }
+        else
+        {
+            html.Append("<p><b>Evidence used by the advice</b></p><ul>");
+            primary.ForEach(item => AppendEvidenceItem(html, item, shorten: false));
+            if (other.Count > 0)
             {
-                html.Append("<br><i>").Append(Encode(note)).Append("</i>");
+                html.Append("</ul><p><b>Other matches</b> (found by the search, not used by the advice)</p><ul>");
+                other.ForEach(item => AppendEvidenceItem(html, item, shorten: true));
             }
-
-            html.Append("</li>");
         }
 
         if (evidence.Count > MaxEvidence)
@@ -295,6 +364,25 @@ public static class BriefCommentRenderer
         }
 
         html.Append("</ul>");
+    }
+
+    private static void AppendEvidenceItem(StringBuilder html, BriefEvidence item, bool shorten)
+    {
+        var title = item.Title ?? string.Empty;
+        if (shorten && title.Length > MaxOtherTitle)
+        {
+            title = title[..(MaxOtherTitle - 1)].TrimEnd() + "\u2026";
+        }
+
+        html.Append("<li>").Append(Link(item.Url, item.Id)).Append(" &mdash; ").Append(Encode(title))
+            .Append(" (").Append(Encode(item.Kind.Replace('_', ' '))).Append(", ")
+            .Append(item.Relevance == "strong" ? "strong match" : "related").Append(')');
+        foreach (var note in item.Notes ?? [])
+        {
+            html.Append("<br><i>").Append(Encode(note)).Append("</i>");
+        }
+
+        html.Append("</li>");
     }
 
     private static void AppendLimits(StringBuilder html, BriefDocument brief)

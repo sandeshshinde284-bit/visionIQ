@@ -200,3 +200,27 @@ def test_history_this_run_cannot_see_in_full_is_never_low() -> None:
     # Hidden history never lowers a band that the visible history already justifies.
     busy = HistoryFacts(fixes=fixes(3, 1), activity=12, hotspots=(), unreadable_fixes=6)
     assert assess(busy).band == "HIGH"
+
+
+def test_one_fix_reached_through_several_links_counts_once() -> None:
+    # Seen live: one pull request linked through several commits and files came back as several
+    # rows, and the brief said "12 defect fixes" while listing two, more than all 7 changes.
+    rows = (
+        fix("101", "201"),
+        fix("101", "201"),
+        fix("101", "201"),
+        fix("102", "202"),
+        fix("102", "202", reverted=True),
+    )
+    result = assess(HistoryFacts(fixes=rows, activity=7, hotspots=()))
+
+    assert factor(result, "recent_fixes").value == 2
+    assert factor(result, "reverted_fixes").value == 1  # reverted if any of its links says so
+    assert factor(result, "recent_fixes").references == [
+        "ticket 101 -> PR 201",
+        "ticket 102 -> PR 202 (reverted)",
+    ]
+    assert (
+        result.explanation.startswith("2 defect fix(es)")
+        or "2 defect fix(es)" in result.explanation
+    )
