@@ -39,9 +39,10 @@ service. Have the Cloud Architect clarify it if the central template requires it
 
 - `visioniq-api` now receives `GCS_EVIDENCE_BUCKET`, required for canonical
   evidence and fix/report code.
-- `LOG_PSEUDONYM_KEY` is bound to the application services and ingestion/indexing
-  jobs; `ADO_READ_PAT` is available to the API and Intelligence where optional
-  access-controlled source operations use it.
+- `LOG_PSEUDONYM_KEY` is bound to application services and ingestion/indexing
+  jobs. `ADO_READ_PAT` is bound only to the ingestor, ingestion job, Intelligence,
+  and indexing job in accordance with the platform matrix; API ADO read access
+  remains disabled unless explicitly needed for a later approved feature.
 - Old Artifact Registry assumptions in manual recovery scripts and their static
   tests were corrected to the platform team registry/region.
 - One stale test that expected `team-visioniq-docker-dev` was fixed.
