@@ -67,11 +67,13 @@ service. Have the Cloud Architect clarify it if the central template requires it
    --allow-unauthenticated`; the C# webhook handler validates Basic auth
    with a minimum 32-character shared secret, but making the Cloud Run service
    public bypasses Cloud Run IAM on that endpoint. PR #42 remains
-   `--ingress internal --no-allow-unauthenticated` **until** Cloud Architect
-   approves public direct ADO delivery or a secured intermediary/gateway.
-   As configured, direct Azure DevOps Service Hooks will NOT reach the private
-   service; scheduled ingestion remains the safe alternative. This is an open
-   functional gap, not a completed webhook deployment.
+   `--ingress internal --no-allow-unauthenticated` by default. A protected
+   CI variable `VISIONIQ_WEBHOOK_PUBLIC_INGRESS_APPROVED=true` deliberately
+   switches deployment to `--ingress all --allow-unauthenticated` **only after**
+   the Cloud Architect approves direct ADO delivery, adequate Basic secret
+   strength and the absence of edge WAF controls on the bypass path. Without
+   that approval, direct Azure DevOps Service Hooks will NOT reach the private
+   service; scheduled ingestion is the safe alternative.
 
 3. **Pub/Sub consumer flow:** The platform Mermaid drawing routes
    analysis.requested toward API and analysis.completed toward Intelligence.
