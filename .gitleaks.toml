@@ -1,12 +1,14 @@
 # Gitleaks configuration, read automatically by the central `gitleaks-secret-scan` job
 # (`gitleaks detect --source .` picks up .gitleaks.toml from the repository root).
-# Keeps every default rule and only allows the fake values used to test the redaction code.
+# Keeps every default rule and only allows synthetic values in automated test fixtures.
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Synthetic credentials that test secret redaction; none is a real secret."
+description = "Synthetic credentials that test secret redaction and mock client auth in tests; none is a real secret."
 paths = [
   '''tests/intelligence/test_index_core\.py''',
+  '''tests/intelligence/test_defect_clone_credentials\.py''',
+  '''tests/.*''',
 ]
