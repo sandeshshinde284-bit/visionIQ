@@ -92,6 +92,9 @@ Rules:
   never edit an existing file and never change production code.
 - The test must fail because of the behaviour the ticket reports, not because of a missing
   import, a typo or the environment. Assert the behaviour the ticket says is expected.
+- In test_id give the test's name as the test runner reports it: for C#, Java or Python the
+  test method, optionally with its class (Class.Method); for vitest or Jest the exact title
+  passed to it() or test(), after any describe() titles joined with " > ".
 - State the failure you expect on the current code BEFORE it is run: in
   expected_failure.message_contains give one to three short fragments that will appear in the
   failure message (for example the wrong value, or the assertion's own message), and the
@@ -279,7 +282,7 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
         "brief.enhancement", 1, _ENHANCEMENT_SYSTEM, ENHANCEMENT_SCHEMA
     ),
     TaskKind.REPRODUCTION_TEST: PromptTemplate(
-        "defect.reproduction", 1, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
+        "defect.reproduction", 2, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
     ),
     TaskKind.CODE_FIX: PromptTemplate("defect.fix", 1, _FIX_SYSTEM, FIX_SCHEMA),
 }

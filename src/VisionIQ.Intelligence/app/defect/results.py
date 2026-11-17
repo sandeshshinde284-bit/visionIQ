@@ -159,7 +159,8 @@ def _trx_cases(root: ElementTree.Element) -> list[Case]:
 
 
 def find_cases(cases: Sequence[Case], test_id: str) -> list[Case]:
-    """The cases of one test: its name, or the name with a parameter suffix."""
+    """The cases of one test: its name, the name with a parameter suffix, or (vitest, Jest) its
+    title under describe titles, reported as "Describe > title"."""
     return [
         case
         for case in cases
@@ -167,6 +168,7 @@ def find_cases(cases: Sequence[Case], test_id: str) -> list[Case]:
         or case.name.startswith(f"{test_id}[")
         or case.name.startswith(f"{test_id}(")
         or f"{case.classname}.{case.name}".endswith(f".{test_id}")
+        or case.name.endswith(f" > {test_id}")
     ]
 
 

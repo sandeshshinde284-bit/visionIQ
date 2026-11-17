@@ -37,7 +37,7 @@ from app.defect.generate import TEST_INVALID, Declined, propose_test
 from app.defect.guardrails import ProposedChange, adds_secret, check
 from app.defect.pipeline import run_fix
 from app.defect.policy import RunnerPolicy
-from app.defect.results import Case, classify
+from app.defect.results import Case, classify, find_cases
 from app.defect.runner import MAX_LOG_BYTES, BoundedOutput, DockerRunner, LocalRunner, RunResult
 from app.defect.schema import ExpectedFailure
 from app.defect.worker import FixWorker, lease_seconds
@@ -485,3 +485,77 @@ def test_ticket_and_model_text_cannot_become_markup_in_the_pull_request() -> Non
     assert r"\[docs\]" in plain and r"\@admin" in plain and r"\#123" in plain
     assert _plain("  spread\nover   lines ") == "spread over lines"
     assert MAX_DESCRIPTION_CHARS < 4000  # room for the line the API adds about the pushed commit
+
+
+# ---- Test names as each runner reports them (vitest and Jest name tests with sentences) ----------
+
+
+VITEST = (
+    "import { describe, it, expect } from 'vitest'\n"
+    "describe('SelectRailcard', () => {\n"
+    "  it('keeps Continue enabled after choosing None', () => {\n"
+    "    expect(true).toBe(false)\n"
+    "  })\n"
+    "})\n"
+)
+
+
+@pytest.mark.parametrize(
+    "test_id",
+    [
+        "keeps Continue enabled after choosing None",  # the it() title
+        "SelectRailcard > keeps Continue enabled after choosing None",  # with its describe()
+    ],
+)
+def test_a_vitest_title_is_a_test_name(tmp_path: Path, test_id: str) -> None:
+    # Seen live: every vitest test the model wrote was refused as "not a test name".
+    demo = make_demo(tmp_path)
+    repo = demo.policy.repositories[0]
+    ledger = RunLedger(request(demo).run_id, DataClassification.INTERNAL, Budget(6, 400_000, 1800))
+    context_ = EvidenceContext(snapshot_id=None, ticket_title="Bug", ticket_text="x", evidence=())
+    answer = {**TEST_ANSWER, "test_path": "tests/select_railcard.spec.ts", "test_id": test_id}
+    answer["test_content"] = VITEST
+
+    proposal = propose_test(gateway(answer), ledger, context_, repo, set())
+
+    assert not isinstance(proposal, Declined), proposal
+    assert proposal.test_id == test_id
+
+
+@pytest.mark.parametrize(
+    "test_id",
+    [
+        "keeps Continue disabled",  # a title the file does not define
+        "two\nlines",  # not a name at all
+        " leading space",
+    ],
+)
+def test_a_title_the_file_does_not_define_or_that_is_not_a_name_is_refused(
+    tmp_path: Path, test_id: str
+) -> None:
+    demo = make_demo(tmp_path)
+    repo = demo.policy.repositories[0]
+    ledger = RunLedger(request(demo).run_id, DataClassification.INTERNAL, Budget(6, 400_000, 1800))
+    context_ = EvidenceContext(snapshot_id=None, ticket_title="Bug", ticket_text="x", evidence=())
+    answer = {**TEST_ANSWER, "test_path": "tests/select_railcard.spec.ts", "test_id": test_id}
+    answer["test_content"] = VITEST
+
+    proposal = propose_test(gateway(answer), ledger, context_, repo, set())
+
+    assert isinstance(proposal, Declined) and proposal.code == TEST_INVALID
+
+
+def test_a_vitest_case_is_found_by_its_title_under_its_describe() -> None:
+    # vitest's JUnit report names a case "Describe > title".
+    case = Case(
+        "SelectRailcard > keeps Continue enabled after choosing None", "x.spec.ts", "failed"
+    )
+    other = Case("SelectRailcard > shows the list", "x.spec.ts", "passed")
+
+    assert find_cases([case, other], "keeps Continue enabled after choosing None") == [case]
+    assert find_cases(
+        [case, other], "SelectRailcard > keeps Continue enabled after choosing None"
+    ) == [case]
+    assert (
+        find_cases([case, other], "Continue enabled after choosing None") == []
+    )  # no partial titles

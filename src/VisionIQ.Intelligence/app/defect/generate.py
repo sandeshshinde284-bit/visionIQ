@@ -26,7 +26,11 @@ REPRODUCTION_UNAVAILABLE = "reproduction_unavailable"
 TEST_INVALID = "reproduction_test_invalid"
 MAX_TEXT_CHARS = 600
 MAX_CHANGES = 40
+# A test is named as its runner reports it: a method, "Class.Method" or "test_name[param]" (xUnit,
+# NUnit, pytest), or the title given to it() / test() (vitest, Jest), describe titles joined by
+# " > ". A title is any printable text without leading or trailing space.
 _TEST_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_.\[\]-]{0,199}$")
+_TEST_TITLE = re.compile(r"^(?=\S)[^\x00-\x1f\x7f]{1,200}(?<=\S)$")
 
 
 @dataclass(frozen=True)
@@ -126,11 +130,13 @@ def propose_test(
         return invalid("The test must be a new file; an existing file may not be edited.")
     if any(existing.lower().startswith(f"{lowered}/") for existing in baseline_files):
         return invalid("The test path is an existing directory.")
-    if not _TEST_ID.match(test_id):
+    titled = not _TEST_ID.match(test_id)
+    if titled and not _TEST_TITLE.match(test_id):
         return invalid("The test id is not a test name.")
     if not content.strip() or len(content.encode("utf-8")) > policy.limits.max_file_bytes:
         return invalid("The test file is empty or larger than the limit.")
-    if test_id.rsplit(".", 1)[-1].split("[", 1)[0] not in content:
+    named = test_id.split(" > ")[-1] if titled else test_id.rsplit(".", 1)[-1].split("[", 1)[0]
+    if named not in content:
         return invalid("The test file does not define the test it names.")
     if adds_secret("", content):
         # The test is committed with the fix and shown on the pull request.

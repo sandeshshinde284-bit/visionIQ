@@ -330,7 +330,7 @@ def test_prompt_versions_are_named_and_unique() -> None:
         "brief.defect@v1",
         "brief.critique@v1",
         "brief.enhancement@v1",  # ENH-01: enhancement guidance (master design 8.5)
-        "defect.reproduction@v1",
+        "defect.reproduction@v2",  # test_id: how vitest and Jest name a test
         "defect.fix@v1",
     ]
     assert len(set(versions)) == len(versions)
