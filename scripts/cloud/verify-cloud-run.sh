@@ -18,7 +18,7 @@ ready=next((c for c in status.get("conditions",[]) if c.get("type")=="Ready"),No
 image=data.get("spec",{}).get("template",{}).get("spec",{}).get("containers",[{}])[0].get("image","")
 if not ready or ready.get("status")!="True" or not status.get("latestReadyRevisionName") or status.get("latestReadyRevisionName")!=status.get("latestCreatedRevisionName"):
     raise SystemExit(f"FAIL {name}: latest revision is not Ready")
-if not image.startswith(prefix):
+if not (image.startswith(prefix) or image.startswith(prefix[:-1]+"@")):
     raise SystemExit(f"FAIL {name}: image is outside approved registry: {image}")
 print(f"PASS {name}: {status["latestReadyRevisionName"]} / {image}")
 ' "${service}" "${TEAM_GAR}"
