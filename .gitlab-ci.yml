@@ -397,6 +397,8 @@ cloud-deployment-readiness:
   stage: verify
   extends: .gcp_base
   needs:
+    - job: prepare-gcp-session
+      artifacts: true
     - job: deploy-visioniq-api
     - job: deploy-visioniq-intelligence
     - job: deploy-visioniq-ingestor-webhooks
