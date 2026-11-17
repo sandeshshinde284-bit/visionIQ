@@ -96,6 +96,9 @@ from app.llm.types import CodeFile, DataClassification
 # Files that use a chosen file by name (see FixPipeline._referrers). A name shorter than this, or a
 # common one, says nothing about the defect; nor does a name used by more files than MAX_REFERRERS.
 MIN_REFERENCE_NAME = 5
+# An assertion failure (AssertionError, Assert.Equal() Failure, NUnit AssertionException...): a
+# result about the code, as opposed to a crash, an import error or a broken setup.
+_ASSERTION_FAILURE = re.compile(r"(?i)assert")
 MAX_REFERRERS = 12
 GENERIC_NAMES = frozenset(
     {"index", "main", "utils", "helpers", "common", "types", "constants", "config", "program"}
@@ -995,6 +998,8 @@ class _FixRun:
                     attempt=attempt,
                     reason=proposal.code,
                     model_unavailable=proposal.llm,
+                    # Why a test was refused, in VisionIQ's own words (never model text).
+                    detail=proposal.detail if proposal.code == TEST_INVALID else None,
                 )
                 if proposal.llm:
                     self.reasons.append(proposal.code)
@@ -1082,11 +1087,30 @@ class _FixRun:
                 return proposal
             if outcome in ("FLAKY", "TIMEOUT"):
                 break  # another test would not make this one trustworthy
-            feedback.append(
-                f"Attempt {attempt} ran on the current code and ended {outcome}"
-                + (f": {last.signature}" if last.signature else "")
-                + ". The test must fail with the failure you predict."
-            )
+            stable = len(last.execution_ids) > 1 and last.first_outcome == outcome
+            if (
+                outcome == "FAIL_DIFFERENT_SIGNATURE"
+                and stable
+                and last.signature
+                and _ASSERTION_FAILURE.search(last.signature)
+            ):
+                # Seen live: a test showed the defect (an assertion, the same on every run) but its
+                # predicted wording differed, and the model, told only to match its prediction,
+                # wrote another test. It may keep the test: the corrected prediction is then
+                # checked against a fresh run like any other, so nothing is accepted unrun.
+                feedback.append(
+                    f"Attempt {attempt} ran on the current code and failed the same way on every "
+                    f"run: {last.signature}. If this failure IS the defect the ticket reports, "
+                    "return the same test unchanged (same test_path, test_id and test_content) "
+                    "with expected_failure taken from this failure; it will be run again. If it "
+                    "is not the reported defect, write a different test."
+                )
+            else:
+                feedback.append(
+                    f"Attempt {attempt} ran on the current code and ended {outcome}"
+                    + (f": {last.signature}" if last.signature else "")
+                    + ". The test must fail with the failure you predict."
+                )
         if last is not None:
             self.reasons.append(_REPRODUCTION_REASON.get(last.outcome, "reproduction_inconclusive"))
         elif not self.reasons:

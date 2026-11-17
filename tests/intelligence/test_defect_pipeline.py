@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import structlog
-from brief_support import gateway_for
+from brief_support import ScriptedProvider, gateway_for
 from defect_support import (
     DEMO,
     OLD_TEST,
@@ -767,3 +767,64 @@ def test_a_name_used_by_too_many_files_adds_nothing(tmp_path: Path, monkeypatch)
 
     assert context_files(events) == [SOURCE]
     assert "fix_related_files_added" not in [e["event"] for e in events]
+
+
+# ---- A test that shows the defect may be kept with a corrected prediction -----------------------
+
+
+def _scripted(answers: list) -> tuple[list, object]:
+    """A model that answers in order and keeps every context it was given."""
+    seen: list = []
+
+    def script(_task, context):
+        seen.append(context)
+        return answers[len(seen) - 1]
+
+    return seen, gateway_for(ScriptedProvider("claude", script))
+
+
+def test_a_stable_assertion_with_other_wording_may_be_kept_with_a_corrected_prediction(
+    tmp_path: Path,
+) -> None:
+    # Seen live: the test showed the defect (the same assertion failure on every run) but the
+    # predicted wording differed; told only to match its prediction, the model wrote another test.
+    wrong = {
+        **TEST_ANSWER,
+        "expected_failure": {"exception": "AssertionError", "message_contains": ["was refunded"]},
+    }
+    seen, model = _scripted([wrong, TEST_ANSWER, SAFE_FIX])
+
+    result = run(tmp_path, model)
+
+    hint = seen[1].feedback[-1]
+    assert "failed the same way on every run" in hint
+    assert "captured payment was retried" in hint
+    assert "return the same test unchanged" in hint
+    # The corrected prediction was checked against a fresh run like any other, then fixed.
+    assert result.reproduction.reproducibility == "REPRODUCED"
+    assert result.verdict == "VERIFIED"
+
+
+def test_a_crash_is_not_offered_to_be_kept(tmp_path: Path) -> None:
+    def behaviour(call: Call):
+        if call.test_path == TEST_PATH and call.tree == "base":
+            return "fail:TypeError: cannot read properties of undefined"
+        return honest(call)
+
+    seen, model = _scripted([TEST_ANSWER, TEST_ANSWER])
+
+    run(tmp_path, model, behaviour)
+
+    assert "The test must fail with the failure you predict." in seen[1].feedback[-1]
+    assert "return the same test unchanged" not in seen[1].feedback[-1]
+
+
+def test_why_a_test_was_refused_is_logged(tmp_path: Path) -> None:
+    refused = {**TEST_ANSWER, "test_path": "src/kiosk/not_a_test_place.py"}
+    _, events = logged(tmp_path, [refused, TEST_ANSWER, SAFE_FIX])
+
+    declined = next(e for e in events if e["event"] == "fix_reproduction_test_declined")
+    assert (
+        declined["detail"]
+        == "The test file is not in a place where this repository keeps its tests."
+    )
