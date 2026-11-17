@@ -391,6 +391,27 @@ deploy-visioniq-indexing-job:
         --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
 
 # ------------------------------------------------------------------------------
+# Optional read-only platform preflight; run after corporate browser SSO.
+# This is intentionally NOT an implicit deployment gate: the credentials used
+# for the central GitLab runner may be unable to list every secret version.
+# ------------------------------------------------------------------------------
+cloud-platform-preflight:
+  stage: verify
+  extends: .gcp_base
+  needs:
+    - job: prepare-gcp-session
+      artifacts: true
+  before_script:
+    - !reference [.bootstrap_template, before_script]
+    - !reference [.gcp_base, before_script]
+  script:
+    - bash scripts/cloud/verify-platform.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+
+# ------------------------------------------------------------------------------
 # Post-deployment metadata verification: no mutation.
 # ------------------------------------------------------------------------------
 cloud-deployment-readiness:
