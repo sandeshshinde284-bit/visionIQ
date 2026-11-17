@@ -11,37 +11,37 @@ import structlog
 from defect_support import SAFE_FIX, TEST_ANSWER, make_demo
 from test_defect_pipeline import logged
 
-from app.defect.pipeline import imported_names, local_imports, order_tests
+from app.defect.pipeline import imported_names, local_imports, order_imports, order_tests
 
-SCREEN = "ui/src/components/SelectRailcard/SelectRailcard.vue"
+SCREEN = "ui/src/components/CheckoutScreen/CheckoutScreen.vue"
 SCREEN_SOURCE = """<template><button :disabled="!ready">Continue</button></template>
 <script setup lang="ts">
-import { useItsoStore } from '@/store/itso'
-import RailcardList from '../RailcardList/RailcardList.vue'
-import { getSelectRailcardView, type ViewModel } from '@/services/itso'
+import { useCartStore } from '@/store/cart'
+import OptionList from '../OptionList/OptionList.vue'
+import { getCheckoutView, type ViewModel } from '@/services/cart'
 import axios from 'axios'
-import type { Railcard } from './types'
+import type { Option } from './types'
 const lazy = await import('./lazy')
 </script>
 """
 FILES = {
     "ui/package.json",
-    "ui/src/store/itso.ts",
-    "ui/src/components/RailcardList/RailcardList.vue",
-    "ui/src/services/itso/index.ts",
-    "ui/src/components/SelectRailcard/types.ts",
-    "ui/src/components/SelectRailcard/lazy.js",
+    "ui/src/store/cart.ts",
+    "ui/src/components/OptionList/OptionList.vue",
+    "ui/src/services/cart/index.ts",
+    "ui/src/components/CheckoutScreen/types.ts",
+    "ui/src/components/CheckoutScreen/lazy.js",
     SCREEN,
 }
 
 
 def test_local_imports_follow_relative_paths_and_the_source_alias_never_packages() -> None:
     assert local_imports(SCREEN, SCREEN_SOURCE, FILES) == [
-        "ui/src/store/itso.ts",  # "@/" is the src folder of the nearest package.json
-        "ui/src/components/RailcardList/RailcardList.vue",
-        "ui/src/services/itso/index.ts",  # a folder import resolves to its index file
-        "ui/src/components/SelectRailcard/types.ts",
-        "ui/src/components/SelectRailcard/lazy.js",  # a dynamic import too; 'axios' is a package
+        "ui/src/store/cart.ts",  # "@/" is the src folder of the nearest package.json
+        "ui/src/components/OptionList/OptionList.vue",
+        "ui/src/services/cart/index.ts",  # a folder import resolves to its index file
+        "ui/src/components/CheckoutScreen/types.ts",
+        "ui/src/components/CheckoutScreen/lazy.js",  # a dynamic import too; 'axios' is a package
     ]
 
 
@@ -52,11 +52,11 @@ def test_only_script_files_are_followed_and_missing_targets_are_skipped() -> Non
 
 def test_imported_names_are_the_names_taken_from_local_modules() -> None:
     assert imported_names(SCREEN_SOURCE) == [
-        "useItsoStore",
-        "RailcardList",
-        "getSelectRailcardView",
+        "useCartStore",
+        "OptionList",
+        "getCheckoutView",
         "ViewModel",
-        "Railcard",
+        "Option",
     ]  # nothing from 'axios'
 
 
@@ -64,12 +64,12 @@ def test_example_tests_of_the_same_kind_and_nearest_come_first() -> None:
     tests = [
         "Api/Core.Tests/BasketTests.cs",
         "ui/src/components/Other/Other.spec.ts",
-        "ui/src/components/SelectRailcard/Header.spec.ts",
-        "ui/tests/unit/RailcardList.spec.ts",
+        "ui/src/components/CheckoutScreen/Header.spec.ts",
+        "ui/tests/unit/OptionList.spec.ts",
     ]
-    assert order_tests([SCREEN, "ui/src/components/RailcardList/RailcardList.vue"], tests) == [
-        "ui/tests/unit/RailcardList.spec.ts",  # same subject
-        "ui/src/components/SelectRailcard/Header.spec.ts",  # same kind, nearest
+    assert order_tests([SCREEN, "ui/src/components/OptionList/OptionList.vue"], tests) == [
+        "ui/tests/unit/OptionList.spec.ts",  # same subject
+        "ui/src/components/CheckoutScreen/Header.spec.ts",  # same kind, nearest
         "ui/src/components/Other/Other.spec.ts",
         "Api/Core.Tests/BasketTests.cs",  # another kind: last
     ]
@@ -137,3 +137,36 @@ def test_without_test_data_paths_no_test_data_is_shown(tmp_path: Path) -> None:
 
     context = next(e for e in events if e["event"] == "fix_test_context")
     assert context["test_data"] == []
+
+
+def test_tests_of_the_files_closest_to_the_defect_come_first() -> None:
+    # Seen live: with more files shown, ties broken by path put a calendar's test (02-...) ahead of
+    # the screen's own test, both for the examples and for the existing tests shown before a fix.
+    code = [
+        "ui/src/components/widgets/OptionList/OptionList.vue",  # in scope
+        "ui/src/components/screens/CheckoutScreen/CheckoutScreen.vue",  # uses it
+        "ui/src/components/inputs/DatePicker/DatePicker.vue",  # imported
+    ]
+    tests = [
+        "ui/src/components/inputs/DatePicker/DatePicker.test.ts",
+        "ui/src/components/screens/CheckoutScreen/CheckoutScreen.test.ts",
+        "ui/src/components/widgets/OptionList/OptionList.test.ts",
+    ]
+
+    assert order_tests(code, tests) == [
+        "ui/src/components/widgets/OptionList/OptionList.test.ts",
+        "ui/src/components/screens/CheckoutScreen/CheckoutScreen.test.ts",
+        "ui/src/components/inputs/DatePicker/DatePicker.test.ts",
+    ]
+
+
+def test_what_a_test_must_set_up_comes_before_child_components() -> None:
+    found = local_imports(SCREEN, SCREEN_SOURCE, FILES)
+
+    assert order_imports(found) == [
+        "ui/src/store/cart.ts",
+        "ui/src/services/cart/index.ts",
+        "ui/src/components/CheckoutScreen/types.ts",
+        "ui/src/components/CheckoutScreen/lazy.js",
+        "ui/src/components/OptionList/OptionList.vue",  # a child component: last
+    ]
