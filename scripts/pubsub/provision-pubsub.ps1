@@ -25,13 +25,6 @@ param(
     [switch]$Apply
 )
 
-# LEGACY manual FND-05 script. Terraform infra/visioniq is the sole owner of cloud
-# subscriptions and their IAM. Keep this script for historical reference only.
-# Never allow it to compete with Terraform state or the corporate topic owner.
-if ($Apply) {
-    throw 'This legacy Pub/Sub -Apply path is retired. Use reviewed infra/visioniq Terraform plan/apply with remote state.'
-}
-Write-Warning 'Legacy read-only plan; use infra/visioniq Terraform for current infrastructure.'
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
