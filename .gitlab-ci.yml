@@ -436,7 +436,7 @@ cloud-infrastructure-apply:
     - !reference [.gcp_base, before_script]
   script:
     - python3 scripts/cloud/reconcile_infrastructure.py --mode apply
-    - python3 scripts/cloud/reconcile_scheduler.py --mode apply
+    - python3 scripts/cloud/reconcile_scheduler.py --mode plan
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
