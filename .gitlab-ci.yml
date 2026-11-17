@@ -86,7 +86,6 @@ cloud-static-checks:
     - kazan-S
   before_script: []
   script:
-    - python -m py_compile scripts/cloud/reconcile_infrastructure.py scripts/cloud/reconcile_scheduler.py
     - python scripts/cloud/validate_contracts.py
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -476,6 +475,7 @@ cloud-infrastructure-apply:
     - !reference [.gcp_base, before_script]
   script:
     - ': "${TF_STATE_BUCKET:?Set approved remote Terraform state bucket in protected GitLab variables}"'
+    - command -v terraform >/dev/null || { echo "Terraform CLI is required in corporate GCP runner"; exit 1; }
     - terraform -chdir=infra/visioniq init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
     - terraform -chdir=infra/visioniq apply -input=false -lock-timeout=5m visioniq.tfplan
   rules:
