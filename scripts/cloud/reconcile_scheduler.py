@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Cloud Scheduler job definitions for VisionIQ DEV.
 
-Read-only plan (default) and --mode verify. --mode apply creates missing jobs
-PAUSED, with an approved OAuth service account, without changing existing jobs.
-No job is resumed here: enable schedules only after end-to-end validation.
+Plan and verification only: no schedule is created, modified, or enabled.
+Provision paused Scheduler jobs via Terraform after review, rather than using
+`gcloud jobs create` which briefly creates enabled jobs.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def apply(*args: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("plan", "verify", "apply"), default="plan")
+    parser.add_argument("--mode", choices=("plan", "verify"), default="plan")
     parser.add_argument("--project", default=PROJECT)
     parser.add_argument("--region", default=REGION)
     parser.add_argument("--scheduler-service-account", default="visioniq-scheduler")
@@ -59,8 +59,6 @@ def main() -> int:
     try:
         if not command("iam", "service-accounts", "describe", identity, allow_missing=True):
             print(f"[REQUIRED IAM] Scheduler service account missing: {identity}")
-            if args.mode == "apply":
-                raise RuntimeError("Provision the scheduler service account and approved jobs.run permissions first.")
             missing += 1
 
         for name, job, schedule in JOBS:
@@ -95,20 +93,8 @@ def main() -> int:
                 continue
 
             print(f"[MISSING] Scheduler {name} -> {job} ({schedule}, UTC)")
-            if args.mode != "apply":
-                missing += 1
-                continue
-
-            apply("scheduler", "jobs", "create", "http", name,
-                  "--location", REGION,
-                  "--schedule", schedule, "--time-zone", "Etc/UTC",
-                  "--uri", uri, "--http-method", "POST",
-                  "--oauth-service-account-email", identity,
-                  "--oauth-token-scope", "https://www.googleapis.com/auth/cloud-platform",
-                  "--attempt-deadline", "180s")
-            # Pause immediately; on failure, exit nonzero and pause manually.
-            apply("scheduler", "jobs", "pause", name, "--location", REGION)
-            print(f"[CREATED PAUSED] Scheduler {name}")
+            missing += 1
+            print("[REQUIRED] Provision paused Scheduler job using approved Terraform infrastructure.")
 
         print("Check the scheduler identity's Cloud Run Jobs execute permissions before enabling.")
         print(f"Reconciliation differences: {missing}")
