@@ -35,6 +35,7 @@ def repository(**overrides) -> RepositoryPolicy:
         "restricted_areas": [
             {"area": "payment", "patterns": ["src/Payments/**"]},
             {"area": "schema", "patterns": ["**/Migrations/**"]},
+            {"area": "test_data", "patterns": ["**/mocks/**"]},
         ],
     }
     values.update(overrides)
@@ -69,6 +70,9 @@ def test_a_small_change_in_a_writable_file_passes() -> None:
     [
         ("src/Payments/RetryPolicy.cs", "restricted_area_payment"),
         ("src/Data/Migrations/0007_add_column.cs", "restricted_area_schema"),
+        # mock data: changing it could make a test pass by changing what it expects
+        ("src/mocks/FaresJourneyMock.ts", "restricted_area_test_data"),
+        ("src/Mocks/Data/Fares.json", "restricted_area_test_data"),
         ("src/Demo.csproj", "dependency_change"),
         ("src/Kiosk/appsettings.secret.json", "secret_change"),
     ],
@@ -165,6 +169,7 @@ def test_the_example_policy_is_valid_and_uses_the_isolated_runner() -> None:
         "identity",
         "schema",
         "hardware",
+        "test_data",
     }
     assert not demo.draft_pr_on_incomplete
 

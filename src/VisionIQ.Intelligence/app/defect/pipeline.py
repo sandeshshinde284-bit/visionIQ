@@ -759,9 +759,23 @@ class _FixRun:
                 workspace.discard("toolchain")
         return self._toolchain
 
-    def _hashes(self, paths: Sequence[str]) -> dict[str, str]:
+    def _hashes(self, entries: Sequence[str]) -> dict[str, str]:
+        """The baseline hash of every lock file. An entry is an exact path or a glob, so one
+        policy can name the lock files of any repository ("**/package-lock.json"). An exact path
+        that is absent is recorded as "missing"; a glob that matches nothing records nothing."""
         _, workspace = self._ready()
-        return {path: workspace.sha256(path) or "missing" for path in paths}
+        hashes: dict[str, str] = {}
+        tracked: list[str] | None = None
+        for entry in entries:
+            if not any(char in entry for char in "*?["):
+                hashes[entry] = workspace.sha256(entry) or "missing"
+                continue
+            if tracked is None:
+                tracked = workspace.files()
+            for path in tracked:
+                if path not in hashes and matches(path, (entry,)):
+                    hashes[path] = workspace.sha256(path) or "missing"
+        return dict(sorted(hashes.items()))
 
     def _manifest(self, candidate_sha: str | None, test_ids: Sequence[str]) -> str:
         """8.6.3: written before the code it describes is run, and never changed."""

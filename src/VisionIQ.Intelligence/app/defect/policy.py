@@ -19,7 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.knowledge.redaction import redact
 
-RestrictedAreaName = Literal["security", "payment", "identity", "schema", "hardware"]
+# test_data: a project's mocks and fixtures. A fix that changes them could make a test pass by
+# changing what the test expects, so such a change stops for an engineer like any other area.
+RestrictedAreaName = Literal["security", "payment", "identity", "schema", "hardware", "test_data"]
 
 # A setting whose name looks like a credential is never passed to the runner.
 _SECRET_NAME = re.compile(r"(?i)(password|passwd|secret|token|credential|api_?key|_pat$|_key$)")

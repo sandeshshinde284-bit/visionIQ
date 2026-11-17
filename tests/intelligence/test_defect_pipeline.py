@@ -142,6 +142,31 @@ def test_the_manifest_is_written_before_the_code_runs_and_pins_everything(tmp_pa
     assert {e.manifest_id for e in result.executions} == {"M1", "M2"}
 
 
+def test_lock_files_may_be_globs_so_one_policy_suits_any_repository(tmp_path: Path) -> None:
+    demo = make_demo(tmp_path)
+    tracked = subprocess.run(
+        ["git", "-C", str(demo.repo), "ls-files"], capture_output=True, text=True, check=True
+    ).stdout.split()
+    tomls = sorted(path for path in tracked if path.endswith(".toml"))
+    policy = demo.policy.model_copy(
+        update={
+            "repositories": (
+                demo.policy.repositories[0].model_copy(
+                    update={"lock_files": ("**/*.toml", "absent.lock", "**/*.nothing")}
+                ),
+            )
+        }
+    )
+
+    baseline = run(tmp_path, [TEST_ANSWER, SAFE_FIX], demo=demo, policy=policy).manifests[0]
+
+    # every tracked file the glob matches, at any depth, is hashed under its own path ...
+    assert tomls and all(len(baseline.lock_hashes[path]) == 64 for path in tomls)
+    # ... an absent exact path is still reported, and a glob that matches nothing adds nothing
+    assert baseline.lock_hashes["absent.lock"] == "missing"
+    assert set(baseline.lock_hashes) == {*tomls, "absent.lock"}
+
+
 # ---- DEF-01: anything but the predicted failure is not a reproduction --------------------------
 
 

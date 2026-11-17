@@ -3,7 +3,7 @@
   // and point DEFECT_POLICY_FILE at it. A repository that is not listed here is never cloned or
   // run. A model never chooses a command or a path outside this file.
   // Changing the rules? Bump revision: it is recorded with every run.
-  "revision": "defect-policy-2026-11-10.1",
+  "revision": "defect-policy-2026-11-17.1",
   "repositories": [
     {
       // Must equal repository_id of the pickup policy (config/pickup-policy.example.json).
@@ -44,22 +44,41 @@
       // How dependencies reach the runner. With no network they must be in the image or restored before.
       "dependency_restore": "restored in the runner image",
       // Where a generated test may be added, and which paths are tests (a fix may never change those).
-      "new_test_paths": ["tests/**"],
-      "test_file_patterns": ["tests/**", "**/*Tests.cs"],
-      // The only paths a fix may change.
-      "writable_paths": ["src/**"],
+      // Written by convention, not by project folder, so the same lines suit any repository that keeps
+      // .NET tests in *.Tests projects and JavaScript tests in *.spec.ts / *.test.ts files.
+      // Never list a folder that also holds production code: every file in it would count as a test,
+      // and no fix could change it.
+      "new_test_paths": ["**/*.Tests/**", "**/*.spec.ts", "**/*.test.ts", "**/tests/**"],
+      "test_file_patterns": ["**/*.Tests/**", "**/*.Tests.Shared/**", "**/*.spec.ts", "**/*.test.ts", "**/tests/**"],
+      // The only paths a fix may change. "**" is the whole repository; these are refused or sent for
+      // review whatever is written here: test files, generated and binary files (bin, obj, build, dist,
+      // *.dll), secrets, dependency files, and the restricted areas below. Narrow it to limit a fix further.
+      "writable_paths": ["**"],
       // A change in one of these areas stops for an engineer, whatever its size (design 8.6.4).
       "restricted_areas": [
         { "area": "payment", "patterns": ["src/Payments/**"] },
         { "area": "security", "patterns": ["src/**/Auth/**", "src/**/Security/**"] },
         { "area": "identity", "patterns": ["src/**/Identity/**"] },
         { "area": "schema", "patterns": ["**/Migrations/**", "**/*.sql"] },
-        { "area": "hardware", "patterns": ["src/Kiosk/Devices/**"] }
+        { "area": "hardware", "patterns": ["src/Kiosk/Devices/**"] },
+        // Mocks and fixtures: changing them could make a test pass by changing what it expects.
+        { "area": "test_data", "patterns": ["**/mocks/**", "**/__mocks__/**", "**/fixtures/**", "**/*.stub.ts", "**/*.mock.ts"] }
       ],
-      // Recorded by hash in the execution manifest.
-      "lock_files": ["packages.lock.json", "global.json"],
+      // Files a fix may never change: build output and binaries, plus generated or non-code files.
+      // Optional; when set it REPLACES the built-in list, so keep the first ten entries.
+      "generated_paths": [
+        "**/bin/**", "**/obj/**", "**/dist/**", "**/build/**", "**/node_modules/**", "**/__pycache__/**",
+        "**/*.min.js", "**/*.dll", "**/*.exe", "**/*.pyc",
+        "**/generated/**", "**/swagger.json", "**/*.md", "docs/**", "archives/**"
+      ],
+      // Recorded by hash in the execution manifest, as evidence of the dependency versions tested.
+      // An exact path or a glob: "**/package-lock.json" finds every Node lock file in any repository.
+      "lock_files": ["**/global.json", "**/packages.lock.json", "**/package-lock.json"],
       "fixture_paths": [],
-      "test_data_paths": [],
+      // The project's own mock or test data, shown read only beside the example tests when it
+      // mentions a name the shown code imports (an API call, a store). The matcher ignores case,
+      // so "**/mocks/**" also finds .NET "Mocks" folders.
+      "test_data_paths": ["**/mocks/**", "**/__mocks__/**", "**/fixtures/**", "**/*.stub.ts", "**/*.mock.ts"],
       // Budgets are this repository's own, agreed with its owners. A broader change stops for review.
       "limits": {
         "max_test_attempts": 2,
