@@ -312,6 +312,19 @@ deploy-visioniq-ingestor-webhooks:
     - !reference [.gcp_base, before_script]
   script:
     - ': "${GCS_EVIDENCE_BUCKET:?Set the approved evidence bucket in GitLab CI variables}"'
+    # Direct public ADO Service Hooks require a specific approved change.
+    # By default keep private: the platform document's Basic-auth gateway is NOT
+    # the same as Cloud Run IAM. An explicit protected CI variable can enable it.
+    - |
+      if [ "${VISIONIQ_WEBHOOK_PUBLIC_INGRESS_APPROVED:-false}" = "true" ]; then
+        WEBHOOK_INGRESS=all
+        WEBHOOK_AUTH_FLAG=--allow-unauthenticated
+        echo "Approved public ADO webhook mode: application Basic auth remains mandatory."
+      else
+        WEBHOOK_INGRESS=internal
+        WEBHOOK_AUTH_FLAG=--no-allow-unauthenticated
+        echo "Private webhook mode: direct external ADO Service Hooks are unavailable."
+      fi
     - echo "Deploying visioniq-ingestor-webhooks to Cloud Run under ${TEAM_SA} on port 8080..."
     - gcloud run deploy "visioniq-ingestor-webhooks"
         --image "${INGESTOR_IMAGE}"
@@ -319,8 +332,8 @@ deploy-visioniq-ingestor-webhooks:
         --project "${GCP_PROJECT}"
         --service-account "${TEAM_SA}"
         --port 8080
-        --ingress "internal"
-        --no-allow-unauthenticated
+        --ingress "${WEBHOOK_INGRESS}"
+        "${WEBHOOK_AUTH_FLAG}"
         --vpc-connector "${VPC_CONNECTOR}"
         --vpc-egress "private-ranges-only"
         --min-instances 0
