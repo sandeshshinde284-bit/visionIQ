@@ -36,7 +36,8 @@ def test_private_deploy_has_explicit_release_and_secret_guards() -> None:
     assert "[ValidateRange(1, 2147483647)]" in script
     assert "sa-ps04-t11" in script
     assert "RuntimeServiceAccount" in script
-    assert "team-visioniq-docker-dev" in script
+    assert "docker-ps04-t11" in script
+    assert "europe-west1" in script
     assert "visioniq-api" in script
     assert "visioniq-intelligence" in script
     assert "Cloud SQL" in script
