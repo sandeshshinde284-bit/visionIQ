@@ -12,6 +12,7 @@ param(
     [string]$Project = 'gbr-mts-wgh-hkt-dev',
     [string]$Region = 'europe-west3',
     [string]$RegistryRegion = 'europe-west1',
+    [string]$RuntimeServiceAccount = 'sa-ps04-t11',
     [string]$Repository = 'docker-ps04-t11',
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[a-f0-9]{40}$')]
@@ -48,7 +49,7 @@ foreach ($service in $expected) {
     if ($image -cne "$registry/$($service.Name):$Commit") {
         throw "$($service.Name) running image does not match the requested reviewed commit tag."
     }
-    if ($runtime -cne "visioniq-runtime@$Project.iam.gserviceaccount.com") {
+    if ($runtime -cne "$RuntimeServiceAccount@$Project.iam.gserviceaccount.com") {
         throw "$($service.Name) runtime identity differs from the approved FND-03 identity."
     }
     if ($ingress -cne 'internal') {
