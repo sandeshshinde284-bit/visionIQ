@@ -2,20 +2,8 @@
 
 This release is separated from LRN-01–07. Tracking: GitHub issue #10; original merged feature PR #12. Automation is deferred to issue #11.
 
-> **Legacy recovery runbook (FND-04):** Normal deployments now use the GitLab pipeline.
-> For Pub/Sub, use the existing `scripts/pubsub/provision-pubsub.ps1`
-> in plan mode and review changes before `-Apply`. Scheduler provisioning
-> remains a separate cloud configuration task. This historical runbook is kept
-> for recovery; it does not cover the third webhook service or two scheduled jobs.
-
 ## Target environment
-Existing GCP project `gbr-mts-wgh-hkt-dev`, Cloud Run region `europe-west3`,
-primary Artifact Registry `docker-ps04-t11` in `europe-west1`, VPC connector
-`vpc-con`, Cloud SQL `visioniqdev`, and team runtime service account
-`sa-ps04-t11` (verify IAM before using). Older images in
-`team-visioniq-docker-dev` are kept temporarily for rollback only. Confirm
-current values and corporate authorization before running. Do not create duplicate
-infrastructure or modify the migration job as part of application deployment.
+Existing GCP project `gbr-mts-wgh-hkt-dev`, region `europe-west3`, Artifact Registry `team-visioniq-docker-dev`, VPC connector `vpc-con`, Cloud SQL `visioniqdev` (development), runtime service account `visioniq-runtime`. Confirm current values and corporate authorization before running. Do not create duplicate infrastructure or modify the migration job as part of application deployment.
 
 ## From the repository root (Windows PowerShell)
 
