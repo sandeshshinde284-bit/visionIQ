@@ -11,7 +11,8 @@
 param(
     [string]$Project = 'gbr-mts-wgh-hkt-dev',
     [string]$Region = 'europe-west3',
-    [string]$Repository = 'team-visioniq-docker-dev',
+    [string]$RegistryRegion = 'europe-west1',
+    [string]$Repository = 'docker-ps04-t11',
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[a-f0-9]{40}$')]
     [string]$Commit
@@ -25,7 +26,7 @@ if ($Project -cne 'gbr-mts-wgh-hkt-dev' -or $Region -cne 'europe-west3') {
 if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
     throw 'Google Cloud CLI is required.'
 }
-$registry = "$($Region)-docker.pkg.dev/$Project/$Repository"
+$registry = "$($RegistryRegion)-docker.pkg.dev/$Project/$Repository"
 $expected = @(
     @{ Name = 'visioniq-api'; Port = 5100; DatabaseIdentity = 'visioniq_api' },
     @{ Name = 'visioniq-intelligence'; Port = 8000; DatabaseIdentity = 'visioniq_intelligence' }
