@@ -49,10 +49,9 @@ It must be reviewed and GitLab CI Lint must validate the included corporate temp
 - **Artifact hand-off:** The existing OAuth-based Kaniko config artifact contains a short-lived
   access token; ensure protected runner artifacts and consider per-job keyless auth.
 - **Scheduler:** The `gcloud scheduler jobs create http` command cannot create a job paused.
-  The new scheduler script creates then pauses it in apply mode, which leaves a short
-  activation window. **Do not approve scheduler apply until this is resolved**, preferably
-  through Terraform `google_cloud_scheduler_job.paused = true`. The script's read-only plan
-  and verification are safe to run now.
+  The Scheduler script intentionally supports only read-only plan and verify modes.
+  Provision new jobs as paused through reviewed Terraform (`google_cloud_scheduler_job.paused = true`),
+  then activate schedules only after cloud acceptance testing and approval.
 - **Pipeline verification:** Run GitLab CI Lint, a feature-branch build, GCP secret/access audit,
   Cloud Run smoke tests, Pub/Sub push tests, DB permissions checks, ingestion/indexing E2E,
   then scoped ADO ticket acceptance.
