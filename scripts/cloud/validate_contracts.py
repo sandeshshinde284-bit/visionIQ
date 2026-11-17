@@ -45,6 +45,26 @@ def main() -> None:
     check('BRIEF_PUBLISH_MODE=off,FIX_PR_MODE=off' in yaml,
           "External writes are disabled for initial rollout")
     check('--no-allow-unauthenticated' in yaml, "Webhook is not anonymous")
+    tf = (ROOT / "infra/visioniq/main.tf").read_text(encoding="utf-8")
+    check('data "google_pubsub_topic" "existing"' in tf,
+          "Existing corporate topics are referenced, not recreated")
+    check('resource "google_pubsub_topic" ' not in tf,
+          "No duplicate Terraform topic ownership")
+    check('resource "google_pubsub_subscription" "push"' in tf,
+          "Terraform owns push subscriptions")
+    check('resource "google_pubsub_subscription" "dead_letter_hold"' in tf,
+          "Terraform owns dead-letter capture subscriptions")
+    check('resource "google_cloud_scheduler_job" "run_job"' in tf and
+          'paused      = true' in tf, "Scheduler jobs start paused")
+    schedules = json.loads((ROOT / "infra/visioniq/schedules.json").read_text(encoding="utf-8"))
+    check({entry["cloud_run_job"] for entry in schedules["jobs"]} ==
+          {"visioniq-ingestion-job", "visioniq-indexing-job"},
+          "Both scheduled Cloud Run jobs are defined")
+    check(len({entry["name"] for entry in schedules["jobs"]}) == len(schedules["jobs"]),
+          "Scheduler names are unique")
+    check("reconcile_infrastructure.py" not in yaml and
+          "reconcile_scheduler.py" not in yaml,
+          "CI has no duplicate infrastructure reconcilers")
     print("[PASS] Static cloud contracts validated")
 
 
