@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 from app.brief.history import FixRecord, HistoryFacts
 from app.brief.schema import Risk, RiskBand, RiskFactor, ScopeItem
@@ -96,7 +97,21 @@ def assess(
 ) -> Risk:
     """The factors and the band for one ticket. ``lessons_known`` is False when the lesson
     search failed: an empty list then means "not known", not "none"."""
-    fixes = list(facts.fixes)
+    # One fix reaches a ticket through several links (each commit, each file), so it can appear
+    # more than once: count fixes, not links. A fix counts as reverted if any link says so.
+    unique: dict[tuple[str, str], FixRecord] = {}
+    for fix in facts.fixes:
+        seen = unique.get((fix.fix_kind, fix.fix_id))
+        unique[(fix.fix_kind, fix.fix_id)] = (
+            fix
+            if seen is None
+            else replace(
+                seen,
+                reverted=seen.reverted or fix.reverted,
+                paths=tuple(dict.fromkeys((*seen.paths, *fix.paths))),
+            )
+        )
+    fixes = list(unique.values())
     reverted = [fix for fix in fixes if fix.reverted]
     live_lessons = [lesson for lesson in lessons if lesson.status in ("current", "candidate")]
     # Hotspot areas are stored without a leading slash ("src/Payments").
@@ -126,7 +141,7 @@ def assess(
             window_days=window_days,
             missing=not history_known,
             references=_references(fixes),
-            evidence_ids=_evidence(fixes, evidence_ids),
+            evidence_ids=_evidence(facts.fixes, evidence_ids),
         ),
         RiskFactor(
             code="reverted_fixes",

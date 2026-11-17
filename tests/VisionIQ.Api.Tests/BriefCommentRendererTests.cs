@@ -64,7 +64,9 @@ public sealed class BriefCommentRendererTests
             "(ticket 101 -&gt; PR 201; ticket 102 -&gt; PR 202 (reverted))</li>",
             html,
             StringComparison.Ordinal);
-        Assert.Contains("<li>Areas flagged by the latest hotspot sweep: <b>no data</b></li>", html, StringComparison.Ordinal);
+        // Missing data is never a count: it is listed once, as not available.
+        Assert.Contains("<li><i>Not available:</i> Areas flagged by the latest hotspot sweep</li>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<b>no data</b>", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -122,7 +124,8 @@ public sealed class BriefCommentRendererTests
     {
         var html = BriefCommentRenderer.Render(Target("BLOCKED", "ticket_not_readable"), null);
 
-        Assert.Contains("&middot; Blocked<br>Run <code>", html, StringComparison.Ordinal);
+        Assert.Contains("&middot; Blocked</div>", html, StringComparison.Ordinal);
+        Assert.Contains("Run <code>" + RunId.ToString("D") + "</code>", html, StringComparison.Ordinal);
         Assert.Contains("No brief is available for this run.", html, StringComparison.Ordinal);
         Assert.Contains(BriefCommentRenderer.Marker(RunId), html, StringComparison.Ordinal);
     }
@@ -333,5 +336,100 @@ public sealed class BriefCommentRendererTests
         brief["a_field_added_later"] = "ignored";
 
         Assert.NotNull(BriefDocument.Parse(brief.ToJsonString()));
+    }
+
+    // ---- Layout: what to act on first, background after it, run details last ------------------------------------
+
+    [Fact]
+    public void The_comment_opens_with_a_one_sentence_summary_then_the_advice()
+    {
+        var html = Render();
+
+        var summary = html.IndexOf(
+            "<p><i>2 defect fix(es) changed these files in the last 90 days, 1 of them later reverted.</i></p>", StringComparison.Ordinal);
+        Assert.True(summary > 0);
+        Assert.True(summary < html.IndexOf("<p><b>Advice</b></p>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Sections_come_in_reading_order_and_run_details_are_last()
+    {
+        var html = Render();
+
+        string[] order =
+        [
+            "<p><b>Advice</b></p>",
+            "<b>Likely affected files</b>",
+            "<b>Why the risk is Moderate</b>",
+            "<b>Evidence used by the advice</b>",
+            "<b>Other matches</b>",
+            "<b>Not confirmed by a second review</b>",
+            "<b>Limits of this brief</b>",
+            "<b>Rate the advice</b>",
+            "Run <code>",
+        ];
+        var positions = order.Select(text => html.IndexOf(text, StringComparison.Ordinal)).ToList();
+        Assert.DoesNotContain(-1, positions);
+        Assert.Equal(positions.OrderBy(p => p), positions);
+    }
+
+    [Fact]
+    public void Advice_a_second_review_questioned_is_listed_apart_from_the_advice_to_act_on()
+    {
+        var html = Render();
+
+        var advice = html.IndexOf("<p><b>Advice</b></p>", StringComparison.Ordinal);
+        var disputed = html.IndexOf("<b>Not confirmed by a second review</b>", StringComparison.Ordinal);
+        Assert.Equal(1, html.Split("<b>ADV-002</b>", StringSplitOptions.None).Length - 1);
+        Assert.True(html.IndexOf("<b>ADV-002</b>", StringComparison.Ordinal) > disputed);
+        Assert.True(html.IndexOf("<b>ADV-001</b>", StringComparison.Ordinal) is var first && first > advice && first < disputed);
+    }
+
+    [Fact]
+    public void Evidence_the_advice_uses_comes_first_and_other_matches_are_shortened()
+    {
+        var brief = Brief();
+        brief["evidence"]![2]!["title"] = "Commit 9f1c2ab: " + new string('a', 150);
+
+        var html = RenderGuidance(brief);
+
+        var used = html.IndexOf("<b>Evidence used by the advice</b>", StringComparison.Ordinal);
+        var other = html.IndexOf("<b>Other matches</b>", StringComparison.Ordinal);
+        Assert.True(used < html.IndexOf(">E1</a> &mdash;", StringComparison.Ordinal));
+        Assert.True(html.IndexOf(">E1</a> &mdash;", StringComparison.Ordinal) < other);
+        Assert.True(other < html.IndexOf(">E2</a> &mdash;", StringComparison.Ordinal));
+        Assert.Contains("\u2026 (", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('a', 150), html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_reference_repeated_in_the_risk_factors_is_shown_once()
+    {
+        var brief = Brief();
+        brief["risk"]!["factors"]![0]!["references"] = new JsonArray("ticket 101 -> PR 201", "ticket 101 -> PR 201", "ticket 101 -> PR 201");
+
+        var html = RenderGuidance(brief);
+
+        Assert.Contains("<b>2</b> (ticket 101 -&gt; PR 201)</li>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_any_confirmed_advice_the_comment_says_so_and_still_lists_the_questioned_items()
+    {
+        var brief = Brief();
+        brief["disagreements"]!.AsArray().Add(new JsonObject
+        {
+            ["advice_id"] = "ADV-001",
+            ["drafted_by"] = "gemini",
+            ["reviewed_by"] = "claude",
+            ["verdict"] = "unsupported",
+            ["reason"] = "E1 does not mention idempotency.",
+        });
+
+        var html = RenderGuidance(brief);
+
+        Assert.Contains("<p><b>Advice</b>: none confirmed.", html, StringComparison.Ordinal);
+        Assert.Contains("A second review found this unsupported: E1 does not mention idempotency.", html, StringComparison.Ordinal);
+        Assert.Contains("<b>Rate the advice</b>", html, StringComparison.Ordinal);
     }
 }

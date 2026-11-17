@@ -31,6 +31,7 @@ from defect_support import (
 )
 from jsonschema import Draft202012Validator
 
+import app.defect.pipeline as pipeline_module
 from app.brief.history import TicketText
 from app.defect import schema
 from app.defect.pipeline import FixOutcome, run_fix
@@ -622,6 +623,7 @@ def test_a_run_logs_each_stage_with_ids_and_codes(tmp_path: Path) -> None:
     stages = [e["event"] for e in events if e["event"] not in ("fix_execution", "llm_call")]
     assert stages == [
         "fix_started",
+        "fix_related_files_added",
         "fix_workspace_ready",
         "fix_manifest_written",
         "fix_reproduction_attempt",
@@ -646,7 +648,7 @@ def test_a_run_logs_each_stage_with_ids_and_codes(tmp_path: Path) -> None:
     ]
     by_event = {e["event"]: e for e in events}  # the last of each
     assert by_event["fix_started"]["base_sha"] == result.base_sha
-    assert by_event["fix_workspace_ready"]["context_files"] == [SOURCE]
+    assert by_event["fix_workspace_ready"]["context_files"][0] == SOURCE
     assert by_event["fix_reproduction_attempt"]["outcome"] == "FAIL_TARGET_SIGNATURE"
     assert by_event["fix_candidate_committed"]["candidate_sha"] == result.candidate_sha
     assert by_event["fix_built"]["verdict"] == "VERIFIED"
@@ -706,3 +708,36 @@ def test_what_goes_wrong_is_logged_as_a_warning_with_its_reason_code(tmp_path: P
     assert checked["findings"] == [
         {"code": "restricted_area_payment", "severity": "review", "path": SOURCE}
     ]
+
+
+# ---- Related files: the code that uses a file in scope is shown too ------------------------------
+
+
+def context_files(events: list[dict]) -> list[str]:
+    return next(e for e in events if e["event"] == "fix_workspace_ready")["context_files"]
+
+
+def test_files_that_use_the_scoped_file_are_shown_nearest_first(tmp_path: Path) -> None:
+    # Seen live: the brief named a component, while the defect was in the screen using it; the
+    # model could not reproduce it without that screen. Files that use the scoped file are added.
+    result, events = logged(tmp_path, [TEST_ANSWER, SAFE_FIX])
+
+    assert context_files(events) == [SOURCE, "src/kiosk/receipt.py", "bench/bench_retry.py"]
+    assert result.verdict == "VERIFIED"
+
+
+def test_related_files_never_include_tests_and_stay_within_the_limit(tmp_path: Path) -> None:
+    demo = make_demo(tmp_path, limits={"max_context_files": 2})
+    _, events = logged(tmp_path, [TEST_ANSWER, SAFE_FIX], demo=demo)
+
+    assert context_files(events) == [SOURCE, "src/kiosk/receipt.py"]
+    assert not any(path.startswith("tests/") for path in context_files(events))
+
+
+def test_a_name_used_by_too_many_files_adds_nothing(tmp_path: Path, monkeypatch) -> None:
+    # A name that many files mention says nothing about where the defect is.
+    monkeypatch.setattr(pipeline_module, "MAX_REFERRERS", 1)
+    _, events = logged(tmp_path, [TEST_ANSWER, SAFE_FIX])
+
+    assert context_files(events) == [SOURCE]
+    assert "fix_related_files_added" not in [e["event"] for e in events]

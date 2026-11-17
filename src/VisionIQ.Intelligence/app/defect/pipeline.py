@@ -92,6 +92,14 @@ from app.llm.routing import ROUTING_REVISION
 from app.llm.types import CodeFile, DataClassification
 
 # Reason codes (analysis.completed carries them).
+# Files that use a chosen file by name (see FixPipeline._referrers). A name shorter than this, or a
+# common one, says nothing about the defect; nor does a name used by more files than MAX_REFERRERS.
+MIN_REFERENCE_NAME = 5
+MAX_REFERRERS = 12
+GENERIC_NAMES = frozenset(
+    {"index", "main", "utils", "helpers", "common", "types", "constants", "config", "program"}
+)
+
 REPOSITORY_NOT_CONFIGURED = "repository_not_configured"
 RUNNER_NOT_ALLOWED = "runner_not_allowed"
 TICKET_NOT_READABLE = "ticket_not_readable"
@@ -238,6 +246,16 @@ class FixOutcome:
     ledger: RunLedger
 
 
+def _shared_folders(first: str, second: str) -> int:
+    """How many leading folders two repository paths have in common."""
+    count = 0
+    for a, b in zip(first.split("/")[:-1], second.split("/")[:-1], strict=False):
+        if a != b:
+            break
+        count += 1
+    return count
+
+
 def _log() -> structlog.stdlib.BoundLogger:
     """The logger of the current run. Events carry ids, codes, counts and paths only: never
     ticket text, source code, model output or test output."""
@@ -316,6 +334,9 @@ class _FixRun:
         # whole run. It is NOT part of a candidate: clearing a candidate between fix attempts
         # must not lose it, or a retry would not move one tier up.
         self.complexity: Complexity | None = None
+        # The files expected to change (ticket, brief, history), without the related files shown
+        # beside them: complexity and restricted areas are judged on these.
+        self.scope_files: list[str] = []
         self._clear_candidate()
 
     def _clear_candidate(self) -> None:
@@ -443,10 +464,10 @@ class _FixRun:
         areas = [
             str(area.area)
             for area in repo.restricted_areas
-            if any(matches(file.path, area.patterns) for file in code)
+            if any(matches(path, area.patterns) for path in self.scope_files)
         ]
         self.complexity = assess(
-            len(code),
+            len(self.scope_files),
             self.sources.brief_risk_band(ticket.project, ticket.id),
             areas,
         )
@@ -516,7 +537,43 @@ class _FixRun:
                     candidate_count=len(candidates),
                     resolved_paths=chosen,
                 )
-        return self._read(chosen)
+        self.scope_files = list(chosen)
+        return self._read([*chosen, *self._referrers(chosen, eligible)])
+
+    def _referrers(self, chosen: Sequence[str], eligible: Sequence[str]) -> list[str]:
+        """Files that use a chosen file by name: the screen that renders a component, the class
+        that calls a service.
+
+        A ticket describes what is seen on a screen, while the brief and history point at files
+        past fixes changed; the code in between is found here by a plain text search of the
+        pinned tree, so it works for every language. The same path rules apply (no tests,
+        secrets or generated output), and the total stays within max_context_files.
+        """
+        repo, workspace = self._ready()
+        room = repo.limits.max_context_files - len(chosen)
+        if room <= 0 or not chosen:
+            return []
+        allowed = set(eligible)
+        added: list[str] = []
+        for path in chosen:
+            name = PurePosixPath(path).name.split(".", 1)[0]
+            if len(name) < MIN_REFERENCE_NAME or name.lower() in GENERIC_NAMES:
+                continue
+            hits = [
+                hit
+                for hit in workspace.referrers(name)
+                if hit in allowed and hit != path and hit not in chosen and hit not in added
+            ]
+            if not hits or len(hits) > MAX_REFERRERS:
+                continue
+            # Nearest first: the files that share the most folders with the chosen one.
+            hits.sort(key=lambda hit: (-_shared_folders(hit, path), hit))
+            added.extend(hits[: room - len(added)])
+            if len(added) >= room:
+                break
+        if added:
+            _log().info("fix_related_files_added", resolved_paths=added, from_paths=list(chosen))
+        return added
 
     def _read(self, paths: Sequence[str]) -> list[CodeFile]:
         repo, workspace = self._ready()
