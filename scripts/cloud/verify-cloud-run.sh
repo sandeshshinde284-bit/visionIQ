@@ -20,7 +20,7 @@ if not ready or ready.get("status")!="True" or not status.get("latestReadyRevisi
     raise SystemExit(f"FAIL {name}: latest revision is not Ready")
 if not (image.startswith(prefix) or image.startswith(prefix[:-1]+"@")):
     raise SystemExit(f"FAIL {name}: image is outside approved registry: {image}")
-print(f"PASS {name}: {status["latestReadyRevisionName"]} / {image}")
+print("PASS %s: %s / %s" % (name, status["latestReadyRevisionName"], image))
 ' "${service}" "${TEAM_GAR}"
 done
 
