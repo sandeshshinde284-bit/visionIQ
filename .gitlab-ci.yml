@@ -260,7 +260,7 @@ deploy-visioniq-api:
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=false,BRIEF_PUBLISH_MODE=off,FIX_PR_MODE=off,PICKUP_SWEEP_INTERVAL_MINUTES=0,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET}"
-        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
+        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
     - gcloud run services describe "visioniq-api" --region "${SERVICE_REGION}" --format='value(status.url)'
 
 deploy-visioniq-intelligence:
