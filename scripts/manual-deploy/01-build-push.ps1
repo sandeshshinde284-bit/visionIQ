@@ -14,8 +14,7 @@
 param(
     [string]$Project = 'gbr-mts-wgh-hkt-dev',
     [string]$Region = 'europe-west3',
-    [string]$RegistryRegion = 'europe-west1',
-    [string]$Repository = 'docker-ps04-t11',
+    [string]$Repository = 'team-visioniq-docker-dev',
     [switch]$BuildOnly,
     [switch]$Push,
     [string]$ReviewedCommit
@@ -37,7 +36,7 @@ $head = (& git -C $root rev-parse --verify HEAD 2>&1)
 if ($LASTEXITCODE -ne 0) { throw 'Run this script inside a valid Git checkout.' }
 $head = $head.Trim()
 if ($head -notmatch '^[a-f0-9]{40}$') { throw 'Source commit must be a complete Git SHA-1.' }
-$registry = "$($RegistryRegion)-docker.pkg.dev/$Project/$Repository"
+$registry = "$($Region)-docker.pkg.dev/$Project/$Repository"
 $images = @(
     @{ Name = 'visioniq-api'; Dockerfile = 'src/VisionIQ.Api/Dockerfile' },
     @{ Name = 'visioniq-intelligence'; Dockerfile = 'src/VisionIQ.Intelligence/Dockerfile' },
@@ -46,7 +45,7 @@ $images = @(
 )
 
 Write-Host "Reviewed source SHA: $head"
-Write-Host "Target: $Project / Artifact Registry $RegistryRegion / $Repository"
+Write-Host "Target: $Project / $Region / $Repository"
 foreach ($image in $images) {
     Write-Host ("Image: " + $registry + '/' + $image.Name + ':' + $head)
 }
@@ -69,11 +68,11 @@ if ($Push) {
     if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
         throw 'Refusing to push images from a checkout with tracked local changes.'
     }
-    $format = (& gcloud artifacts repositories describe $Repository --project=$Project --location=$RegistryRegion '--format=value(format)')
+    $format = (& gcloud artifacts repositories describe $Repository --project=$Project --location=$Region '--format=value(format)')
     if ($LASTEXITCODE -ne 0 -or $format.Trim() -ne 'DOCKER') {
         throw 'Approved existing Artifact Registry DOCKER repository could not be verified.'
     }
-    & gcloud auth configure-docker "$($RegistryRegion)-docker.pkg.dev" --quiet
+    & gcloud auth configure-docker "$($Region)-docker.pkg.dev" --quiet
     if ($LASTEXITCODE -ne 0) { throw 'Docker credential configuration failed.' }
 }
 
