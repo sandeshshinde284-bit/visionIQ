@@ -1,0 +1,152 @@
+{
+  "revision": "defect-policy-2026-11-17-generic-paths.6",
+  "repositories": [
+    {
+      "repository_id": "KIOSK_TVM",
+      "source": "https://dev.azure.com/WLMTS/Genoa%20Kiosk/_git/KIOSK_TVM",
+      "target_branch": "MAIN_copy",
+      "runner": {
+        "kind": "local",
+        "env": {
+          "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+          "DOTNET_NOLOGO": "1",
+          "CI": "true",
+          "VISIONIQ_NODE_SCRIPT": "test:unit",
+          "VISIONIQ_NODE_CACHE": "C:/visioniq-tools/node-cache",
+          "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
+          "NuGetAudit": "false"
+        },
+        "env_allow": [
+          "USERPROFILE",
+          "APPDATA",
+          "LOCALAPPDATA",
+          "PROGRAMFILES",
+          "PROGRAMFILES(X86)",
+          "PROGRAMDATA",
+          "HOMEDRIVE",
+          "HOMEPATH",
+          "COMSPEC",
+          "PSMODULEPATH",
+          "HTTP_PROXY",
+          "HTTPS_PROXY",
+          "NO_PROXY"
+        ],
+        "test_timeout_seconds": 900,
+        "suite_timeout_seconds": 2400,
+        "benchmark_timeout_seconds": 600
+      },
+      "recipes": {
+        "test_file": [
+          "powershell",
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "C:/visioniq-tools/run-tests.ps1",
+          "-Mode",
+          "test-file",
+          "-TestPath",
+          "{test_path}",
+          "-Report",
+          "{junit}"
+        ]
+        //"suite": [
+        //  "powershell",
+        //  "-NoProfile",
+        //  "-NonInteractive",
+        //  "-ExecutionPolicy",
+        //  "Bypass",
+        //  "-File",
+        //  "C:/visioniq-tools/run-tests.ps1",
+        //  "-Mode",
+        //  "suite",
+        //  "-Report",
+        //  "{junit}"
+        //]
+      },
+      "toolchain": {
+        "dotnet": [
+          "dotnet",
+          "--version"
+        ],
+        "node": [
+          "node",
+          "--version"
+        ]
+      },
+      "dependency_restore": "dotnet test restores NuGet packages; the dispatcher finds the solutions and Node folders itself, installs Node dependencies once per package-lock.json into VISIONIQ_NODE_CACHE and links them into each run",
+      "new_test_paths": [
+        "**/*.Tests/**/*.cs",
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/tests/**/*.ts"
+      ],
+      "test_file_patterns": [
+        "**/*.Tests/**/*.cs",
+        "**/*.Tests.Shared/**/*.cs",
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/tests/**/*.ts"
+      ],
+      "writable_paths": [
+        "**"
+      ],
+      "restricted_areas": [
+        {
+          "area": "test_data",
+          "patterns": [
+            "**/mocks/**",
+            "**/__mocks__/**",
+            "**/fixtures/**",
+            "**/*.stub.ts",
+            "**/*.mock.ts"
+          ]
+        }
+      ],
+      "generated_paths": [
+        "**/bin/**",
+        "**/obj/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/node_modules/**",
+        "**/__pycache__/**",
+        "**/*.min.js",
+        "**/*.dll",
+        "**/*.exe",
+        "**/*.pyc",
+        "**/generated/**",
+        "**/swagger.json",
+        "**/*.md",
+        "docs/**",
+        "archives/**",
+        ".gemini/**"
+      ],
+      "lock_files": [
+        "**/global.json",
+        "**/package-lock.json",
+        "**/packages.lock.json"
+      ],
+      "fixture_paths": [],
+      "test_data_paths": [
+        "**/mocks/**",
+        "**/__mocks__/**",
+        "**/fixtures/**",
+        "**/*.stub.ts",
+        "**/*.mock.ts"
+      ],
+      "limits": {
+        "max_test_attempts": 3,
+        "max_fix_iterations": 2,
+        "max_changed_files": 8,
+        "max_changed_lines": 400,
+        "max_regression_tests": 10,
+        "max_context_files": 10,
+        "flaky_reruns": 1,
+        "red_confirmations": 1,
+        "environment_retries": 1
+      },
+      "draft_pr_on_incomplete": false
+    }
+  ]
+}

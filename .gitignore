@@ -77,4 +77,4 @@ pgdata/
 artifacts/
 
 # BRF-01: local pickup policies may name real projects and repositories
-config/*.local.json
+#config/*.local.json

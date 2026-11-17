@@ -3,7 +3,7 @@
   // and point DEFECT_POLICY_FILE at it. A repository that is not listed here is never cloned or
   // run. A model never chooses a command or a path outside this file.
   // Changing the rules? Bump revision: it is recorded with every run.
-  "revision": "defect-policy-2026-11-17.1",
+  "revision": "defect-policy-2026-11-17.2",
   "repositories": [
     {
       // Must equal repository_id of the pickup policy (config/pickup-policy.example.json).
@@ -48,7 +48,8 @@
       // .NET tests in *.Tests projects and JavaScript tests in *.spec.ts / *.test.ts files.
       // Never list a folder that also holds production code: every file in it would count as a test,
       // and no fix could change it.
-      "new_test_paths": ["**/*.Tests/**", "**/*.spec.ts", "**/*.test.ts", "**/tests/**"],
+      // A new test is always a code file: never mock data, a project or a settings file.
+      "new_test_paths": ["**/*.Tests/**/*.cs", "**/*.spec.ts", "**/*.test.ts", "**/tests/**/*.ts"],
       "test_file_patterns": ["**/*.Tests/**", "**/*.Tests.Shared/**", "**/*.spec.ts", "**/*.test.ts", "**/tests/**"],
       // The only paths a fix may change. "**" is the whole repository; these are refused or sent for
       // review whatever is written here: test files, generated and binary files (bin, obj, build, dist,
