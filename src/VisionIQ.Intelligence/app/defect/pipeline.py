@@ -1131,12 +1131,33 @@ class _FixRun:
                 # predicted wording differed, and the model, told only to match its prediction,
                 # wrote another test. It may keep the test: the corrected prediction is then
                 # checked against a fresh run like any other, so nothing is accepted unrun.
+                # The test is given back to the model (each attempt starts without the earlier
+                # one, so it could not return unchanged what it no longer saw), and the feedback
+                # names the predicted texts that were not in the failure.
+                context_code = [
+                    *(file for file in context_code if file.path != proposal.path),
+                    CodeFile(path=proposal.path, content=proposal.content),
+                ]
+                absent = [
+                    text
+                    for text in proposal.expected.message_contains
+                    if text.lower() not in last.signature.lower()
+                ]
                 feedback.append(
                     f"Attempt {attempt} ran on the current code and failed the same way on every "
-                    f"run: {last.signature}. If this failure IS the defect the ticket reports, "
-                    "return the same test unchanged (same test_path, test_id and test_content) "
-                    "with expected_failure taken from this failure; it will be run again. If it "
-                    "is not the reported defect, write a different test."
+                    f"run: {last.signature}. "
+                    + (
+                        "These predicted texts were not in that failure: "
+                        + ", ".join(f'"{text}"' for text in absent)
+                        + ". "
+                        if absent
+                        else ""
+                    )
+                    + "If this failure IS the defect the ticket reports, return that test "
+                    f"unchanged: it is shown as file:{proposal.path} (test_id: "
+                    f"{proposal.test_id}). Copy its test_path, test_id and test_content exactly, "
+                    "and in expected_failure use only text that appears in the failure above; it "
+                    "will be run again. If it is not the reported defect, write a different test."
                 )
             else:
                 feedback.append(
