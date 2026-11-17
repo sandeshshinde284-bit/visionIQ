@@ -93,6 +93,25 @@ cloud-static-checks:
     - if: '$CI_COMMIT_BRANCH == "main"'
 
 # ------------------------------------------------------------------------------
+# Terraform configuration validation (no state, credentials or cloud mutations)
+# ------------------------------------------------------------------------------
+cloud-terraform-validation:
+  stage: quality
+  image:
+    name: hashicorp/terraform:1.9.8
+    entrypoint: [""]
+  tags:
+    - kazan-S
+  before_script: []
+  script:
+    - terraform -chdir=infra/visioniq fmt -check -recursive
+    - terraform -chdir=infra/visioniq init -backend=false -input=false
+    - terraform -chdir=infra/visioniq validate
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ------------------------------------------------------------------------------
 # Kaniko Container Builds (Parallel execution into Team Artifact Registry)
 # ------------------------------------------------------------------------------
 build-api:
@@ -391,7 +410,7 @@ deploy-visioniq-indexing-job:
         --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
 
 # ------------------------------------------------------------------------------
-# Verification / approved infrastructure reconciliation
+# Post-deployment metadata verification: no mutation.
 # ------------------------------------------------------------------------------
 cloud-deployment-readiness:
   stage: verify
@@ -412,33 +431,53 @@ cloud-deployment-readiness:
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
 
+# ------------------------------------------------------------------------------
+# Infrastructure is owned by Terraform with separately approved GCS state.
+# No automatic provisioning on ordinary application pushes.
+# Plans and applies run only after both Cloud Run jobs exist and IAM is approved.
+# ------------------------------------------------------------------------------
 cloud-infrastructure-plan:
   stage: verify
   extends: .gcp_base
   needs:
+    - job: prepare-gcp-session
+      artifacts: true
     - job: cloud-deployment-readiness
   before_script:
     - !reference [.bootstrap_template, before_script]
     - !reference [.gcp_base, before_script]
   script:
-    - python3 scripts/cloud/reconcile_infrastructure.py --mode plan
-    - python3 scripts/cloud/reconcile_scheduler.py --mode plan
+    - ': "${TF_STATE_BUCKET:?Set approved remote Terraform state bucket in protected GitLab variables}"'
+    - command -v terraform >/dev/null || { echo "Terraform CLI is required in the corporate GCP runner"; exit 1; }
+    - terraform -chdir=infra/visioniq init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
+    - terraform -chdir=infra/visioniq plan -input=false -lock-timeout=5m -out=visioniq.tfplan
+  artifacts:
+    paths:
+      - infra/visioniq/visioniq.tfplan
+    expire_in: 1 hour
+    access: developer
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
 
-# Optional, explicitly approved after reviewing the above plan.
-# Does not resume schedules or enable BRIEF/DEFECT/ADO writes.
+# Separate explicit manual approval. GitLab protected environments should
+# restrict who can run this job. Never use current main without reviewing plan.
 cloud-infrastructure-apply:
   stage: verify
   extends: .gcp_base
   needs:
-    - job: cloud-deployment-readiness
+    - job: prepare-gcp-session
+      artifacts: true
+    - job: cloud-infrastructure-plan
+      artifacts: true
   before_script:
     - !reference [.bootstrap_template, before_script]
     - !reference [.gcp_base, before_script]
   script:
-    - python3 scripts/cloud/reconcile_infrastructure.py --mode apply
-    - python3 scripts/cloud/reconcile_scheduler.py --mode plan
+    - ': "${TF_STATE_BUCKET:?Set approved remote Terraform state bucket in protected GitLab variables}"'
+    - terraform -chdir=infra/visioniq init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
+    - terraform -chdir=infra/visioniq apply -input=false -lock-timeout=5m visioniq.tfplan
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
