@@ -800,7 +800,14 @@ def test_a_stable_assertion_with_other_wording_may_be_kept_with_a_corrected_pred
     hint = seen[1].feedback[-1]
     assert "failed the same way on every run" in hint
     assert "captured payment was retried" in hint
-    assert "return the same test unchanged" in hint
+    assert f"return that test unchanged: it is shown as file:{TEST_PATH}" in hint
+    # Seen live: told to return the test unchanged, the model answered that it had not been given
+    # it, and wrote a new one each time. The earlier test is now in the next attempt's context,
+    # and the feedback names the predicted text that was not in the failure.
+    shown = {file.path: file.content for file in seen[1].code}
+    assert shown[TEST_PATH] == TEST_ANSWER["test_content"]
+    assert TEST_PATH not in {file.path for file in seen[0].code}
+    assert 'These predicted texts were not in that failure: "was refunded"' in hint
     # The corrected prediction was checked against a fresh run like any other, then fixed.
     assert result.reproduction.reproducibility == "REPRODUCED"
     assert result.verdict == "VERIFIED"
@@ -817,7 +824,8 @@ def test_a_crash_is_not_offered_to_be_kept(tmp_path: Path) -> None:
     run(tmp_path, model, behaviour)
 
     assert "The test must fail with the failure you predict." in seen[1].feedback[-1]
-    assert "return the same test unchanged" not in seen[1].feedback[-1]
+    assert "return that test unchanged" not in seen[1].feedback[-1]
+    assert TEST_PATH not in {file.path for file in seen[1].code}  # a crashed test is not kept
 
 
 def test_why_a_test_was_refused_is_logged(tmp_path: Path) -> None:
