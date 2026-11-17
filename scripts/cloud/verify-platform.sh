@@ -32,33 +32,41 @@ gcloud storage buckets describe "gs://${GCS_EVIDENCE_BUCKET}" \
 echo "Evidence bucket exists (persisted object URIs have NOT been checked)."
 
 # Verify all 11 secrets listed by PLATFORM.md without reading payloads.
-secrets=(
+# Core runtime dependencies for the configured ingestion/indexing deployments.
+# Other platform secrets are relevant only when the corresponding feature is enabled.
+required_secrets=(
   visioniq-db-admin-password
   visioniq-db-api-password
   visioniq-db-intelligence-password
   visioniq-ado-read-pat
+  visioniq-ado-webhook-secret
+)
+optional_secrets=(
   visioniq-ado-comment-pat
   visioniq-ado-pr-pat
-  visioniq-ado-webhook-secret
   visioniq-pickup-policy
   visioniq-pickup-webhook-secret
   visioniq-anthropic-api-key
   visioniq-log-pseudonym-key
 )
 missing=0
-for secret in "${secrets[@]}"; do
+for secret in "${required_secrets[@]}" "${optional_secrets[@]}"; do
+  required=0
+  for item in "${required_secrets[@]}"; do
+    if [[ "$secret" == "$item" ]]; then required=1; break; fi
+  done
   if ! gcloud secrets describe "$secret" --project="$GCP_PROJECT" \
     --format='value(name)' >/dev/null 2>&1; then
-    echo "MISSING Secret Manager secret: $secret" >&2
-    missing=1
+    echo "MISSING Secret Manager secret: $secret (required=$required)" >&2
+    if (( required == 1 )); then missing=1; fi
     continue
   fi
   enabled="$(gcloud secrets versions list "$secret" --project="$GCP_PROJECT" \
     --filter='state=ENABLED' --limit=1 --format='value(name)')" ||
     { echo "FAIL: cannot inspect versions for $secret" >&2; exit 1; }
   if [[ -z "$enabled" ]]; then
-    echo "MISSING enabled version: $secret" >&2
-    missing=1
+    echo "MISSING enabled version: $secret (required=$required)" >&2
+    if (( required == 1 )); then missing=1; fi
   else
     echo "OK enabled Secret Manager version: $secret"
   fi
@@ -69,5 +77,5 @@ if (( missing != 0 )); then
   exit 1
 fi
 
-echo "Platform metadata preflight passed."
+echo "Platform metadata preflight passed; optional secrets may still need setup."
 echo "Not verified: secret contents, runtime IAM, SQL login, outbound NAT, Pub/Sub or E2E."
