@@ -1,76 +1,85 @@
-# VisionIQ cloud deployment hardening — review before applying
+# VisionIQ Cloud deployment review — draft PR #42
 
-This change targets GitHub source. It does **not** deploy to the corporate GCP project.
-It must be reviewed and GitLab CI Lint must validate the included corporate template.
+This branch prepares VisionIQ's GitLab CI/CD, Terraform event infrastructure,
+and manual recovery scripts. It has **not** deployed any Google Cloud resources.
+`main` remains unchanged until the draft PR is reviewed and merged.
 
-## Verified baseline (17 November 2026)
+## Confirmed baseline (17 November 2026)
 
-- Target project: `gbr-mts-wgh-hkt-dev`; Cloud Run region `europe-west3`.
-- Team image registry: `europe-west1-docker.pkg.dev/gbr-mts-wgh-hkt-dev/docker-ps04-t11`.
-- Live inventory showed ready `visioniq-api`, `visioniq-intelligence`, and existing `visioniq-db-migrate` job.
-- Missing at the time: webhook service, ingestion/indexing jobs, and VisionIQ Pub/Sub subscriptions and Scheduler jobs.
-- Four VisionIQ Pub/Sub topics already existed (two primary and two dead-letter).
-- The older manual registry `team-visioniq-docker-dev` must be preserved until rollback dependencies are checked.
+- Project: `gbr-mts-wgh-hkt-dev`; Cloud Run region `europe-west3`.
+- Primary registry: `europe-west1-docker.pkg.dev/gbr-mts-wgh-hkt-dev/docker-ps04-t11`.
+- Cloud Run API and Intelligence services were Ready; migration job existed.
+- Missing on inventory: webhook ingestor, ingestion and indexing Cloud Run jobs.
+- Four VisionIQ Pub/Sub topics existed; no matching subscriptions were listed.
+- No VisionIQ-specific Scheduler jobs were listed.
+- GCS evidence bucket is **unresolved** between `visioniq-source-evidence-dev`
+  and `gbr-mts-wgh-hkt-ps04-t11`. Resolve persisted GCS evidence URIs first.
+- The original `team-visioniq-docker-dev` registry remains for rollback.
 
-## What this PR changes
+## One owner per responsibility
 
-1. Adds offline contract checks to GitLab merge-request quality validation.
-2. Keeps four Kaniko image builds in `docker-ps04-t11`.
-3. Requires a **blocking manual approval** for migration before deployment (including routine pushes for now).
-4. Uses the cloud-specific migration command `python -m db.cloud_manage all` and guarded cloud-only credentials.
-5. Disables BRIEF/DEFECT/ADO writes and automatic event dispatch at first deployment.
-6. Deploys the webhook Cloud Run service with authenticated, internal ingress; this cannot accept
-   direct public Azure DevOps hooks without an approved authenticated gateway.
-7. Introduces post-deployment metadata checks and plan-first Pub/Sub/Scheduler reconciliation.
-8. Keeps infrastructure mutation manual, not on ordinary GitLab code pushes.
+| Concern | Primary owner | Notes |
+|---|---|---|
+| Existing topics | Existing corporate infrastructure | Reuse, do not recreate |
+| Subscriptions, DLQs, Pub/Sub delivery IAM | `infra/visioniq/main.tf` | Manual approved Terraform apply |
+| Scheduler definitions and job-execute IAM | `infra/visioniq/main.tf` | Creates two paused schedules |
+| Topic names/retry policy | `contracts/events/topology.json` | Same contract as application |
+| Schedule names/crons | `infra/visioniq/schedules.json` | Third trigger needs code/owner confirmation |
+| Image builds and Cloud Run deployment | `.gitlab-ci.yml` | Four images, three services, three job definitions |
+| CI contracts and smoke metadata | `scripts/cloud/` | Static checks and read-only service verification |
+| Manual recovery | `scripts/manual-deploy/` | Not the default CI/CD path |
+| Historic Pub/Sub PS script | `scripts/pubsub/provision-pubsub.ps1` | Plan-only; `-Apply` disabled |
 
-## Decisions and prerequisites before deployment
+The two Python infrastructure reconciliation scripts from an earlier draft
+have been removed so Terraform is the single provisioning authority.
 
-- **Evidence bucket:** The architecture says `visioniq-source-evidence-dev`; the earlier
-  GitLab YAML used `gbr-mts-wgh-hkt-ps04-t11`. Both exist. Set protected
-  GitLab CI variable `GCS_EVIDENCE_BUCKET` only after inspecting canonical evidence
-  and persisted `gs://` URIs. No data migration is included.
-- **DB credentials:** Provide protected `DB_CLOUD_USER`. Check three existing Secret Manager
-  values `visioniq-db-admin-password`, `visioniq-db-api-password`,
-  `visioniq-db-intelligence-password`; the migration job requires distinct passwords
-  and approved administrator account.
-- **IAM:** Validate TEAM_SA privilege scope, Pub/Sub Publisher on source topics,
-  `roles/run.invoker` on services for authenticated push, Pub/Sub service agent's
-  permissions to mint OIDC tokens and dead-letter messages, and scheduler identity's
-  permission to execute the two Cloud Run jobs.
-- **Runtime:** The current Cloud Run service CPU allocation and min-instances=0
-  must be reviewed before enabling persistent pickup/background workers.
-- **Secrets:** Additional ADO/Confluence/Claude values must be configured deliberately
-  before enabling corresponding optional features; they are not turned on by this PR.
-- **Security:** `semgrep-sast: allow_failure: true` comes from the earlier configuration
-  and should be reviewed against corporate security policy.
-- **GitLab template:** Verify `m3sacpc/m3sacpc-core` /templates/hackathon-ci.template.yml
-  and the runner's availability. GitHub cannot expand that template.
-- **Artifact hand-off:** The existing OAuth-based Kaniko config artifact contains a short-lived
-  access token; ensure protected runner artifacts and consider per-job keyless auth.
-- **Scheduler:** The `gcloud scheduler jobs create http` command cannot create a job paused.
-  The Scheduler script intentionally supports only read-only plan and verify modes.
-  Provision new jobs as paused through reviewed Terraform (`google_cloud_scheduler_job.paused = true`),
-  then activate schedules only after cloud acceptance testing and approval.
-- **Pipeline verification:** Run GitLab CI Lint, a feature-branch build, GCP secret/access audit,
-  Cloud Run smoke tests, Pub/Sub push tests, DB permissions checks, ingestion/indexing E2E,
-  then scoped ADO ticket acceptance.
+## Deployment gates
 
-## Local, read-only commands
+1. **Before merge:** GitLab CI Lint must expand the corporate include
+   `m3sacpc/m3sacpc-core` `/templates/hackathon-ci.template.yml`.
+2. **Before deployment:** Set protected `GCS_EVIDENCE_BUCKET` and `DB_CLOUD_USER`;
+   confirm DB user passwords, Secret Manager, team workload identity and IAM.
+3. **Before migration:** Backup Cloud SQL and approve the blocking migration job.
+   It uses guarded `python -m db.cloud_manage all`, not the local migration command.
+4. **After deployment:** Read-only metadata verification confirms all three
+   services and three Cloud Run job definitions. This is not a runtime health test.
+5. **Infrastructure:** Terraform remote state must be in a separately approved
+   locked GCS state bucket (`TF_STATE_BUCKET`). Plan and apply are **manual**.
+   Import any previously created subscriptions/IAM into the correct state first.
+6. **Scheduler:** Two jobs start paused; do not enable until ingest/index end-to-end
+   tests pass. Do not claim the diagram's third trigger without verifying its
+   actual implementation and destination.
+7. **Functional acceptance:** Test cloud SQL roles, GCS evidence, Vertex indexing,
+   Pub/Sub OIDC delivery and a scoped ADO ticket. Enable BRIEF/DEFECT/ADO writes
+   only through a separate approved deployment.
+
+## Security and operational considerations
+
+- The webhook Cloud Run service defaults to private/authenticated. Direct ADO
+  Service Hooks need an approved gateway compatible with authentication.
+- Initial Cloud Run deployment disables background event dispatch, BRIEF, DEFECT
+  and external ADO writes; workers need a separate CPU/min-instance design.
+- Review `semgrep-sast: allow_failure: true`, token-bearing CI artifacts,
+  pinned image provenance, IAM least privilege and rollback revision references.
+- GitLab's GCP runner must include Terraform for manual plan/apply. This feature
+  branch cannot verify the corporate runner or the included template.
+- Scheduled jobs are not executed by deploying their Cloud Run definitions.
+- Data migration between the two evidence buckets is NOT included.
+- The manual PowerShell deployment scripts use the team Artifact Registry by
+  default but remain opt-in fallback tools.
+
+## Offline checks
 
 ```powershell
 python scripts/cloud/validate_contracts.py
-python scripts/cloud/reconcile_infrastructure.py --mode plan
-python scripts/cloud/reconcile_scheduler.py --mode plan
+terraform -chdir=infra/visioniq fmt -check -recursive
+terraform -chdir=infra/visioniq init -backend=false -input=false
+terraform -chdir=infra/visioniq validate
 ```
 
-The infrastructure scripts use the checked-in `contracts/events/topology.json` as the
-single event naming source. Missing cloud resources do not imply code failure; never
-replace or recreate a resource simply because it is in a different registry or region.
+See `infra/visioniq/README.md` for remote-state setup, resource imports,
+IAM requirements, Terraform plan/apply, and safe Scheduler activation.
 
-## Explicitly not completed
-
-- Corporate GitLab pipeline execution or CI Lint.
-- Cloud SQL migration execution or verification against a real database.
-- Live Cloud Run deployment, Pub/Sub IAM bindings, Scheduler jobs, webhook gateway.
-- Full cloud integration testing, ADO comment posting, or draft fix PR creation.
+**Open items:** GitLab CI Lint, Terraform format/validate on actual tooling,
+cloud permissions, evidence bucket selection, a secure webhook gateway, runtime
+smoke tests, migration test, event delivery and full VisionIQ acceptance.
