@@ -35,6 +35,7 @@ param(
     [string]$Project = 'gbr-mts-wgh-hkt-dev',
     [string]$Region = 'europe-west3',
     [string]$RegistryRegion = 'europe-west1',
+    [string]$RuntimeServiceAccount = 'sa-ps04-t11',
     [string]$Repository = 'docker-ps04-t11',
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[a-f0-9]{40}$')]
@@ -107,7 +108,7 @@ if ($AdoReadPatVersion -gt 0 -and -not $AdoOrgUrl) {
 }
 $sweep = $pickup -and $AdoOrgUrl -and $AdoReadPatVersion -gt 0
 
-$runtime = "visioniq-runtime@$Project.iam.gserviceaccount.com"
+$runtime = "$RuntimeServiceAccount@$Project.iam.gserviceaccount.com"
 $registry = "$($RegistryRegion)-docker.pkg.dev/$Project/$Repository"
 $policyPath = '/secrets/pickup/policy.json'
 $labels = 'team=ps04-t11,wl-team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq'
