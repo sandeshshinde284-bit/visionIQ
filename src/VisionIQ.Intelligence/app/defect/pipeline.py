@@ -22,6 +22,7 @@ from __future__ import annotations
 import difflib
 import json
 import math
+import posixpath
 import re
 import shutil
 import time
@@ -244,6 +245,84 @@ class FixSettings:
 class FixOutcome:
     result: FixResult
     ledger: RunLedger
+
+
+# Local imports of JavaScript, TypeScript and Vue files: `import x from "./a"`, `import "./a"`,
+# `require("./a")`, `import("./a")`. Only relative paths and the "@/" source alias are local; any
+# other specifier is a package and is never followed.
+SCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue")
+_IMPORT_SPEC = re.compile(
+    r"""(?:\bimport\s+(?:type\s+)?(?:[\w*{}\s,$]+?\s+from\s+)?|\brequire\s*\(\s*|\bimport\s*\(\s*)"""
+    r"""["']([^"'\n]+)["']"""
+)
+_IMPORT_NAMES = re.compile(r"""\bimport\s+(?:type\s+)?([\w*{}\s,$]+?)\s+from\s+["'](\.{1,2}/|@/)""")
+MAX_TEST_DATA = 2
+MAX_IMPORTED_NAMES = 12
+
+
+def local_imports(path: str, content: str, files: Collection[str]) -> list[str]:
+    """The repository files a JavaScript, TypeScript or Vue file imports, in import order."""
+    if not path.endswith(SCRIPT_SUFFIXES):
+        return []
+    folder = posixpath.dirname(path)
+    found: list[str] = []
+    for spec in _IMPORT_SPEC.findall(content):
+        if spec.startswith(("./", "../")):
+            base = posixpath.normpath(posixpath.join(folder, spec))
+        elif spec.startswith("@/"):
+            # "@/" is the src folder of the nearest package (the folder holding package.json).
+            package = folder
+            while package and f"{package}/package.json" not in files:
+                package = posixpath.dirname(package)
+            base = posixpath.join(posixpath.join(package, "src") if package else "src", spec[2:])
+        else:
+            continue
+        candidates = [base]
+        candidates += [base + suffix for suffix in SCRIPT_SUFFIXES]
+        candidates += [f"{base}/index{suffix}" for suffix in SCRIPT_SUFFIXES]
+        hit = next((c for c in candidates if c in files), None)
+        if hit and hit != path and hit not in found:
+            found.append(hit)
+    return found
+
+
+def imported_names(content: str) -> list[str]:
+    """Names a file imports from local modules (``import { a, b as c } from "./x"`` -> a, b)."""
+    names: list[str] = []
+    for clause, _ in _IMPORT_NAMES.findall(content):
+        for part in re.split(r"[{},]", clause):
+            name = part.strip().split(" as ", 1)[0].strip().removeprefix("type ").strip()
+            valid = re.fullmatch(r"[A-Za-z_$][\w$]*", name) is not None
+            if valid and name not in names:
+                names.append(name)
+    return names
+
+
+def _kind(path: str) -> str:
+    """What a file is written in, for choosing example tests of the same kind."""
+    suffix = PurePosixPath(path).suffix.lower()
+    if suffix in SCRIPT_SUFFIXES:
+        return "script"
+    return suffix or path
+
+
+def order_tests(code: Sequence[str], tests: Sequence[str]) -> list[str]:
+    """Existing tests, the most useful first: same subject, then the same kind as the code shown
+    (a .spec.ts for a Vue component, a .cs for C#), nearest folder first. Another kind comes last:
+    its conventions would mislead the model."""
+    subjects = {regression_rules.stem(path) for path in code}
+    kinds = {_kind(path) for path in code}
+
+    def rank(test: str) -> tuple[int, int, int, str]:
+        near = max((_shared_folders(test, path) for path in code), default=0)
+        return (
+            0 if regression_rules.stem(test) in subjects else 1,
+            0 if _kind(test) in kinds else 1,
+            -near,
+            test,
+        )
+
+    return sorted(tests, key=rank)
 
 
 def _shared_folders(first: str, second: str) -> int:
@@ -538,7 +617,33 @@ class _FixRun:
                     resolved_paths=chosen,
                 )
         self.scope_files = list(chosen)
-        return self._read([*chosen, *self._referrers(chosen, eligible)])
+        related = self._referrers(chosen, eligible)
+        return self._read([*chosen, *related, *self._imports([*chosen, *related], eligible)])
+
+    def _imports(self, shown: Sequence[str], eligible: Sequence[str]) -> list[str]:
+        """The local files the shown code imports: the store a screen reads, the service it calls.
+
+        Followed for JavaScript, TypeScript and Vue, where an import names a file; packages are
+        never followed. The same path rules apply, within max_context_files.
+        """
+        repo, workspace = self._ready()
+        room = repo.limits.max_context_files - len(shown)
+        if room <= 0:
+            return []
+        allowed = set(eligible)
+        added: list[str] = []
+        for path in shown:
+            content = workspace.read(path, "base", limit=repo.limits.max_file_bytes) or ""
+            for target in local_imports(path, content, allowed):
+                if target not in shown and target not in added:
+                    added.append(target)
+                if len(added) >= room:
+                    break
+            if len(added) >= room:
+                break
+        if added:
+            _log().info("fix_imported_files_added", resolved_paths=added)
+        return added
 
     def _referrers(self, chosen: Sequence[str], eligible: Sequence[str]) -> list[str]:
         """Files that use a chosen file by name: the screen that renders a component, the class
@@ -588,10 +693,45 @@ class _FixRun:
         return code
 
     def _test_examples(self, code: Sequence[CodeFile], tests: Sequence[str]) -> list[CodeFile]:
-        """Existing tests of the same subject (or any test), so the model sees the conventions."""
-        subjects = {regression_rules.stem(file.path) for file in code}
-        related = [path for path in tests if regression_rules.stem(path) in subjects]
-        return self._read((related or list(tests))[:2])
+        """The two most useful existing tests, so the model sees this project's conventions."""
+        ordered = order_tests([file.path for file in code], tests)
+        kinds = {_kind(file.path) for file in code}
+        same_kind = [path for path in ordered if _kind(path) in kinds]
+        return self._read((same_kind or ordered)[:2])
+
+    def _test_data(self, code: Sequence[CodeFile], shown: Collection[str]) -> list[CodeFile]:
+        """The project's own mock or test data for what the shown code imports (test_data_paths):
+        files that mention an imported name, such as the API call a screen makes."""
+        repo, workspace = self._ready()
+        if not repo.test_data_paths:
+            return []
+        names: list[str] = []
+        for file in code:
+            names += [n for n in imported_names(file.content) if n not in names]
+
+        def nearest(hit: str) -> tuple[int, str]:
+            return (-max((_shared_folders(hit, file.path) for file in code), default=0), hit)
+
+        found: list[str] = []
+        for name in names[:MAX_IMPORTED_NAMES]:
+            if len(name) < MIN_REFERENCE_NAME or name.lower() in GENERIC_NAMES:
+                continue
+            hits = sorted(
+                (
+                    hit
+                    for hit in workspace.referrers(name)
+                    if matches(hit, repo.test_data_paths)
+                    and is_safe_path(hit)
+                    and not matches(hit, repo.secret_paths)
+                    and hit not in shown
+                    and hit not in found
+                ),
+                key=nearest,
+            )
+            found += hits[: MAX_TEST_DATA - len(found)]
+            if len(found) >= MAX_TEST_DATA:
+                break
+        return self._read(found)
 
     def _ready(self) -> tuple[RepositoryPolicy, Workspace]:
         assert self.repo is not None and self.workspace is not None
@@ -805,14 +945,24 @@ class _FixRun:
     ) -> TestProposal | None:
         """A test that is red on the baseline for the predicted reason, or None with the reason."""
         repo, _ = self._ready()
-        tests = [p for p in files if is_safe_path(p) and matches(p, repo.test_file_patterns)]
+        tests = order_tests(
+            [file.path for file in code],
+            [p for p in files if is_safe_path(p) and matches(p, repo.test_file_patterns)],
+        )
         facts = (
             f"Add the new test file under: {', '.join(repo.new_test_paths)}.",
             f"Test files in this repository match: {', '.join(repo.test_file_patterns)}.",
             f"A test file is run with: {' '.join(repo.recipes['test_file'])}",
             "Existing test files: " + (", ".join(tests[:MAX_LISTED_TESTS]) or "none"),
         )
-        context_code = [*code, *self._test_examples(code, tests)]
+        examples = self._test_examples(code, tests)
+        test_data = self._test_data(code, {file.path for file in [*code, *examples]})
+        context_code = [*code, *examples, *test_data]
+        _log().info(
+            "fix_test_context",
+            example_tests=[file.path for file in examples],
+            test_data=[file.path for file in test_data],
+        )
         feedback: list[str] = []
         last: CheckVerdict | None = None
         for attempt in range(1, repo.limits.max_test_attempts + 1):
