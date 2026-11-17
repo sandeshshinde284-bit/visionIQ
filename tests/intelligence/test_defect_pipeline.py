@@ -653,6 +653,7 @@ def test_a_run_logs_each_stage_with_ids_and_codes(tmp_path: Path) -> None:
         "fix_test_context",
         "fix_manifest_written",
         "fix_reproduction_attempt",
+        "fix_existing_tests_shown",  # the old test, shown before any fix is written
         # Iteration 1: passes the new test, breaks the old one.
         "fix_patch_checked",
         "fix_candidate_committed",
@@ -828,3 +829,31 @@ def test_why_a_test_was_refused_is_logged(tmp_path: Path) -> None:
         declined["detail"]
         == "The test file is not in a place where this repository keeps its tests."
     )
+
+
+# ---- The fix step sees the existing tests of the code before it writes anything ------------------
+
+
+def test_the_existing_tests_of_the_code_are_shown_before_the_first_fix(tmp_path: Path) -> None:
+    # Seen live: a fix broke the screen's own test three times over, because the model never saw
+    # it; it was told only the test's name after each failed attempt.
+    model = claude(TEST_ANSWER, SAFE_FIX)
+
+    result = run(tmp_path, gateway_for(model), honest)
+
+    first_fix = model.tasks[1].user_prompt
+    assert f"file:{OLD_TEST}" in first_fix  # the existing test of retry_policy.py, read only
+    assert "must keep them passing" in first_fix
+    assert result.verdict == "VERIFIED"
+
+
+def test_a_test_the_fix_broke_is_shown_to_the_next_attempt(tmp_path: Path, monkeypatch) -> None:
+    # The broken test reaches the next attempt even when it was not among the tests shown first.
+    monkeypatch.setattr(pipeline_module._FixRun, "_existing_tests", lambda *_: [])
+    model = claude(TEST_ANSWER, UNSAFE_FIX, SAFE_FIX)
+
+    result = run(tmp_path, gateway_for(model), honest)
+
+    assert f"file:{OLD_TEST}" not in model.tasks[1].user_prompt
+    assert f"file:{OLD_TEST}" in model.tasks[2].user_prompt  # shown after it broke
+    assert result.verdict == "VERIFIED"
