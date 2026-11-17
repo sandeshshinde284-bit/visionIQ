@@ -22,7 +22,8 @@ variables:
   DB_HOST: "10.102.16.8"
   DB_PORT: "5432"
   DB_NAME: "visioniq_dev"
-  GCS_EVIDENCE_BUCKET: "gbr-mts-wgh-hkt-ps04-t11"
+  # Set GCS_EVIDENCE_BUCKET as a protected GitLab CI variable after verifying the canonical evidence bucket.
+  # Do not silently choose between the legacy and team-owned buckets.
 
 stages:
   - security
@@ -31,6 +32,7 @@ stages:
   - test
   - migrate
   - deploy
+  - verify
 
 # ------------------------------------------------------------------------------
 # Security Overrides: Prevent informational warnings from blocking automated deploy
@@ -70,8 +72,24 @@ prepare-gcp-session:
       - gcp-session/docker-config.json
     reports:
       dotenv: gcp-session/gcp.env
-    expire_in: 30 mins
+    expire_in: 24 hours
   rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# -------------------------------------------------------------------------------
+# Static cloud checks (do not require GCP credentials; run in merge requests too)
+# -------------------------------------------------------------------------------
+cloud-static-checks:
+  stage: quality
+  image: python:3.12-slim
+  tags:
+    - kazan-S
+  before_script: []
+  script:
+    - python -m py_compile scripts/cloud/reconcile_infrastructure.py scripts/cloud/reconcile_scheduler.py
+    - python scripts/cloud/validate_contracts.py
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
 
 # ------------------------------------------------------------------------------
@@ -178,13 +196,18 @@ deploy-and-run-db-migrate:
   needs:
     - job: prepare-gcp-session
     - job: build-db-migrate
+  # Migration is a blocking manual gate; no application rollout until approved.
+  # Do not execute migrations automatically on each main push.
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: false
   before_script:
     - !reference [.bootstrap_template, before_script]
     - command -v python3 >/dev/null || ln -s /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 /usr/local/bin/python3
     - !reference [.gcp_base, before_script]
   script:
+    - ': "${DB_CLOUD_USER:?Set approved DB_CLOUD_USER CI variable (do not use the runtime DB user)}"'
     - echo "Deploying updated visioniq-db-migrate Cloud Run Job under ${TEAM_SA}..."
     - gcloud run jobs deploy "visioniq-db-migrate"
         --image "${MIGRATE_IMAGE}"
@@ -193,9 +216,13 @@ deploy-and-run-db-migrate:
         --service-account "${TEAM_SA}"
         --vpc-connector "${VPC_CONNECTOR}"
         --vpc-egress "private-ranges-only"
+        --command "python"
+        --args "-m,db.cloud_manage,all,--instance,${GCP_PROJECT}:${SERVICE_REGION}:visioniqdev"
+        --max-retries 0
+        --task-timeout 900s
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
-        --set-env-vars "DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_SSL_MODE=require"
-        --set-secrets "DB_PASSWORD=visioniq-db-admin-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
+        --set-env-vars "DB_TARGET=cloud,DB_CLOUD_INSTANCE=${GCP_PROJECT}:${SERVICE_REGION}:visioniqdev,GCP_PROJECT_ID=${GCP_PROJECT},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_CLOUD_NAME=${DB_NAME},DB_CLOUD_USER=${DB_CLOUD_USER},DB_API_USER=visioniq_api,DB_INTELLIGENCE_USER=visioniq_intelligence,VISIONIQ_CLOUD_RUN_MIGRATIONS=approved"
+        --set-secrets "DB_CLOUD_PASSWORD=visioniq-db-admin-password:latest,DB_CLOUD_API_PASSWORD=visioniq-db-api-password:latest,DB_CLOUD_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
     - echo "Executing database migrations with --wait (pipeline halts if migrations fail)..."
     - gcloud run jobs execute "visioniq-db-migrate" --region "${SERVICE_REGION}" --project "${GCP_PROJECT}" --wait
 
@@ -216,6 +243,7 @@ deploy-visioniq-api:
     - command -v python3 >/dev/null || ln -s /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 /usr/local/bin/python3
     - !reference [.gcp_base, before_script]
   script:
+    - ': "${GCS_EVIDENCE_BUCKET:?Set the approved evidence bucket in GitLab CI variables}"'
     - echo "Deploying visioniq-api to Cloud Run under ${TEAM_SA} on port 5100..."
     - gcloud run deploy "visioniq-api"
         --image "${API_IMAGE}"
@@ -231,8 +259,8 @@ deploy-visioniq-api:
         --memory "1Gi"
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
-        --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=true,PICKUP_POLICY_FILE=/app/config/pickup-policy.json,ADO_ORG_URL=https://dev.azure.com/WLMTS"
-        --set-secrets "/app/config/pickup-policy.json=visioniq-pickup-policy:latest,PICKUP_WEBHOOK_SECRET=visioniq-pickup-webhook-secret:latest,ADO_COMMENT_PAT=visioniq-ado-comment-pat:latest,ADO_PR_PAT=visioniq-ado-pr-pat:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,DB_API_PASSWORD=visioniq-db-api-password:latest,DB_PASSWORD=visioniq-db-api-password:latest"
+        --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=false,BRIEF_PUBLISH_MODE=off,FIX_PR_MODE=off,PICKUP_SWEEP_INTERVAL_MINUTES=0"
+        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest"
     - gcloud run services describe "visioniq-api" --region "${SERVICE_REGION}" --format='value(status.url)'
 
 deploy-visioniq-intelligence:
@@ -249,6 +277,7 @@ deploy-visioniq-intelligence:
     - command -v python3 >/dev/null || ln -s /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 /usr/local/bin/python3
     - !reference [.gcp_base, before_script]
   script:
+    - ': "${GCS_EVIDENCE_BUCKET:?Set the approved evidence bucket in GitLab CI variables}"'
     - echo "Deploying visioniq-intelligence to Cloud Run under ${TEAM_SA} on port 8000..."
     - gcloud run deploy "visioniq-intelligence"
         --image "${INTELLIGENCE_IMAGE}"
@@ -264,8 +293,8 @@ deploy-visioniq-intelligence:
         --memory "2Gi"
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
-        --set-env-vars "APP_ENV=production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_INTELLIGENCE_USER=visioniq_intelligence,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=true,CLAUDE_ROUTE=off,LLM_MODE=live,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},EMBEDDING_PROVIDER=vertex,VERTEX_LOCATION=${SERVICE_REGION},GCP_PROJECT_ID=${GCP_PROJECT}"
-        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest,DB_PASSWORD=visioniq-db-intelligence-password:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest,ANTHROPIC_API_KEY=visioniq-anthropic-api-key:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
+        --set-env-vars "APP_ENV=production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_INTELLIGENCE_USER=visioniq_intelligence,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=false,BRIEF_PIPELINE_ENABLED=false,DEFECT_PIPELINE_ENABLED=false,CLAUDE_ROUTE=off,LLM_MODE=live,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},EMBEDDING_PROVIDER=vertex,EMBEDDING_MODEL=gemini-embedding-001,EMBEDDING_DIMENSION=768,VERTEX_LOCATION=${SERVICE_REGION},GCP_PROJECT_ID=${GCP_PROJECT},GEMINI_MODEL=gemini-2.5-flash"
+        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
     - gcloud run services describe "visioniq-intelligence" --region "${SERVICE_REGION}" --format='value(status.url)'
 
 deploy-visioniq-ingestor-webhooks:
@@ -282,6 +311,7 @@ deploy-visioniq-ingestor-webhooks:
     - command -v python3 >/dev/null || ln -s /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 /usr/local/bin/python3
     - !reference [.gcp_base, before_script]
   script:
+    - ': "${GCS_EVIDENCE_BUCKET:?Set the approved evidence bucket in GitLab CI variables}"'
     - echo "Deploying visioniq-ingestor-webhooks to Cloud Run under ${TEAM_SA} on port 8080..."
     - gcloud run deploy "visioniq-ingestor-webhooks"
         --image "${INGESTOR_IMAGE}"
@@ -289,8 +319,8 @@ deploy-visioniq-ingestor-webhooks:
         --project "${GCP_PROJECT}"
         --service-account "${TEAM_SA}"
         --port 8080
-        --ingress "all"
-        --allow-unauthenticated
+        --ingress "internal"
+        --no-allow-unauthenticated
         --vpc-connector "${VPC_CONNECTOR}"
         --vpc-egress "private-ranges-only"
         --min-instances 0
@@ -299,7 +329,7 @@ deploy-visioniq-ingestor-webhooks:
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "INGESTION_OUTPUT_MODE=canonical,CHECKPOINT_STORE=postgres,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,ADO_ORG_URL=https://dev.azure.com/WLMTS,ADO_PROJECTS=Genoa Kiosk,ADO_WEBHOOK_USERNAME=visioniq-webhook"
-        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,DB_PASSWORD=visioniq-db-api-password:latest,ADO_WEBHOOK_SECRET=visioniq-ado-webhook-secret:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
+        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,DB_PASSWORD=visioniq-db-api-password:latest,ADO_WEBHOOK_SECRET=visioniq-ado-webhook-secret:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
     - gcloud run services describe "visioniq-ingestor-webhooks" --region "${SERVICE_REGION}" --format='value(status.url)'
 
 deploy-visioniq-ingestion-job:
@@ -316,6 +346,7 @@ deploy-visioniq-ingestion-job:
     - command -v python3 >/dev/null || ln -s /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 /usr/local/bin/python3
     - !reference [.gcp_base, before_script]
   script:
+    - ': "${GCS_EVIDENCE_BUCKET:?Set the approved evidence bucket in GitLab CI variables}"'
     - echo "Deploying visioniq-ingestion-job Cloud Run Job under ${TEAM_SA}..."
     - gcloud run jobs deploy "visioniq-ingestion-job"
         --image "${INGESTOR_IMAGE}"
@@ -328,7 +359,7 @@ deploy-visioniq-ingestion-job:
         --args "VisionIQ.Ingestor.Cli.dll,sync,--source,all"
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "INGESTION_OUTPUT_MODE=canonical,CHECKPOINT_STORE=postgres,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,ADO_ORG_URL=https://dev.azure.com/WLMTS,ADO_PROJECTS=Genoa Kiosk"
-        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,DB_PASSWORD=visioniq-db-api-password:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
+        --set-secrets "DB_API_PASSWORD=visioniq-db-api-password:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest"
 
 deploy-visioniq-indexing-job:
   stage: deploy
@@ -344,6 +375,7 @@ deploy-visioniq-indexing-job:
     - command -v python3 >/dev/null || ln -s /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 /usr/local/bin/python3
     - !reference [.gcp_base, before_script]
   script:
+    - ': "${GCS_EVIDENCE_BUCKET:?Set the approved evidence bucket in GitLab CI variables}"'
     - echo "Deploying visioniq-indexing-job Cloud Run Job under ${TEAM_SA}..."
     - gcloud run jobs deploy "visioniq-indexing-job"
         --image "${INTELLIGENCE_IMAGE}"
@@ -356,4 +388,56 @@ deploy-visioniq-indexing-job:
         --args "-m,app.knowledge.index_cli"
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
         --set-env-vars "APP_ENV=production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_INTELLIGENCE_USER=visioniq_intelligence,DB_SSL_MODE=require,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET},EMBEDDING_PROVIDER=vertex,VERTEX_LOCATION=${SERVICE_REGION},GCP_PROJECT_ID=${GCP_PROJECT}"
-        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest,DB_PASSWORD=visioniq-db-intelligence-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,ADO_READ_PAT=visioniq-ado-read-pat:latest,ANTHROPIC_API_KEY=visioniq-anthropic-api-key:latest"
+        --set-secrets "DB_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
+
+# ------------------------------------------------------------------------------
+# Verification / approved infrastructure reconciliation
+# ------------------------------------------------------------------------------
+cloud-deployment-readiness:
+  stage: verify
+  extends: .gcp_base
+  needs:
+    - job: deploy-visioniq-api
+    - job: deploy-visioniq-intelligence
+    - job: deploy-visioniq-ingestor-webhooks
+    - job: deploy-visioniq-ingestion-job
+    - job: deploy-visioniq-indexing-job
+  before_script:
+    - !reference [.bootstrap_template, before_script]
+    - !reference [.gcp_base, before_script]
+  script:
+    - bash scripts/cloud/verify-cloud-run.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+cloud-infrastructure-plan:
+  stage: verify
+  extends: .gcp_base
+  needs:
+    - job: cloud-deployment-readiness
+  before_script:
+    - !reference [.bootstrap_template, before_script]
+    - !reference [.gcp_base, before_script]
+  script:
+    - python3 scripts/cloud/reconcile_infrastructure.py --mode plan
+    - python3 scripts/cloud/reconcile_scheduler.py --mode plan
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# Optional, explicitly approved after reviewing the above plan.
+# Does not resume schedules or enable BRIEF/DEFECT/ADO writes.
+cloud-infrastructure-apply:
+  stage: verify
+  extends: .gcp_base
+  needs:
+    - job: cloud-deployment-readiness
+  before_script:
+    - !reference [.bootstrap_template, before_script]
+    - !reference [.gcp_base, before_script]
+  script:
+    - python3 scripts/cloud/reconcile_infrastructure.py --mode apply
+    - python3 scripts/cloud/reconcile_scheduler.py --mode apply
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
