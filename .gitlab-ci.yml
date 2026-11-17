@@ -196,7 +196,7 @@ deploy-and-run-db-migrate:
         --command "python"
         --args "-m,db.cloud_manage,all,--instance,${GCP_PROJECT}:${SERVICE_REGION}:visioniqdev"
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
-        --set-env-vars "DB_TARGET=cloud,DB_CLOUD_INSTANCE=${GCP_PROJECT}:${SERVICE_REGION}:visioniqdev,GCP_PROJECT_ID=${GCP_PROJECT},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_CLOUD_NAME=${DB_NAME},DB_CLOUD_USER=${DB_CLOUD_USER},DB_API_USER=visioniq_api,DB_INTELLIGENCE_USER=visioniq_intelligence,DB_PORT=5432"
+        --set-env-vars "DB_TARGET=cloud,DB_CLOUD_INSTANCE=${GCP_PROJECT}:${SERVICE_REGION}:visioniqdev,GCP_PROJECT_ID=${GCP_PROJECT},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_CLOUD_NAME=${DB_NAME},DB_CLOUD_USER=${DB_CLOUD_USER},DB_API_USER=visioniq_api,DB_INTELLIGENCE_USER=visioniq_intelligence,VISIONIQ_CLOUD_RUN_MIGRATIONS=approved"
         --set-secrets "DB_CLOUD_PASSWORD=visioniq-db-admin-password:latest,DB_CLOUD_API_PASSWORD=visioniq-db-api-password:latest,DB_CLOUD_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
     - echo "Executing database migrations with --wait (pipeline halts if migrations fail)..."
     - gcloud run jobs execute "visioniq-db-migrate" --region "${SERVICE_REGION}" --project "${GCP_PROJECT}" --wait
