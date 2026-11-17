@@ -33,15 +33,6 @@ def command(*args: str, allow_missing: bool = False) -> dict | None:
     return json.loads(result.stdout or "{}")
 
 
-def apply(*args: str) -> None:
-    result = subprocess.run(
-        ["gcloud", *args, f"--project={PROJECT}", "--quiet"],
-        text=True, capture_output=True, check=False,
-    )
-    if result.returncode:
-        raise RuntimeError(f"gcloud {' '.join(args)}: {result.stderr.strip() or result.stdout.strip()}")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("plan", "verify"), default="plan")
