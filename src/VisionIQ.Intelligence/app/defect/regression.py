@@ -39,6 +39,18 @@ def stem(path: str) -> str:
     return _TEST_AFFIXES.sub("", name).lower()
 
 
+# What a file is written in. A test can only exercise code of its own kind: a change to Vue or
+# TypeScript cannot break a C# test, and the reverse.
+SCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue")
+_CODE_KINDS = frozenset({"script", ".cs", ".py", ".java", ".kt", ".go", ".rb", ".php", ".swift"})
+
+
+def kind(path: str) -> str:
+    """The kind of a file: "script" for JavaScript, TypeScript and Vue, else its suffix."""
+    suffix = PurePosixPath(path).suffix.lower()
+    return "script" if suffix in SCRIPT_SUFFIXES else suffix or path
+
+
 def discover(
     fixes: Sequence[HistoricalFix],
     baseline_files: Collection[str],
@@ -50,6 +62,16 @@ def discover(
     """Candidates for replay, best evidence first, at most the repository's limit (or all of
     them with ``limit=False``, for a caller that reports how many it left out)."""
     found: dict[str, RegressionCandidate] = {}
+    # Seen live: a Vue fix was "regression-checked" with C# tests that past fixes had touched
+    # together with the same file; they could not exercise the change, failed to restore, and
+    # took the place of the component's own test. When every changed file is code, only tests
+    # of the same kinds are candidates; a changed data or configuration file (JSON, XML...) may
+    # be read by tests of any kind, so then nothing is filtered.
+    kinds = {kind(path) for path in changed_paths}
+    same_kind_only = bool(kinds) and kinds <= _CODE_KINDS
+
+    def relevant(path: str) -> bool:
+        return not same_kind_only or kind(path) in kinds
 
     def add(candidate: RegressionCandidate) -> None:
         current = found.get(candidate.test_path)
@@ -60,6 +82,8 @@ def discover(
         for raw in fix.paths:
             path = raw.lstrip("/")
             if path in exclude or not matches(path, policy.test_file_patterns):
+                continue
+            if not relevant(path):
                 continue
             # A test changed by a fix whose ticket link was itself inferred is inferred too.
             explicit = fix.link == "explicit"
@@ -78,7 +102,7 @@ def discover(
     for path in sorted(baseline_files):
         if path in exclude or not matches(path, policy.test_file_patterns):
             continue
-        if stem(path) in subjects:
+        if stem(path) in subjects and relevant(path):
             add(
                 RegressionCandidate(
                     path, "inferred", "test_name_matches_changed_file", None, None, True
