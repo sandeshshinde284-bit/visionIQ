@@ -193,9 +193,11 @@ deploy-and-run-db-migrate:
         --service-account "${TEAM_SA}"
         --vpc-connector "${VPC_CONNECTOR}"
         --vpc-egress "private-ranges-only"
+        --command "python"
+        --args "-m,db.cloud_manage,all,--instance,${GCP_PROJECT}:${SERVICE_REGION}:visioniqdev"
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
-        --set-env-vars "DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_SSL_MODE=require"
-        --set-secrets "DB_PASSWORD=visioniq-db-admin-password:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest"
+        --set-env-vars "DB_TARGET=cloud,DB_CLOUD_INSTANCE=${GCP_PROJECT}:${SERVICE_REGION}:visioniqdev,GCP_PROJECT_ID=${GCP_PROJECT},DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_CLOUD_NAME=${DB_NAME},DB_CLOUD_USER=${DB_CLOUD_USER},DB_API_USER=visioniq_api,DB_INTELLIGENCE_USER=visioniq_intelligence,VISIONIQ_CLOUD_RUN_MIGRATIONS=approved"
+        --set-secrets "DB_CLOUD_PASSWORD=visioniq-db-admin-password:latest,DB_CLOUD_API_PASSWORD=visioniq-db-api-password:latest,DB_CLOUD_INTELLIGENCE_PASSWORD=visioniq-db-intelligence-password:latest"
     - echo "Executing database migrations with --wait (pipeline halts if migrations fail)..."
     - gcloud run jobs execute "visioniq-db-migrate" --region "${SERVICE_REGION}" --project "${GCP_PROJECT}" --wait
 
@@ -231,7 +233,7 @@ deploy-visioniq-api:
         --memory "1Gi"
         --cpu 1
         --labels "wl-team=ps04-t11,team=ps04-t11,pocid=ps04-t11,event=hackathon-2026,env=sandbox,app=visioniq"
-        --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=true,PICKUP_POLICY_FILE=/app/config/pickup-policy.json,ADO_ORG_URL=https://dev.azure.com/WLMTS"
+        --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,DB_HOST=${DB_HOST},DB_PORT=${DB_PORT},DB_NAME=${DB_NAME},DB_API_USER=visioniq_api,DB_SSL_MODE=require,TENANT_ID=visioniq-dev,PUBSUB_PROJECT_ID=${GCP_PROJECT},EVENTS_DISPATCH_ENABLED=true,PICKUP_POLICY_FILE=/app/config/pickup-policy.json,ADO_ORG_URL=https://dev.azure.com/WLMTS,GCS_EVIDENCE_BUCKET=${GCS_EVIDENCE_BUCKET}"
         --set-secrets "/app/config/pickup-policy.json=visioniq-pickup-policy:latest,PICKUP_WEBHOOK_SECRET=visioniq-pickup-webhook-secret:latest,ADO_COMMENT_PAT=visioniq-ado-comment-pat:latest,ADO_PR_PAT=visioniq-ado-pr-pat:latest,LOG_PSEUDONYM_KEY=visioniq-log-pseudonym-key:latest,DB_API_PASSWORD=visioniq-db-api-password:latest,DB_PASSWORD=visioniq-db-api-password:latest"
     - gcloud run services describe "visioniq-api" --region "${SERVICE_REGION}" --format='value(status.url)'
 
