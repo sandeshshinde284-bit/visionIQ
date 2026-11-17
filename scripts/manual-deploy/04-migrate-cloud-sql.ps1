@@ -19,6 +19,7 @@ param(
     [string]$Project = 'gbr-mts-wgh-hkt-dev',
     [string]$Region = 'europe-west3',
     [string]$RegistryRegion = 'europe-west1',
+    [string]$RuntimeServiceAccount = 'sa-ps04-t11',
     [string]$Repository = 'docker-ps04-t11',
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[a-f0-9]{40}$')]
@@ -46,7 +47,7 @@ if ($Project -cne 'gbr-mts-wgh-hkt-dev' -or $Region -cne 'europe-west3') {
     throw 'Cloud SQL migration is restricted to the approved development project/region.'
 }
 
-$runtime = "visioniq-runtime@$Project.iam.gserviceaccount.com"
+$runtime = "$RuntimeServiceAccount@$Project.iam.gserviceaccount.com"
 $image = "$($RegistryRegion)-docker.pkg.dev/$Project/$Repository/visioniq-db-migrate:$Commit"
 $connection = "$($Project):$($Region):$Instance"
 $environment = @(
