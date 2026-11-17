@@ -40,6 +40,7 @@ required_secrets=(
   visioniq-db-intelligence-password
   visioniq-ado-read-pat
   visioniq-ado-webhook-secret
+  visioniq-log-pseudonym-key
 )
 optional_secrets=(
   visioniq-ado-comment-pat
@@ -47,7 +48,6 @@ optional_secrets=(
   visioniq-pickup-policy
   visioniq-pickup-webhook-secret
   visioniq-anthropic-api-key
-  visioniq-log-pseudonym-key
 )
 missing=0
 for secret in "${required_secrets[@]}" "${optional_secrets[@]}"; do
@@ -62,8 +62,11 @@ for secret in "${required_secrets[@]}" "${optional_secrets[@]}"; do
     continue
   fi
   enabled="$(gcloud secrets versions list "$secret" --project="$GCP_PROJECT" \
-    --filter='state=ENABLED' --limit=1 --format='value(name)')" ||
-    { echo "FAIL: cannot inspect versions for $secret" >&2; exit 1; }
+    --filter='state=ENABLED' --limit=1 --format='value(name)')" || {
+    echo "Cannot inspect enabled versions: $secret (required=$required)" >&2
+    if (( required == 1 )); then missing=1; fi
+    continue
+  }
   if [[ -z "$enabled" ]]; then
     echo "MISSING enabled version: $secret (required=$required)" >&2
     if (( required == 1 )); then missing=1; fi
