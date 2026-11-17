@@ -18,7 +18,8 @@
 param(
     [string]$Project = 'gbr-mts-wgh-hkt-dev',
     [string]$Region = 'europe-west3',
-    [string]$Repository = 'team-visioniq-docker-dev',
+    [string]$RegistryRegion = 'europe-west1',
+    [string]$Repository = 'docker-ps04-t11',
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[a-f0-9]{40}$')]
     [string]$Commit,
@@ -46,7 +47,7 @@ if ($Project -cne 'gbr-mts-wgh-hkt-dev' -or $Region -cne 'europe-west3') {
 }
 
 $runtime = "visioniq-runtime@$Project.iam.gserviceaccount.com"
-$image = "$($Region)-docker.pkg.dev/$Project/$Repository/visioniq-db-migrate:$Commit"
+$image = "$($RegistryRegion)-docker.pkg.dev/$Project/$Repository/visioniq-db-migrate:$Commit"
 $connection = "$($Project):$($Region):$Instance"
 $environment = @(
     'DB_TARGET=cloud', "DB_CLOUD_INSTANCE=$connection", "GCP_PROJECT_ID=$Project",
