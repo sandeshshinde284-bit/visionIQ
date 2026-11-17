@@ -3,9 +3,9 @@
 This release is separated from LRN-01–07. Tracking: GitHub issue #10; original merged feature PR #12. Automation is deferred to issue #11.
 
 > **Legacy recovery runbook (FND-04):** Normal deployments now use the GitLab pipeline.
-> For current Pub/Sub/Scheduler infrastructure and approvals, see
-> `infra/visioniq/README.md`. Do not follow old manual commands to provision
-> subscriptions, change IAM or enable Scheduler. This historical runbook is kept
+> For Pub/Sub, use the existing `scripts/pubsub/provision-pubsub.ps1`
+> in plan mode and review changes before `-Apply`. Scheduler provisioning
+> remains a separate cloud configuration task. This historical runbook is kept
 > for recovery; it does not cover the third webhook service or two scheduled jobs.
 
 ## Target environment
