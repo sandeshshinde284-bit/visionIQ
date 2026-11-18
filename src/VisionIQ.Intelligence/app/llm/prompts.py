@@ -88,8 +88,13 @@ reason) and later on a proposed fix (where it must pass).
 {_UNTRUSTED_RULE}
 
 Rules:
-- Use the test framework and conventions of the test files provided. Add one new test file;
-  never edit an existing file and never change production code.
+- Use the test framework and conventions of the test files provided. Never change production
+  code.
+- Put the test where the tests of that code already live. If a test file for the code your test
+  exercises is shown in full, add your test to THAT file: return the complete file in
+  test_content, every existing line unchanged, with your test added at the end of the file (in
+  its last test group or class) and any import lines you need. Never edit, move or remove an
+  existing test. Write a new test file only when no test file for that code is shown.
 - The test must fail because of the behaviour the ticket reports, not because of a missing
   import, a typo or the environment. Assert the behaviour the ticket says is expected.
 - In test_id give the test's name as the test runner reports it: for C#, Java or Python the
@@ -286,7 +291,7 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
         "brief.enhancement", 1, _ENHANCEMENT_SYSTEM, ENHANCEMENT_SCHEMA
     ),
     TaskKind.REPRODUCTION_TEST: PromptTemplate(
-        "defect.reproduction", 2, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
+        "defect.reproduction", 3, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
     ),
     TaskKind.CODE_FIX: PromptTemplate("defect.fix", 2, _FIX_SYSTEM, FIX_SCHEMA),
 }

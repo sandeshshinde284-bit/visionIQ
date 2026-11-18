@@ -865,3 +865,65 @@ def test_a_test_the_fix_broke_is_shown_to_the_next_attempt(tmp_path: Path, monke
     assert f"file:{OLD_TEST}" not in model.tasks[1].user_prompt
     assert f"file:{OLD_TEST}" in model.tasks[2].user_prompt  # shown after it broke
     assert result.verdict == "VERIFIED"
+
+
+# ---- The new test joins the existing test file; a decline is asked for another scenario ---------
+
+DECLINE = {
+    "reproducible": False,
+    "unavailable_reason": "No test could be written.",
+    "limitations": [],
+}
+
+
+def test_a_test_added_to_the_existing_test_file_is_proven_and_the_old_tests_replayed_first(
+    tmp_path: Path,
+) -> None:
+    demo = make_demo(tmp_path)
+    before = (demo.repo / OLD_TEST).read_text(encoding="utf-8")
+    added = {
+        **TEST_ANSWER,
+        "test_path": OLD_TEST,
+        "test_content": before
+        + "\n\ndef test_captured_payment_is_not_retried():\n"
+        + "    assert False, 'captured payment was retried'\n",
+    }
+
+    def behaviour(call: Call):
+        # One report per file: the new test's result where the file holds it and it fails,
+        # otherwise the result of the tests that were already in the file.
+        if call.test_path != OLD_TEST:
+            return honest(call)
+        old_tests = honest(call)
+        if TEST_ID not in call.source(OLD_TEST):
+            return old_tests  # the original file: the baseline of the regression replay
+        new_test = honest(replace(call, test_path=TEST_PATH))
+        return new_test if str(new_test) != "pass" else old_tests
+
+    result = run(tmp_path, [added, SAFE_FIX], behaviour, demo=demo)
+
+    assert result.verdict == "VERIFIED"
+    assert result.reproduction.test.path == OLD_TEST
+    first = result.regression.tests[0]
+    assert (first.test_path, first.outcome) == (OLD_TEST, "PASS")
+    assert first.discovery_method == "existing_tests_of_the_file_the_new_test_was_added_to"
+
+
+def test_a_decline_is_asked_for_another_scenario_before_the_run_gives_up(tmp_path: Path) -> None:
+    # Seen live: the model answered "cannot be reproduced" and the run ended with attempts unused.
+    seen, model = _scripted([DECLINE, TEST_ANSWER, SAFE_FIX])
+
+    result = run(tmp_path, model)
+
+    assert "try a different scenario" in seen[1].feedback[-1]
+    assert result.verdict == "VERIFIED" and result.reason_codes == []
+
+
+def test_a_decline_on_every_attempt_still_ends_unavailable(tmp_path: Path) -> None:
+    model = claude(DECLINE)
+
+    result = run(tmp_path, gateway_for(model))
+
+    assert result.reproduction.reproducibility == "UNAVAILABLE"
+    assert result.reason_codes == ["reproduction_unavailable"]
+    assert len(model.tasks) == 2  # every attempt was used, and no more
