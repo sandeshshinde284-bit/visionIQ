@@ -1,5 +1,5 @@
 {
-  "revision": "defect-policy-2026-11-17-generic-paths.6",
+  "revision": "defect-policy-2026-11-18-generic-paths.7",
   "repositories": [
     {
       "repository_id": "KIOSK_TVM",
@@ -50,20 +50,22 @@
           "{test_path}",
           "-Report",
           "{junit}"
+        ],
+        "test_files": [
+          "powershell",
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "C:/visioniq-tools/run-tests.ps1",
+          "-Mode",
+          "test-files",
+          "-TestPaths",
+          "{test_paths}",
+          "-Report",
+          "{junit}"
         ]
-        //"suite": [
-        //  "powershell",
-        //  "-NoProfile",
-        //  "-NonInteractive",
-        //  "-ExecutionPolicy",
-        //  "Bypass",
-        //  "-File",
-        //  "C:/visioniq-tools/run-tests.ps1",
-        //  "-Mode",
-        //  "suite",
-        //  "-Report",
-        //  "{junit}"
-        //]
       },
       "toolchain": {
         "dotnet": [
@@ -129,6 +131,7 @@
       ],
       "fixture_paths": [],
       "test_data_paths": [
+        "**/mock/**",
         "**/mocks/**",
         "**/__mocks__/**",
         "**/fixtures/**",
@@ -139,7 +142,7 @@
         "max_test_attempts": 3,
         "max_fix_iterations": 2,
         "max_changed_files": 8,
-        "max_changed_lines": 400,
+        "max_changed_lines": 500,
         "max_regression_tests": 10,
         "max_context_files": 10,
         "flaky_reruns": 1,
