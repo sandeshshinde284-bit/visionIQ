@@ -49,6 +49,7 @@ from app.defect.generate import (
     context_for,
     propose_patch,
     propose_test,
+    select,
 )
 from app.defect.performance import compare, measure_pairs
 from app.defect.policy import DefectPolicy, RepositoryPolicy, RunnerPolicy, matches, render
@@ -91,7 +92,7 @@ from app.llm.gateway import Budget, RunLedger
 from app.llm.gateway import ModelGateway as Gateway
 from app.llm.injection import scan
 from app.llm.routing import ROUTING_REVISION
-from app.llm.types import CodeFile, DataClassification
+from app.llm.types import CodeFile, DataClassification, TaskKind
 
 # Reason codes (analysis.completed carries them).
 # Files that use a chosen file by name (see FixPipeline._referrers). A name shorter than this, or a
@@ -268,6 +269,21 @@ MAX_TEST_DATA = 2
 # Existing tests of the code shown, given to the fix step read only (A), and tests a candidate
 # broke, given to the next attempt (C).
 MAX_EXISTING_TESTS = 3
+# A model's suggestions: files to read beside the rules' choice (from at most MAX_FILE_CHOICES
+# listed source files), and which candidate tests relate to a change.
+MAX_SUGGESTED_FILES = 4
+MAX_FILE_CHOICES = 1500
+MAX_TEST_NAMES = 8
+HOME_TEST_FILE = "existing_tests_of_the_file_the_new_test_was_added_to"
+USER_TEST = "test_of_code_that_uses_the_change"
+# Test names inside a test file, for a model choosing related tests: it('...') / test('...'),
+# def test_x, and [Fact] / [Test] / @Test methods.
+_TEST_NAMES = re.compile(
+    r"""\b(?:it|test)\s*\(\s*["'`]([^"'`\n]{3,120})"""
+    r"""|\bdef\s+(test_\w+)"""
+    r"""|(?:\[(?:Fact|Theory|Test|TestMethod)[^\]]*\]|@Test)\s*(?:public\s+)?(?:async\s+)?"""
+    r"""(?:Task|void)\s+(\w+)"""
+)
 MAX_IMPORTED_NAMES = 12
 
 
@@ -644,8 +660,52 @@ class _FixRun:
                     resolved_paths=chosen,
                 )
         self.scope_files = list(chosen)
+        chosen = [*chosen, *self._suggested_files(ticket, chosen, eligible)]
         related = self._referrers(chosen, eligible)
         return self._read([*chosen, *related, *self._imports([*chosen, *related], eligible)])
+
+    def _suggested_files(
+        self, ticket: TicketText, chosen: Sequence[str], eligible: Sequence[str]
+    ) -> list[str]:
+        """Files a model suggests reading, beside the rules' choice: picked from the repository's
+        source files near it, so a defect in code no past fix touched can still be found. Only
+        listed paths are accepted; without a model the rules alone decide."""
+        repo, _ = self._ready()
+        room = min(MAX_SUGGESTED_FILES, repo.limits.max_context_files - len(chosen) - 1)
+        if room <= 0:
+            return []
+        roots = {path.split("/", 1)[0] for path in chosen if "/" in path}
+        kinds = {_kind(path) for path in chosen}
+        pool = [
+            path
+            for path in eligible
+            if path not in chosen
+            and regression_rules.is_code(path)
+            and not (repo.test_data_paths and matches(path, repo.test_data_paths))
+            and (not roots or path.split("/", 1)[0] in roots)
+            and (not kinds or _kind(path) in kinds)
+        ]
+        pool.sort(
+            key=lambda path: (-max((_shared_folders(path, c) for c in chosen), default=0), path)
+        )
+        pool = pool[:MAX_FILE_CHOICES]
+        facts = [
+            "Files already chosen: " + (", ".join(chosen) if chosen else "none") + ".",
+        ]
+        context = context_for(ticket.title, ticket.text, facts, (), (), pool)
+        picked = select(
+            self.gateway, self.ledger, TaskKind.FILE_SELECTION, context, set(pool), room
+        )
+        if picked is None:
+            _log().info("fix_file_suggestions_unavailable")
+            return []
+        _log().info(
+            "fix_files_suggested",
+            paths=[path for path, _ in picked],
+            reasons=[reason for _, reason in picked],
+            choices=len(pool),
+        )
+        return [path for path, _ in picked]
 
     def _imports(self, shown: Sequence[str], eligible: Sequence[str]) -> list[str]:
         """The local files the shown code imports: the store a screen reads, the service it calls.
@@ -921,6 +981,7 @@ class _FixRun:
         test_id: str | None = None,
         expected: ExpectedFailure | None = None,
         overlay: Mapping[str, str] | None = None,
+        test_paths: Sequence[str] = (),
     ) -> tuple[Observation, Path]:
         """Run one allowlisted recipe on a fresh export of a tree's commit and record what
         happened. ``overlay`` are files that are not in the commit (the uncommitted reproduction
@@ -944,6 +1005,7 @@ class _FixRun:
             repo.recipes[recipe],
             {
                 "test_path": test_path or "",
+                "test_paths": ";".join(test_paths),
                 "test_name": PurePosixPath(test_path or "").name.split(".", 1)[0],
                 "junit": relative,
                 "output": relative,
@@ -952,6 +1014,7 @@ class _FixRun:
         runner = repo.runner
         timeout = {
             "test_file": runner.test_timeout_seconds,
+            "test_files": runner.suite_timeout_seconds,
             "suite": runner.suite_timeout_seconds,
             "benchmark": runner.benchmark_timeout_seconds,
         }[recipe]
@@ -1622,19 +1685,16 @@ class _FixRun:
                 regression_rules.RegressionCandidate(
                     test_path=reproduction_test,
                     tier="explicit",
-                    discovery_method="existing_tests_of_the_file_the_new_test_was_added_to",
+                    discovery_method=HOME_TEST_FILE,
                     ticket_id=None,
                     fix_reference=None,
                     available=True,
                 ),
             )
-        candidates = found[: repo.limits.max_regression_tests]
-        if len(found) > len(candidates):
-            self.limitations.append(
-                f"{len(found) - len(candidates)} more regression test(s) of this area were "
-                f"found but not run (the limit is {repo.limits.max_regression_tests})."
-            )
+        found += self._tests_of_users(found, changed, baseline, reproduction_test)
+        candidates = self._related_tests(ticket, found, changed)
         tests: list[RegressionTest] = []
+        batch = self._batch(candidates, manifest)
         for candidate in candidates:
             common = {
                 "test_path": candidate.test_path,
@@ -1646,6 +1706,17 @@ class _FixRun:
             if not candidate.available or not is_safe_path(candidate.test_path):
                 tests.append(
                     RegressionTest(availability="UNAVAILABLE", outcome="UNAVAILABLE", **common)
+                )
+                continue
+            if batch is not None:
+                # Every test of the batch passed in that one run: it stands for each of them.
+                tests.append(
+                    RegressionTest(
+                        availability="AVAILABLE",
+                        outcome="PASS",
+                        execution_ids=[batch],
+                        **common,
+                    )
                 )
                 continue
             verdict = self._checked(
@@ -1674,6 +1745,155 @@ class _FixRun:
                 )
             )
         return regression_rules.summarize(tests)
+
+    def _tests_of_users(
+        self,
+        found: Sequence[regression_rules.RegressionCandidate],
+        changed: Sequence[str],
+        baseline: Collection[str],
+        reproduction_test: str,
+    ) -> list[regression_rules.RegressionCandidate]:
+        """Tests of the code that uses the changed files: the screen that renders a changed
+        component, the class that calls a changed service. They exercise the change through
+        its users, whatever the history says."""
+        repo, workspace = self._ready()
+        known = {candidate.test_path for candidate in found} | {reproduction_test}
+        tests = [path for path in baseline if matches(path, repo.test_file_patterns)]
+        added: list[regression_rules.RegressionCandidate] = []
+        for path in changed:
+            name = regression_rules.stem(path)
+            if len(name) < MIN_REFERENCE_NAME or name in GENERIC_NAMES:
+                continue
+            users = [
+                user
+                for user in workspace.referrers(PurePosixPath(path).name.split(".", 1)[0])
+                if user != path
+                and regression_rules.is_code(user)
+                and not matches(user, repo.test_file_patterns)
+            ]
+            if len(users) > MAX_REFERRERS:
+                continue  # a name that many files use says little about this change
+            for user in users:
+                subject = regression_rules.stem(user)
+                for test in tests:
+                    if (
+                        test not in known
+                        and regression_rules.stem(test) == subject
+                        and _kind(test) == _kind(user)
+                        and is_safe_path(test)
+                    ):
+                        known.add(test)
+                        added.append(
+                            regression_rules.RegressionCandidate(
+                                test_path=test,
+                                tier="inferred",
+                                discovery_method=USER_TEST,
+                                ticket_id=None,
+                                fix_reference=None,
+                                available=True,
+                            )
+                        )
+        return added
+
+    def _related_tests(
+        self,
+        ticket: TicketText,
+        found: Sequence[regression_rules.RegressionCandidate],
+        changed: Sequence[str],
+    ) -> list[regression_rules.RegressionCandidate]:
+        """The candidates to run: always the tests of the changed files and the file the new
+        test joined; of the rest, the ones a model judges related to this change. A test only
+        changed together with these files in a past fix may test something else entirely.
+        Without a model, the rules' order and the limit decide, as before."""
+        repo, workspace = self._ready()
+        limit = repo.limits.max_regression_tests
+        subjects = {regression_rules.stem(path) for path in changed}
+        must = [
+            c
+            for c in found
+            if c.discovery_method == HOME_TEST_FILE
+            or regression_rules.stem(c.test_path) in subjects
+        ]
+        rest = [c for c in found if c not in must]
+        optional = [c for c in rest if c.available]  # a model only chooses among runnable ones
+        room = limit - len(must)
+        picked = None
+        if room > 0 and optional:
+            choices = []
+            for candidate in optional:
+                content = workspace.read(
+                    candidate.test_path, "base", limit=repo.limits.max_file_bytes
+                )
+                names = [
+                    next(group for group in match.groups() if group)
+                    for match in _TEST_NAMES.finditer(content or "")
+                ][:MAX_TEST_NAMES]
+                found_by = candidate.discovery_method.replace("_", " ")
+                choices.append(
+                    f"{candidate.test_path} | found as: {found_by} | tests: "
+                    + ("; ".join(names) if names else "(names not read)")
+                )
+            patch = self.patch
+            facts = [
+                "Changed files: " + ", ".join(changed) + ".",
+                *([f"Cause of the defect: {patch.cause}"] if patch and patch.cause else []),
+                *([f"The change: {patch.summary}"] if patch and patch.summary else []),
+            ]
+            context = context_for(ticket.title, ticket.text, facts, (), (), choices)
+            picked = select(
+                self.gateway,
+                self.ledger,
+                TaskKind.TEST_SELECTION,
+                context,
+                {candidate.test_path for candidate in optional},
+                room,
+            )
+        if picked is None:
+            chosen = [*must, *rest][:limit]
+            left = len(must) + len(rest) - len(chosen)
+            if left > 0:
+                self.limitations.append(
+                    f"{left} more regression test(s) of this area were found but not run (the "
+                    f"limit is {limit})."
+                )
+            return chosen
+        order = [path for path, _ in picked]
+        related = sorted(
+            (c for c in optional if c.test_path in order), key=lambda c: order.index(c.test_path)
+        )
+        _log().info(
+            "fix_related_tests_selected",
+            kept=[c.test_path for c in must],
+            picked=order,
+            reasons=[reason for _, reason in picked],
+            not_related=len(optional) - len(related),
+        )
+        if len(optional) > len(related):
+            self.limitations.append(
+                f"{len(optional) - len(related)} other candidate test(s) were judged unrelated to "
+                "this change by a model and not run."
+            )
+        return [*must, *related][:limit]
+
+    def _batch(
+        self, candidates: Sequence[regression_rules.RegressionCandidate], manifest: str
+    ) -> str | None:
+        """One run of all the candidate tests, when the policy has a test_files recipe: the run's
+        id if every test in it passed, else None and each test is run alone to tell which one
+        failed."""
+        repo, _ = self._ready()
+        paths = [c.test_path for c in candidates if c.available and is_safe_path(c.test_path)]
+        if "test_files" not in repo.recipes or len(paths) < 2:
+            return None
+        observed, _ = self._run("regression", "candidate", "test_files", manifest, test_paths=paths)
+        passed = observed.outcome == "PASS"
+        (_log().info if passed else _log().warning)(
+            "fix_regression_batch_run",
+            execution_id=observed.execution_id,
+            tests=len(paths),
+            outcome=observed.outcome,
+        )
+        return observed.execution_id if passed else None
 
     def _suite(self, manifest: str) -> str | None:
         """S11-10 in the sandbox: the touched project's suite on the candidate."""
