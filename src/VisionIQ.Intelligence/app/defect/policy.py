@@ -28,6 +28,9 @@ _SECRET_NAME = re.compile(r"(?i)(password|passwd|secret|token|credential|api_?ke
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 RECIPE_PLACEHOLDERS = {
     "test_file": {"test_path", "test_name", "junit"},
+    # Optional: several test files in one run, {test_paths} separated by ";". When every test
+    # passes, that one run stands for all of them; otherwise each is run alone.
+    "test_files": {"test_paths", "junit"},
     "suite": {"junit"},
     "benchmark": {"output"},
 }
