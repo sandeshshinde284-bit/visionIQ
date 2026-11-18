@@ -737,6 +737,52 @@ class _FixRun:
         ordered = order_tests([file.path for file in code], tests)
         return self._read(ordered[:MAX_EXISTING_TESTS])
 
+    def _home_test_file(
+        self, proposal: TestProposal, code: Sequence[CodeFile], files: Sequence[str]
+    ) -> CodeFile | None:
+        """The existing test file a new test file should have gone into, or None.
+
+        A new test file is refused when the code it exercises already has a test file: the
+        nearest test of the same kind named after a file the test imports, preferring the files
+        closest to the defect. Imports name files in JavaScript, TypeScript and Vue; for other
+        languages only the prompt asks for the existing file.
+        """
+        repo, workspace = self._ready()
+        if proposal.path in files:
+            return None  # it is already an existing file
+        known = set(files)
+        imported = [
+            path
+            for path in local_imports(proposal.path, proposal.content, known)
+            if not matches(path, repo.test_file_patterns)
+            and not (repo.test_data_paths and matches(path, repo.test_data_paths))
+        ]
+        if not imported:
+            return None
+        position = {file.path: index for index, file in enumerate(code)}
+        imported.sort(key=lambda path: position.get(path, len(code)))
+        for source in imported:
+            name = regression_rules.stem(source)
+            if len(name) < MIN_REFERENCE_NAME or name in GENERIC_NAMES:
+                continue
+            homes = [
+                path
+                for path in known
+                if regression_rules.stem(path) == name
+                and _kind(path) == _kind(source)
+                and is_safe_path(path)
+                and matches(path, repo.test_file_patterns)
+                and matches(path, repo.new_test_paths)
+            ]
+            if not homes:
+                continue
+            homes.sort(key=lambda path: (-_shared_folders(path, source), path))
+            content = workspace.read(homes[0], "base")
+            if content is None or len(content.encode("utf-8")) > repo.limits.max_file_bytes:
+                return None  # too large to return whole; a new file is the only way
+            return CodeFile(path=homes[0], content=content)
+        return None
+
     def _test_examples(self, code: Sequence[CodeFile], tests: Sequence[str]) -> list[CodeFile]:
         """The most useful existing tests: the model sees this project's conventions, and the
         test file of the code under test, which a new test is added to."""
@@ -1090,6 +1136,34 @@ class _FixRun:
                     )
                 )
                 feedback.append(f"Attempt {attempt} was not run: {proposal.detail}")
+                continue
+            home = self._home_test_file(proposal, code, files)
+            if home is not None:
+                # A test of code that already has a test file belongs in that file. The file is
+                # shown, so the next attempt can add the test to it.
+                detail = (
+                    f"The code this test exercises already has a test file: {home.path}. Add the "
+                    "test to that file (shown in full): return the complete file in "
+                    "test_content with every existing line unchanged and your test added at the "
+                    "end, and use that path as test_path."
+                )
+                _log().warning(
+                    "fix_reproduction_test_declined",
+                    attempt=attempt,
+                    reason=TEST_INVALID,
+                    model_unavailable=False,
+                    detail=detail,
+                )
+                self.attempts.append(
+                    Attempt(
+                        iteration=attempt,
+                        stage="reproduction_test",
+                        result="test_rejected",
+                        detail=detail,
+                    )
+                )
+                feedback.append(f"Attempt {attempt} was not run: {detail}")
+                context_code = [*(f for f in context_code if f.path != home.path), home]
                 continue
             self.generation.update(
                 test_provider=proposal.result.provider,

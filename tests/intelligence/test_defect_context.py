@@ -170,3 +170,52 @@ def test_what_a_test_must_set_up_comes_before_child_components() -> None:
         "ui/src/components/CheckoutScreen/lazy.js",
         "ui/src/components/OptionList/OptionList.vue",  # a child component: last
     ]
+
+
+def test_a_new_test_file_is_refused_when_the_code_it_exercises_has_a_test_file(
+    tmp_path: Path,
+) -> None:
+    # The test goes into the existing test file of the code it exercises; a new file only when
+    # there is none. The existing file is shown to the next attempt so the test can be added.
+    from brief_support import ScriptedProvider, gateway_for
+
+    demo = make_demo(
+        tmp_path,
+        test_file_patterns=["tests/**", "**/*.test.ts"],
+        new_test_paths=["tests/**", "**/*.test.ts"],
+    )
+    existing = "import Widget from './Widget.vue'\ndescribe('Widget', () => {})\n"
+    sha = _commit(
+        demo.repo,
+        {
+            "web/package.json": "{}",
+            "web/src/Widget.vue": "<template><button>Go</button></template>\n",
+            "web/src/Widget.test.ts": existing,
+        },
+    )
+    new_file = {
+        **TEST_ANSWER,
+        "test_path": "web/src/WidgetEnabled.test.ts",
+        "test_id": "keeps Go enabled",
+        "test_content": "import Widget from './Widget.vue'\nit('keeps Go enabled', () => {})\n",
+    }
+    seen: list = []
+    answers = [new_file, TEST_ANSWER, SAFE_FIX]
+
+    def script(_task, context):
+        seen.append(context)
+        return answers[len(seen) - 1]
+
+    previous = structlog.get_config()
+    _, events = logged(
+        tmp_path,
+        gateway_for(ScriptedProvider("claude", script)),
+        demo=replace(demo, base_sha=sha),
+    )
+    structlog.configure(**previous)
+
+    refused = next(e for e in events if e["event"] == "fix_reproduction_test_declined")
+    assert "already has a test file: web/src/Widget.test.ts" in refused["detail"]
+    shown = {file.path: file.content for file in seen[1].code}
+    assert shown["web/src/Widget.test.ts"] == existing
+    assert "Add the test to that file" in seen[1].feedback[-1]
