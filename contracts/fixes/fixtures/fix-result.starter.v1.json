@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "fix_id": "7d3b5c1e-2f4a-4b6c-8d9e-0a1b2c3d4e5f",
+  "run_id": "3b25fca8-05e8-4422-9cca-c3e1c2c69565",
+  "kind": "starter",
+  "ticket": {
+    "system": "ado",
+    "project": "Kiosk",
+    "id": "4711",
+    "revision": 3,
+    "title": "Bug 4711: customer charged twice"
+  },
+  "repository_id": "kiosk-demo",
+  "base_sha": "281b17ab40c9f585c2bc1d4115f278a3f9da2e90",
+  "candidate_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+  "state": "PARTIAL",
+  "verdict": "INCONCLUSIVE",
+  "reason_codes": [
+    "starter_scaffold_not_verified"
+  ],
+  "reproduction": {
+    "reproducibility": "UNAVAILABLE",
+    "test": null,
+    "expected_failure": null,
+    "evidence": null,
+    "detail": "Not applicable: an enhancement has no defect to reproduce."
+  },
+  "patch": {
+    "iteration": 1,
+    "candidate_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+    "tree_sha": "3b6fc00d19f6cfbc92670814d74fa2d6c4d5001e",
+    "branch": "visioniq/starter/4711-3b25fca8",
+    "bundle_uri": "3b25fca8-05e8-4422-9cca-c3e1c2c69565/starter.bundle",
+    "bundle_sha256": "d9f1334053692aceff2494a78c0d4a3d9e270738065fb6ecac6a3e63dcbf388d",
+    "files": [
+      {
+        "path": "src/kiosk/refund_window.py",
+        "change": "added",
+        "sha256": "67eefd10fd4210053d52e017b61f5e3b8360fc7a4d8b1839ba210cb3958b1f3f",
+        "added_lines": 3,
+        "removed_lines": 0,
+        "content": "class RefundWindow:\n    # TODO(ADV-001): decide the window length\n    ...\n"
+      },
+      {
+        "path": "tests/test_refund_window.py",
+        "change": "added",
+        "sha256": "78f4615a7887015fd5c8ba5006f773f11c361d03bdaba2ca99d79bbe008724cf",
+        "added_lines": 2,
+        "removed_lines": 0,
+        "content": "def test_refund_inside_the_window():\n    raise NotImplementedError\n"
+      }
+    ],
+    "diff": "diff --git a/src/kiosk/refund_window.py b/src/kiosk/refund_window.py\nnew file mode 100644\nindex 0000000..6ef58aa\n--- /dev/null\n+++ b/src/kiosk/refund_window.py\n@@ -0,0 +1,3 @@\n+class RefundWindow:\n+    # TODO(ADV-001): decide the window length\n+    ...\ndiff --git a/tests/test_refund_window.py b/tests/test_refund_window.py\nnew file mode 100644\nindex 0000000..698d358\n--- /dev/null\n+++ b/tests/test_refund_window.py\n@@ -0,0 +1,2 @@\n+def test_refund_inside_the_window():\n+    raise NotImplementedError\n",
+    "diff_truncated": false,
+    "cause": "",
+    "summary": "Adds the refund window type",
+    "policy_status": "PASS",
+    "findings": []
+  },
+  "attempts": [
+    {
+      "iteration": 1,
+      "stage": "patch",
+      "candidate_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+      "result": "candidate_accepted",
+      "detail": ""
+    }
+  ],
+  "candidate_test": null,
+  "regression": {
+    "status": "NOT_RUN",
+    "historical_found": false,
+    "tests": [],
+    "detail": "Not run for a starter scaffold."
+  },
+  "suite": null,
+  "performance": {
+    "status": "NOT_MEASURED",
+    "metric": null,
+    "unit": null,
+    "pairs": 0,
+    "baseline_samples": [],
+    "candidate_samples": [],
+    "baseline_median": null,
+    "candidate_median": null,
+    "change_percent": null,
+    "noise_percent": null,
+    "threshold_percent": null,
+    "noise_limit_percent": null,
+    "execution_ids": [],
+    "detail": "Not measured for a starter scaffold."
+  },
+  "gates": [
+    {
+      "name": "reproduction",
+      "required": false,
+      "status": "NOT_APPLICABLE",
+      "commit_sha": null,
+      "detail": "An enhancement has no defect to reproduce.",
+      "execution_ids": []
+    },
+    {
+      "name": "candidate_test",
+      "required": false,
+      "status": "NOT_APPLICABLE",
+      "commit_sha": null,
+      "detail": "A starter scaffold has no failing test to turn green.",
+      "execution_ids": []
+    },
+    {
+      "name": "historical_regression",
+      "required": false,
+      "status": "NOT_RUN",
+      "commit_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+      "detail": "Not run: VisionIQ does not build or test a starter scaffold.",
+      "execution_ids": []
+    },
+    {
+      "name": "touched_suite",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+      "detail": "Not run: VisionIQ does not build or test a starter scaffold.",
+      "execution_ids": []
+    },
+    {
+      "name": "performance",
+      "required": false,
+      "status": "NOT_RUN",
+      "commit_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+      "detail": "Not run: VisionIQ does not build or test a starter scaffold.",
+      "execution_ids": []
+    },
+    {
+      "name": "patch_policy",
+      "required": true,
+      "status": "PASS",
+      "commit_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+      "detail": "The scaffold stays inside the repository's policy.",
+      "execution_ids": []
+    },
+    {
+      "name": "native_ci",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "Reported by the repository's own CI on the pull request.",
+      "execution_ids": []
+    },
+    {
+      "name": "human_review",
+      "required": true,
+      "status": "NOT_RUN",
+      "commit_sha": null,
+      "detail": "An engineer decides; the bot cannot approve or merge.",
+      "execution_ids": []
+    }
+  ],
+  "gate_summary": {
+    "head_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+    "overall": "NOT_GREEN",
+    "blocking": [
+      "touched_suite",
+      "native_ci",
+      "human_review"
+    ]
+  },
+  "manifests": [],
+  "executions": [],
+  "pull_request": {
+    "source_branch": "visioniq/starter/4711-3b25fca8",
+    "target_branch": "main",
+    "base_sha": "281b17ab40c9f585c2bc1d4115f278a3f9da2e90",
+    "head_sha": "356d9f09887a700f3101eaf42f97330788fda832",
+    "work_item_id": "4711",
+    "title": "[VisionIQ draft] Starter for #4711: Bug 4711: customer charged twice",
+    "description": "Draft **starter** for enhancement #4711, opened by the VisionIQ bot. It is a scaffold to begin from, not a finished change: the bot cannot approve or merge it.\n\n**Status: NOT VERIFIED.** VisionIQ did not build, run or test this scaffold. Only the patch policy was checked.\n\n### Enhancement\nBug 4711: customer charged twice (baseline `281b17ab40c9f585c2bc1d4115f278a3f9da2e90`).\n\n### What is in the scaffold (written by a model)\nAdds the refund window type.\n- `src/kiosk/refund_window.py` (added, +3/-0)\n- `tests/test_refund_window.py` (added, +2/-0)\n\n### Left for you\n- [ ] Decide the window length \\(ADV-001\\)\n- [ ] Fill in the test stubs \\(ADV-003\\)\n\n### Checks\n| Check | Result | Detail |\n| --- | --- | --- |\n| Defect reproduction | **not applicable** | An enhancement has no defect to reproduce. |\n| Fix test | **not applicable** | A starter scaffold has no failing test to turn green. |\n| Past regression tests | **NOT RUN** | Not run: VisionIQ does not build or test a starter scaffold. |\n| Touched project's suite | **NOT RUN** | Not run: VisionIQ does not build or test a starter scaffold. |\n| Performance of the touched path | **NOT RUN** | Not run: VisionIQ does not build or test a starter scaffold. |\n| Patch policy | **PASS** | The scaffold stays inside the repository's policy. |\n| Native CI on this PR | **NOT RUN** | Reported by the repository's own CI on the pull request. |\n| Engineer review | **NOT RUN** | An engineer decides; the bot cannot approve or merge. |\n\n### Limits\n- This is a starter scaffold. VisionIQ did not build it, run it or test it.\n\n### Guidance it follows (on the work item)\n- ADV-001 (Related past changes): Follow what change 101 did for related\\_past\\_changes.\n- ADV-002 (Do / don't): Follow what change 102 did for do\\_and\\_dont.\n- ADV-003 (Tests to add): Follow what change 103 did for tests\\_to\\_add.\n\nFull result: starter `d37b1591-8a01-4c93-88a0-5c0e13f25aa6`, run `3b25fca8-05e8-4422-9cca-c3e1c2c69565`, guidance `5b0c7a52-3a51-4a0e-8f7e-2f4d3a1b9c10`.",
+    "is_draft": true,
+    "checks": [
+      {
+        "name": "visioniq/reproduction",
+        "state": "not_applicable",
+        "description": "NOT_APPLICABLE: An enhancement has no defect to reproduce.",
+        "execution_ids": []
+      },
+      {
+        "name": "visioniq/fix-test",
+        "state": "not_applicable",
+        "description": "NOT_APPLICABLE: A starter scaffold has no failing test to turn green.",
+        "execution_ids": []
+      },
+      {
+        "name": "visioniq/historical-regression",
+        "state": "pending",
+        "description": "NOT_RUN: Not run: VisionIQ does not build or test a starter scaffold.",
+        "execution_ids": []
+      },
+      {
+        "name": "visioniq/touched-suite",
+        "state": "pending",
+        "description": "NOT_RUN: Not run: VisionIQ does not build or test a starter scaffold.",
+        "execution_ids": []
+      },
+      {
+        "name": "visioniq/performance",
+        "state": "pending",
+        "description": "NOT_RUN: Not run: VisionIQ does not build or test a starter scaffold.",
+        "execution_ids": []
+      },
+      {
+        "name": "visioniq/patch-policy",
+        "state": "succeeded",
+        "description": "PASS: The scaffold stays inside the repository's policy.",
+        "execution_ids": []
+      }
+    ]
+  },
+  "starter": {
+    "guidance_brief_id": "5b0c7a52-3a51-4a0e-8f7e-2f4d3a1b9c10",
+    "advice_ids": [
+      "ADV-001",
+      "ADV-002",
+      "ADV-003"
+    ],
+    "covered_sections": [
+      "related_past_changes",
+      "do_and_dont",
+      "tests_to_add"
+    ],
+    "summary": "Adds the refund window type",
+    "checklist": [
+      "Decide the window length (ADV-001)",
+      "Fill in the test stubs (ADV-003)"
+    ]
+  },
+  "limitations": [
+    "This is a starter scaffold. VisionIQ did not build it, run it or test it."
+  ],
+  "generation": {
+    "routing_revision": "routing-2026-11-16.1",
+    "test_provider": null,
+    "test_prompt_version": null,
+    "fix_provider": "claude",
+    "fix_model_id": "scripted-1",
+    "fix_prompt_version": "enhancement.starter@v1",
+    "calls": 1,
+    "input_tokens": 900,
+    "output_tokens": 200
+  },
+  "policy_revision": "defect-policy-demo.1",
+  "timings": {
+    "reproduction_ms": 0,
+    "fix_ms": 2000,
+    "total_ms": 2000
+  }
+}

@@ -3,7 +3,7 @@
   // and point DEFECT_POLICY_FILE at it. A repository that is not listed here is never cloned or
   // run. A model never chooses a command or a path outside this file.
   // Changing the rules? Bump revision: it is recorded with every run.
-  "revision": "defect-policy-2026-11-18.1",
+  "revision": "defect-policy-2026-11-18.2",
   "repositories": [
     {
       // Must equal repository_id of the pickup policy (config/pickup-policy.example.json).
@@ -99,7 +99,21 @@
         "environment_retries": 1
       },
       // Open a draft PR even when a check failed or was inconclusive (reported as it is). Default false.
-      "draft_pr_on_incomplete": false
+      "draft_pr_on_incomplete": false,
+      // ENH-02: optional starter pull requests for ENHANCEMENT tickets of this repository. Off unless
+      // the owners turn it on. A starter is a scaffold on a visioniq/starter/ branch, opened as a draft;
+      // nothing is built or run for it. It needs STARTER_PIPELINE_ENABLED=true in Intelligence and
+      // STARTER_PR_MODE in the API (see docs/features/ENH-02-optional-starter-pr).
+      "starter_pr": {
+        "enabled": false,
+        // "Well understood": how many of the eight guidance sections must be covered by evidence.
+        "min_covered_sections": 3,
+        // How often the model may try again after a scaffold broke a rule above.
+        "max_iterations": 2,
+        // A starter is narrow: its own size budget. A broader scaffold stops for review, unpushed.
+        "max_files": 8,
+        "max_lines": 400
+      }
     }
   ]
 }

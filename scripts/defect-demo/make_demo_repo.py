@@ -16,8 +16,14 @@ It writes, under the output folder:
                            first fix passes the new test but brings back the old bug, so the
                            regression replay must catch it; the second one is correct.
 
+For ENH-02 (the optional starter pull request of an enhancement) it also writes:
+
+* ``enhancement.json``     enhancement ticket #4712 with its guidance, as ENH-01 would store it.
+* ``starter-policy.json``  the same policy with starter pull requests switched on.
+* ``starter-script.json``  a prepared scaffold: one new source file and one new test file.
+
 Everything is synthetic. The prepared answers stand in for a model only: the tests and the
-benchmark are really run, on the baseline and on each candidate.
+benchmark are really run, on the baseline and on each candidate. A starter is never run.
 """
 
 from __future__ import annotations
@@ -163,6 +169,100 @@ OFFLINE_SCRIPT = {
 }
 
 
+# ---- ENH-02: an enhancement in the same repository, with guidance to start from -----------------
+
+ENHANCEMENT_ID = "4712"
+ENHANCEMENT_TEXT = (
+    "Give the retry policy a per-terminal override.\n"
+    "Today RetryPolicy has one max_attempts for every kiosk. Slow terminals need fewer retries.\n"
+    "Add a way to look up the limit per terminal (src/kiosk/retry_policy.py); keep the rule that "
+    "a captured payment is never retried."
+)
+_SECTIONS = (
+    "acceptance_criteria_gaps",
+    "contracts_and_apis",
+    "deployment_and_migration_risk",
+    "related_past_changes",
+    "do_and_dont",
+    "recommended_sequence",
+    "tests_to_add",
+    "reviewer_decisions",
+)
+_ADVICE = (
+    ("ADV-001", "contracts_and_apis", "APPROACH", "src/kiosk/receipt.py calls RetryPolicy."),
+    ("ADV-002", "related_past_changes", "RISK", "Fix #101 stopped retries after max attempts."),
+    ("ADV-003", "do_and_dont", "DONT", "Do not change should_retry for captured payments."),
+    ("ADV-004", "tests_to_add", "DO", "Add a test for a terminal with its own limit."),
+)
+GUIDANCE = {
+    "brief_id": "5b0c7a52-3a51-4a0e-8f7e-2f4d3a1b9c10",
+    "kind": "enhancement",
+    "state": "PUBLISHED",
+    "predicted_scope": [{"path": "src/kiosk/retry_policy.py", "basis": "named_in_ticket"}],
+    "advice": [
+        {"advice_id": advice_id, "section": section, "kind": kind, "statement": statement}
+        for advice_id, section, kind, statement in _ADVICE
+    ],
+    "guidance": [
+        {
+            "section": code,
+            "title": code,
+            "status": "covered"
+            if any(code == section for _, section, _, _ in _ADVICE)
+            else "missing",
+            "advice_ids": [advice_id for advice_id, section, _, _ in _ADVICE if section == code],
+        }
+        for code in _SECTIONS
+    ],
+}
+TERMINAL_LIMITS = """\"\"\"Per-terminal retry limits (scaffold: see the TODO comments).\"\"\"
+
+from kiosk.retry_policy import RetryPolicy
+
+
+class TerminalLimits:
+    def __init__(self, default: RetryPolicy) -> None:
+        self.default = default
+        self._limits: dict[str, int] = {}
+
+    def policy_for(self, terminal_id: str) -> RetryPolicy:
+        # TODO(ADV-001): receipt.py builds its own RetryPolicy; decide how it gets this one.
+        # TODO(ADV-003): the captured-payment rule stays in RetryPolicy.should_retry.
+        raise NotImplementedError
+"""
+TERMINAL_LIMITS_TEST = """import pytest
+
+
+@pytest.mark.skip(reason="starter scaffold: TODO(ADV-004) a terminal with its own limit")
+def test_a_terminal_with_its_own_limit_uses_it():
+    raise NotImplementedError
+"""
+STARTER_SCRIPT = {
+    "starter_scaffold": {
+        "suitable": True,
+        "unsuitable_reason": "",
+        "changes": [
+            {"path": "src/kiosk/terminal_limits.py", "content": TERMINAL_LIMITS},
+            {"path": "tests/test_terminal_limits.py", "content": TERMINAL_LIMITS_TEST},
+        ],
+        "summary": "Adds a TerminalLimits lookup next to RetryPolicy, and a test stub for it",
+        "checklist": [
+            "Decide how receipt.py gets the per-terminal policy (ADV-001)",
+            "Implement TerminalLimits.policy_for; keep the captured-payment rule (ADV-003)",
+            "Write the test for a terminal with its own limit (ADV-004)",
+        ],
+        "limitations": [],
+    }
+}
+
+
+def starter_policy(repo: Path, python: str = sys.executable) -> dict:
+    """The demo policy with starter pull requests switched on for the repository."""
+    raw = policy(repo, python)
+    raw["repositories"][0]["starter_pr"] = {"enabled": True}
+    return raw
+
+
 def _git(repo: Path, *arguments: str) -> str:
     completed = subprocess.run(
         ["git", "-c", "core.autocrlf=false", *arguments],
@@ -271,10 +371,21 @@ def create(out: Path, python: str = sys.executable) -> dict[str, str]:
             }
         ],
     }
+    enhancement = {
+        "project": "Kiosk",
+        "id": ENHANCEMENT_ID,
+        "revision": 1,
+        "title": "Story 4712: per-terminal retry limit",
+        "text": ENHANCEMENT_TEXT,
+        "guidance": GUIDANCE,
+    }
     written = {
         "defect-policy.json": policy(repo, python),
         "ticket.json": ticket,
         "offline-script.json": OFFLINE_SCRIPT,
+        "starter-policy.json": starter_policy(repo, python),
+        "enhancement.json": enhancement,
+        "starter-script.json": STARTER_SCRIPT,
     }
     for name, content in written.items():
         (out / name).write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
@@ -284,6 +395,9 @@ def create(out: Path, python: str = sys.executable) -> dict[str, str]:
         "policy": str(out / "defect-policy.json"),
         "ticket": str(out / "ticket.json"),
         "offline_script": str(out / "offline-script.json"),
+        "starter_policy": str(out / "starter-policy.json"),
+        "enhancement": str(out / "enhancement.json"),
+        "starter_script": str(out / "starter-script.json"),
     }
 
 
@@ -301,7 +415,12 @@ def main(argv: list[str] | None = None) -> int:
         "Run the fix pipeline on it (from src/VisionIQ.Intelligence):\n\n"
         f'  python -m app.defect.cli --policy "{demo["policy"]}" --repository {REPOSITORY_ID} '
         f'--base-sha {demo["base_sha"]} --ticket "{demo["ticket"]}" '
-        f'--offline-script "{demo["offline_script"]}" --out "{out / "evidence"}"\n'
+        f'--offline-script "{demo["offline_script"]}" --out "{out / "evidence"}"\n\n'
+        "Prepare a starter scaffold for the enhancement (ENH-02; nothing is run):\n\n"
+        f'  python -m app.starter.cli --policy "{demo["starter_policy"]}" '
+        f"--repository {REPOSITORY_ID} "
+        f'--base-sha {demo["base_sha"]} --ticket "{demo["enhancement"]}" '
+        f'--offline-script "{demo["starter_script"]}" --out "{out / "starter"}"\n'
     )
     return 0
 
