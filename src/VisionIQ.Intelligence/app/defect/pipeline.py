@@ -44,12 +44,10 @@ from app.defect.generate import (
     REPRODUCTION_UNAVAILABLE,
     TEST_INVALID,
     Declined,
-    PatchProposal,
     TestProposal,
     context_for,
     propose_patch,
     propose_test,
-    select,
 )
 from app.defect.performance import compare, measure_pairs
 from app.defect.policy import DefectPolicy, RepositoryPolicy, RunnerPolicy, matches, render
@@ -92,7 +90,7 @@ from app.llm.gateway import Budget, RunLedger
 from app.llm.gateway import ModelGateway as Gateway
 from app.llm.injection import scan
 from app.llm.routing import ROUTING_REVISION
-from app.llm.types import CodeFile, DataClassification, TaskKind
+from app.llm.types import CodeFile, DataClassification
 
 # Reason codes (analysis.completed carries them).
 # Files that use a chosen file by name (see FixPipeline._referrers). A name shorter than this, or a
@@ -118,10 +116,6 @@ REGRESSION_FAILED = "regression_failed"
 REGRESSION_INCONCLUSIVE = "regression_inconclusive"
 SUITE_FAILED = "suite_failed"
 SUITE_INCONCLUSIVE = "suite_inconclusive"
-# The new test asserts an internal step, not the result the ticket reports.
-REPRODUCTION_INDIRECT = "reproduction_indirect"
-# An existing test fails with the fix and is stated to expect the reported defect.
-EXISTING_TEST_CONTRADICTS = "existing_test_contradicts_ticket"
 PERFORMANCE_REGRESSION = "performance_regression"
 PERFORMANCE_INCONCLUSIVE = "performance_inconclusive"
 
@@ -269,21 +263,6 @@ MAX_TEST_DATA = 2
 # Existing tests of the code shown, given to the fix step read only (A), and tests a candidate
 # broke, given to the next attempt (C).
 MAX_EXISTING_TESTS = 3
-# A model's suggestions: files to read beside the rules' choice (from at most MAX_FILE_CHOICES
-# listed source files), and which candidate tests relate to a change.
-MAX_SUGGESTED_FILES = 4
-MAX_FILE_CHOICES = 1500
-MAX_TEST_NAMES = 8
-HOME_TEST_FILE = "existing_tests_of_the_file_the_new_test_was_added_to"
-USER_TEST = "test_of_code_that_uses_the_change"
-# Test names inside a test file, for a model choosing related tests: it('...') / test('...'),
-# def test_x, and [Fact] / [Test] / @Test methods.
-_TEST_NAMES = re.compile(
-    r"""\b(?:it|test)\s*\(\s*["'`]([^"'`\n]{3,120})"""
-    r"""|\bdef\s+(test_\w+)"""
-    r"""|(?:\[(?:Fact|Theory|Test|TestMethod)[^\]]*\]|@Test)\s*(?:public\s+)?(?:async\s+)?"""
-    r"""(?:Task|void)\s+(\w+)"""
-)
 MAX_IMPORTED_NAMES = 12
 
 
@@ -455,8 +434,6 @@ class _FixRun:
         # The files expected to change (ticket, brief, history), without the related files shown
         # beside them: complexity and restricted areas are judged on these.
         self.scope_files: list[str] = []
-        # The accepted reproduction test asserts an internal step, not the reported result.
-        self.indirect_test = False
         self._clear_candidate()
 
     def _clear_candidate(self) -> None:
@@ -464,8 +441,6 @@ class _FixRun:
         self.patch: Patch | None = None
         self.candidate_sha: str | None = None
         self.candidate_test: CheckEvidence | None = None
-        # (path, the model's reason, failure) of existing tests that contradict the ticket.
-        self.contradicted: list[tuple[str, str, str]] = []
         self.suite: CheckEvidence | None = None
         self.regression = Regression(
             status="NOT_RUN", historical_found=False, detail="No candidate reached this step."
@@ -660,52 +635,8 @@ class _FixRun:
                     resolved_paths=chosen,
                 )
         self.scope_files = list(chosen)
-        chosen = [*chosen, *self._suggested_files(ticket, chosen, eligible)]
         related = self._referrers(chosen, eligible)
         return self._read([*chosen, *related, *self._imports([*chosen, *related], eligible)])
-
-    def _suggested_files(
-        self, ticket: TicketText, chosen: Sequence[str], eligible: Sequence[str]
-    ) -> list[str]:
-        """Files a model suggests reading, beside the rules' choice: picked from the repository's
-        source files near it, so a defect in code no past fix touched can still be found. Only
-        listed paths are accepted; without a model the rules alone decide."""
-        repo, _ = self._ready()
-        room = min(MAX_SUGGESTED_FILES, repo.limits.max_context_files - len(chosen) - 1)
-        if room <= 0:
-            return []
-        roots = {path.split("/", 1)[0] for path in chosen if "/" in path}
-        kinds = {_kind(path) for path in chosen}
-        pool = [
-            path
-            for path in eligible
-            if path not in chosen
-            and regression_rules.is_code(path)
-            and not (repo.test_data_paths and matches(path, repo.test_data_paths))
-            and (not roots or path.split("/", 1)[0] in roots)
-            and (not kinds or _kind(path) in kinds)
-        ]
-        pool.sort(
-            key=lambda path: (-max((_shared_folders(path, c) for c in chosen), default=0), path)
-        )
-        pool = pool[:MAX_FILE_CHOICES]
-        facts = [
-            "Files already chosen: " + (", ".join(chosen) if chosen else "none") + ".",
-        ]
-        context = context_for(ticket.title, ticket.text, facts, (), (), pool)
-        picked = select(
-            self.gateway, self.ledger, TaskKind.FILE_SELECTION, context, set(pool), room
-        )
-        if picked is None:
-            _log().info("fix_file_suggestions_unavailable")
-            return []
-        _log().info(
-            "fix_files_suggested",
-            paths=[path for path, _ in picked],
-            reasons=[reason for _, reason in picked],
-            choices=len(pool),
-        )
-        return [path for path, _ in picked]
 
     def _imports(self, shown: Sequence[str], eligible: Sequence[str]) -> list[str]:
         """The local files the shown code imports: the store a screen reads, the service it calls.
@@ -797,59 +728,12 @@ class _FixRun:
         ordered = order_tests([file.path for file in code], tests)
         return self._read(ordered[:MAX_EXISTING_TESTS])
 
-    def _home_test_file(
-        self, proposal: TestProposal, code: Sequence[CodeFile], files: Sequence[str]
-    ) -> CodeFile | None:
-        """The existing test file a new test file should have gone into, or None.
-
-        A new test file is refused when the code it exercises already has a test file: the
-        nearest test of the same kind named after a file the test imports, preferring the files
-        closest to the defect. Imports name files in JavaScript, TypeScript and Vue; for other
-        languages only the prompt asks for the existing file.
-        """
-        repo, workspace = self._ready()
-        if proposal.path in files:
-            return None  # it is already an existing file
-        known = set(files)
-        imported = [
-            path
-            for path in local_imports(proposal.path, proposal.content, known)
-            if not matches(path, repo.test_file_patterns)
-            and not (repo.test_data_paths and matches(path, repo.test_data_paths))
-        ]
-        if not imported:
-            return None
-        position = {file.path: index for index, file in enumerate(code)}
-        imported.sort(key=lambda path: position.get(path, len(code)))
-        for source in imported:
-            name = regression_rules.stem(source)
-            if len(name) < MIN_REFERENCE_NAME or name in GENERIC_NAMES:
-                continue
-            homes = [
-                path
-                for path in known
-                if regression_rules.stem(path) == name
-                and _kind(path) == _kind(source)
-                and is_safe_path(path)
-                and matches(path, repo.test_file_patterns)
-                and matches(path, repo.new_test_paths)
-            ]
-            if not homes:
-                continue
-            homes.sort(key=lambda path: (-_shared_folders(path, source), path))
-            content = workspace.read(homes[0], "base")
-            if content is None or len(content.encode("utf-8")) > repo.limits.max_file_bytes:
-                return None  # too large to return whole; a new file is the only way
-            return CodeFile(path=homes[0], content=content)
-        return None
-
     def _test_examples(self, code: Sequence[CodeFile], tests: Sequence[str]) -> list[CodeFile]:
-        """The most useful existing tests: the model sees this project's conventions, and the
-        test file of the code under test, which a new test is added to."""
+        """The two most useful existing tests, so the model sees this project's conventions."""
         ordered = order_tests([file.path for file in code], tests)
         kinds = {_kind(file.path) for file in code}
         same_kind = [path for path in ordered if _kind(path) in kinds]
-        return self._read((same_kind or ordered)[:MAX_EXISTING_TESTS])
+        return self._read((same_kind or ordered)[:2])
 
     def _test_data(self, code: Sequence[CodeFile], shown: Collection[str]) -> list[CodeFile]:
         """The project's own mock or test data for what the shown code imports (test_data_paths):
@@ -981,7 +865,6 @@ class _FixRun:
         test_id: str | None = None,
         expected: ExpectedFailure | None = None,
         overlay: Mapping[str, str] | None = None,
-        test_paths: Sequence[str] = (),
     ) -> tuple[Observation, Path]:
         """Run one allowlisted recipe on a fresh export of a tree's commit and record what
         happened. ``overlay`` are files that are not in the commit (the uncommitted reproduction
@@ -1005,7 +888,6 @@ class _FixRun:
             repo.recipes[recipe],
             {
                 "test_path": test_path or "",
-                "test_paths": ";".join(test_paths),
                 "test_name": PurePosixPath(test_path or "").name.split(".", 1)[0],
                 "junit": relative,
                 "output": relative,
@@ -1014,7 +896,6 @@ class _FixRun:
         runner = repo.runner
         timeout = {
             "test_file": runner.test_timeout_seconds,
-            "test_files": runner.suite_timeout_seconds,
             "suite": runner.suite_timeout_seconds,
             "benchmark": runner.benchmark_timeout_seconds,
         }[recipe]
@@ -1113,7 +994,7 @@ class _FixRun:
         self, ticket: TicketText, code: Sequence[CodeFile], files: Sequence[str]
     ) -> TestProposal | None:
         """A test that is red on the baseline for the predicted reason, or None with the reason."""
-        repo, workspace = self._ready()
+        repo, _ = self._ready()
         tests = order_tests(
             [file.path for file in code],
             [p for p in files if is_safe_path(p) and matches(p, repo.test_file_patterns)],
@@ -1142,8 +1023,6 @@ class _FixRun:
                 repo,
                 set(files),
                 self._tier(attempt),
-                # The complete file at the baseline: a test may be added to an existing test file.
-                lambda path: workspace.read(path, "base"),
             )
             if isinstance(proposal, Declined):
                 # The code only: an "unavailable" reason is model text and is not logged.
@@ -1162,23 +1041,6 @@ class _FixRun:
                             reproducibility="INCONCLUSIVE", detail=proposal.detail
                         )
                     break
-                if (
-                    proposal.code == REPRODUCTION_UNAVAILABLE
-                    and attempt < repo.limits.max_test_attempts
-                ):
-                    # Seen live: the model answered "cannot be reproduced" and the run ended at
-                    # once, with attempts unused. It is asked for another scenario first; the
-                    # last attempt's answer stands, and a red is still never invented.
-                    feedback.append(
-                        f"Attempt {attempt} answered that the defect cannot be reproduced. "
-                        "Before giving up, try a different scenario: test the smallest unit that "
-                        "shows the reported behaviour (one function or component instead of a "
-                        "whole screen or flow), start from another state, or call the code path "
-                        "directly, with the mocks and test data shown. Say what you assumed in "
-                        "limitations. Answer reproducible=false again only if no such test can be "
-                        "written from the files shown."
-                    )
-                    continue
                 if proposal.code == REPRODUCTION_UNAVAILABLE:
                     # 8.6.2: say so and escalate; never invent a red.
                     self.reproduction = Reproduction(
@@ -1199,34 +1061,6 @@ class _FixRun:
                     )
                 )
                 feedback.append(f"Attempt {attempt} was not run: {proposal.detail}")
-                continue
-            home = self._home_test_file(proposal, code, files)
-            if home is not None:
-                # A test of code that already has a test file belongs in that file. The file is
-                # shown, so the next attempt can add the test to it.
-                detail = (
-                    f"The code this test exercises already has a test file: {home.path}. Add the "
-                    "test to that file (shown in full): return the complete file in "
-                    "test_content with every existing line unchanged and your test added at the "
-                    "end, and use that path as test_path."
-                )
-                _log().warning(
-                    "fix_reproduction_test_declined",
-                    attempt=attempt,
-                    reason=TEST_INVALID,
-                    model_unavailable=False,
-                    detail=detail,
-                )
-                self.attempts.append(
-                    Attempt(
-                        iteration=attempt,
-                        stage="reproduction_test",
-                        result="test_rejected",
-                        detail=detail,
-                    )
-                )
-                feedback.append(f"Attempt {attempt} was not run: {detail}")
-                context_code = [*(f for f in context_code if f.path != home.path), home]
                 continue
             self.generation.update(
                 test_provider=proposal.result.provider,
@@ -1283,7 +1117,6 @@ class _FixRun:
                 execution_ids=last.execution_ids,
             )
             if outcome == "FAIL_TARGET_SIGNATURE":
-                self.indirect_test = not proposal.direct
                 return proposal
             if outcome in ("FLAKY", "TIMEOUT"):
                 break  # another test would not make this one trustworthy
@@ -1298,33 +1131,12 @@ class _FixRun:
                 # predicted wording differed, and the model, told only to match its prediction,
                 # wrote another test. It may keep the test: the corrected prediction is then
                 # checked against a fresh run like any other, so nothing is accepted unrun.
-                # The test is given back to the model (each attempt starts without the earlier
-                # one, so it could not return unchanged what it no longer saw), and the feedback
-                # names the predicted texts that were not in the failure.
-                context_code = [
-                    *(file for file in context_code if file.path != proposal.path),
-                    CodeFile(path=proposal.path, content=proposal.content),
-                ]
-                absent = [
-                    text
-                    for text in proposal.expected.message_contains
-                    if text.lower() not in last.signature.lower()
-                ]
                 feedback.append(
                     f"Attempt {attempt} ran on the current code and failed the same way on every "
-                    f"run: {last.signature}. "
-                    + (
-                        "These predicted texts were not in that failure: "
-                        + ", ".join(f'"{text}"' for text in absent)
-                        + ". "
-                        if absent
-                        else ""
-                    )
-                    + "If this failure IS the defect the ticket reports, return that test "
-                    f"unchanged: it is shown as file:{proposal.path} (test_id: "
-                    f"{proposal.test_id}). Copy its test_path, test_id and test_content exactly, "
-                    "and in expected_failure use only text that appears in the failure above; it "
-                    "will be run again. If it is not the reported defect, write a different test."
+                    f"run: {last.signature}. If this failure IS the defect the ticket reports, "
+                    "return the same test unchanged (same test_path, test_id and test_content) "
+                    "with expected_failure taken from this failure; it will be run again. If it "
+                    "is not the reported defect, write a different test."
                 )
             else:
                 feedback.append(
@@ -1370,10 +1182,10 @@ class _FixRun:
         if existing:
             facts = (
                 *facts,
-                "These existing tests of this code are shown read only: "
+                "These existing tests of this code are shown read only. They describe behaviour "
+                "that must not change; the fix must keep them passing: "
                 + ", ".join(file.path for file in existing)
-                + ". Keep them passing, unless one expects the behaviour the ticket reports as a "
-                "defect: then fix the defect and list that test in conflicting_tests.",
+                + ".",
             )
             _log().info("fix_existing_tests_shown", paths=[file.path for file in existing])
         context_code = [*code, CodeFile(path=test.path, content=test.content), *existing]
@@ -1528,19 +1340,6 @@ class _FixRun:
                 unavailable=sum(1 for item in replayed if item.availability == "UNAVAILABLE"),
                 not_passing=[item.test_path for item in replayed if item.outcome != "PASS"],
             )
-            self.contradicted = self._contradicted(proposal)
-            if self.contradicted:
-                # Not a regression to repair: the tests that fail were named with the fix, before
-                # anything ran, as expecting the defect. It is reported, never called green.
-                paths = ", ".join(path for path, _, _ in self.contradicted)
-                self.regression = self.regression.model_copy(
-                    update={
-                        "status": "INCONCLUSIVE",
-                        "detail": f"{len(self.contradicted)} existing test(s) fail with the fix "
-                        f"and are stated to expect the reported defect: {paths}.",
-                    }
-                )
-                _log().warning("fix_existing_test_contradicts_ticket", tests=paths)
             if self.regression.status == "FAIL":
                 tested = True
                 self._attempt(iteration, REGRESSION_FAILED, self.regression.detail)
@@ -1564,18 +1363,7 @@ class _FixRun:
                 ]
                 context_code.extend(self._read(missing[:MAX_EXISTING_TESTS]))
                 continue
-            suite_status = self._suite(manifest)
-            if suite_status == "FAIL" and self.contradicted and self.suite is not None:
-                # The suite holds the tests named as expecting the defect, so it fails with them.
-                # That is no reason for a repair round; what else fails in it was not separated.
-                suite_status = "INCONCLUSIVE"
-                self.suite = self.suite.model_copy(update={"outcome": "INCONCLUSIVE"})
-                self.limitations.append(
-                    "The project's suite fails with this fix. It contains the existing test(s) "
-                    "named as expecting the defect; whether anything else in it fails was not "
-                    "separated."
-                )
-            if suite_status == "FAIL":
+            if self._suite(manifest) == "FAIL":
                 tested = True
                 signature = self.suite.failure_signature if self.suite else None
                 self._attempt(iteration, SUITE_FAILED, signature or "")
@@ -1676,25 +1464,13 @@ class _FixRun:
         found = regression_rules.discover(
             fixes, baseline, changed, repo, exclude={reproduction_test}, limit=False
         )
-        if reproduction_test in baseline:
-            # The new test was added to an existing test file: the tests that were already in
-            # that file are replayed first, whatever else is found. On the baseline that file
-            # is the original one, so a test of it that the change broke shows as broken.
-            found.insert(
-                0,
-                regression_rules.RegressionCandidate(
-                    test_path=reproduction_test,
-                    tier="explicit",
-                    discovery_method=HOME_TEST_FILE,
-                    ticket_id=None,
-                    fix_reference=None,
-                    available=True,
-                ),
+        candidates = found[: repo.limits.max_regression_tests]
+        if len(found) > len(candidates):
+            self.limitations.append(
+                f"{len(found) - len(candidates)} more regression test(s) of this area were "
+                f"found but not run (the limit is {repo.limits.max_regression_tests})."
             )
-        found += self._tests_of_users(found, changed, baseline, reproduction_test)
-        candidates = self._related_tests(ticket, found, changed)
         tests: list[RegressionTest] = []
-        batch = self._batch(candidates, manifest)
         for candidate in candidates:
             common = {
                 "test_path": candidate.test_path,
@@ -1706,17 +1482,6 @@ class _FixRun:
             if not candidate.available or not is_safe_path(candidate.test_path):
                 tests.append(
                     RegressionTest(availability="UNAVAILABLE", outcome="UNAVAILABLE", **common)
-                )
-                continue
-            if batch is not None:
-                # Every test of the batch passed in that one run: it stands for each of them.
-                tests.append(
-                    RegressionTest(
-                        availability="AVAILABLE",
-                        outcome="PASS",
-                        execution_ids=[batch],
-                        **common,
-                    )
                 )
                 continue
             verdict = self._checked(
@@ -1745,155 +1510,6 @@ class _FixRun:
                 )
             )
         return regression_rules.summarize(tests)
-
-    def _tests_of_users(
-        self,
-        found: Sequence[regression_rules.RegressionCandidate],
-        changed: Sequence[str],
-        baseline: Collection[str],
-        reproduction_test: str,
-    ) -> list[regression_rules.RegressionCandidate]:
-        """Tests of the code that uses the changed files: the screen that renders a changed
-        component, the class that calls a changed service. They exercise the change through
-        its users, whatever the history says."""
-        repo, workspace = self._ready()
-        known = {candidate.test_path for candidate in found} | {reproduction_test}
-        tests = [path for path in baseline if matches(path, repo.test_file_patterns)]
-        added: list[regression_rules.RegressionCandidate] = []
-        for path in changed:
-            name = regression_rules.stem(path)
-            if len(name) < MIN_REFERENCE_NAME or name in GENERIC_NAMES:
-                continue
-            users = [
-                user
-                for user in workspace.referrers(PurePosixPath(path).name.split(".", 1)[0])
-                if user != path
-                and regression_rules.is_code(user)
-                and not matches(user, repo.test_file_patterns)
-            ]
-            if len(users) > MAX_REFERRERS:
-                continue  # a name that many files use says little about this change
-            for user in users:
-                subject = regression_rules.stem(user)
-                for test in tests:
-                    if (
-                        test not in known
-                        and regression_rules.stem(test) == subject
-                        and _kind(test) == _kind(user)
-                        and is_safe_path(test)
-                    ):
-                        known.add(test)
-                        added.append(
-                            regression_rules.RegressionCandidate(
-                                test_path=test,
-                                tier="inferred",
-                                discovery_method=USER_TEST,
-                                ticket_id=None,
-                                fix_reference=None,
-                                available=True,
-                            )
-                        )
-        return added
-
-    def _related_tests(
-        self,
-        ticket: TicketText,
-        found: Sequence[regression_rules.RegressionCandidate],
-        changed: Sequence[str],
-    ) -> list[regression_rules.RegressionCandidate]:
-        """The candidates to run: always the tests of the changed files and the file the new
-        test joined; of the rest, the ones a model judges related to this change. A test only
-        changed together with these files in a past fix may test something else entirely.
-        Without a model, the rules' order and the limit decide, as before."""
-        repo, workspace = self._ready()
-        limit = repo.limits.max_regression_tests
-        subjects = {regression_rules.stem(path) for path in changed}
-        must = [
-            c
-            for c in found
-            if c.discovery_method == HOME_TEST_FILE
-            or regression_rules.stem(c.test_path) in subjects
-        ]
-        rest = [c for c in found if c not in must]
-        optional = [c for c in rest if c.available]  # a model only chooses among runnable ones
-        room = limit - len(must)
-        picked = None
-        if room > 0 and optional:
-            choices = []
-            for candidate in optional:
-                content = workspace.read(
-                    candidate.test_path, "base", limit=repo.limits.max_file_bytes
-                )
-                names = [
-                    next(group for group in match.groups() if group)
-                    for match in _TEST_NAMES.finditer(content or "")
-                ][:MAX_TEST_NAMES]
-                found_by = candidate.discovery_method.replace("_", " ")
-                choices.append(
-                    f"{candidate.test_path} | found as: {found_by} | tests: "
-                    + ("; ".join(names) if names else "(names not read)")
-                )
-            patch = self.patch
-            facts = [
-                "Changed files: " + ", ".join(changed) + ".",
-                *([f"Cause of the defect: {patch.cause}"] if patch and patch.cause else []),
-                *([f"The change: {patch.summary}"] if patch and patch.summary else []),
-            ]
-            context = context_for(ticket.title, ticket.text, facts, (), (), choices)
-            picked = select(
-                self.gateway,
-                self.ledger,
-                TaskKind.TEST_SELECTION,
-                context,
-                {candidate.test_path for candidate in optional},
-                room,
-            )
-        if picked is None:
-            chosen = [*must, *rest][:limit]
-            left = len(must) + len(rest) - len(chosen)
-            if left > 0:
-                self.limitations.append(
-                    f"{left} more regression test(s) of this area were found but not run (the "
-                    f"limit is {limit})."
-                )
-            return chosen
-        order = [path for path, _ in picked]
-        related = sorted(
-            (c for c in optional if c.test_path in order), key=lambda c: order.index(c.test_path)
-        )
-        _log().info(
-            "fix_related_tests_selected",
-            kept=[c.test_path for c in must],
-            picked=order,
-            reasons=[reason for _, reason in picked],
-            not_related=len(optional) - len(related),
-        )
-        if len(optional) > len(related):
-            self.limitations.append(
-                f"{len(optional) - len(related)} other candidate test(s) were judged unrelated to "
-                "this change by a model and not run."
-            )
-        return [*must, *related][:limit]
-
-    def _batch(
-        self, candidates: Sequence[regression_rules.RegressionCandidate], manifest: str
-    ) -> str | None:
-        """One run of all the candidate tests, when the policy has a test_files recipe: the run's
-        id if every test in it passed, else None and each test is run alone to tell which one
-        failed."""
-        repo, _ = self._ready()
-        paths = [c.test_path for c in candidates if c.available and is_safe_path(c.test_path)]
-        if "test_files" not in repo.recipes or len(paths) < 2:
-            return None
-        observed, _ = self._run("regression", "candidate", "test_files", manifest, test_paths=paths)
-        passed = observed.outcome == "PASS"
-        (_log().info if passed else _log().warning)(
-            "fix_regression_batch_run",
-            execution_id=observed.execution_id,
-            tests=len(paths),
-            outcome=observed.outcome,
-        )
-        return observed.execution_id if passed else None
 
     def _suite(self, manifest: str) -> str | None:
         """S11-10 in the sandbox: the touched project's suite on the candidate."""
@@ -1975,45 +1591,11 @@ class _FixRun:
             }
         )
 
-    def _contradicted(self, proposal: PatchProposal) -> list[tuple[str, str, str]]:
-        """The existing tests this candidate broke, when every one of them was named with the fix
-        as expecting the defect the ticket reports; else nothing, and they are regressions.
-
-        A test is not proof: it can expect the very behaviour a ticket calls a defect. Seen live,
-        a fix was bent to keep such a test passing and left the defect in place.
-        """
-        broke = [
-            item
-            for item in self.regression.tests
-            if item.outcome in _FAILED and item.baseline_outcome == "PASS"
-        ]
-        stated = dict(proposal.conflicts)
-        if not broke or any(item.test_path not in stated for item in broke):
-            return []
-        return [
-            (item.test_path, stated[item.test_path], item.failure_signature or "") for item in broke
-        ]
-
     def _settle(self) -> Verdict:
         """The verdict for a candidate that is green on the new test and broke nothing known."""
         unclear: list[str] = []
-        if self.contradicted:
-            unclear.append(EXISTING_TEST_CONTRADICTS)
-            for path, reason, _ in self.contradicted:
-                self.limitations.append(
-                    f"The existing test {path} fails with this fix. The model states that it "
-                    f"expects the behaviour the ticket reports as a defect: {reason} An engineer "
-                    "decides whether that test needs updating; until then the fix is not verified."
-                )
-        elif self.regression.status == "INCONCLUSIVE":
+        if self.regression.status == "INCONCLUSIVE":
             unclear.append(REGRESSION_INCONCLUSIVE)
-        if self.indirect_test:
-            unclear.append(REPRODUCTION_INDIRECT)
-            self.limitations.append(
-                "The new test checks an internal step of the code, not the result the ticket "
-                "reports. It shows that step changed; it does not prove that what the ticket "
-                "describes is fixed."
-            )
         if not self.regression.historical_found:
             self.limitations.append(
                 f"{regression_rules.NOT_FOUND}: no runnable regression test linked to a past "

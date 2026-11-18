@@ -12,7 +12,8 @@ namespace VisionIQ.Api.Features.Briefs;
 /// a reason, and the run's result stays stored either way.
 /// </summary>
 public sealed class BriefPublisher(
-    IBriefPublicationStore store, IBriefCommentPublisher comments, PickupPolicy? policy, ILogger<BriefPublisher> logger)
+    IBriefPublicationStore store, IBriefCommentPublisher comments, PickupPolicy? policy, ILogger<BriefPublisher> logger,
+    bool offerStarter = false)
 {
     public const int MaxAttempts = 8;
     private static readonly TimeSpan Lease = TimeSpan.FromMinutes(2);
@@ -65,7 +66,7 @@ public sealed class BriefPublisher(
             ?? target.ProjectId;
         try
         {
-            var html = BriefCommentRenderer.Render(target, brief);
+            var html = BriefCommentRenderer.Render(target, brief, offerStarter);
             var commentId = await comments.PublishAsync(
                 project, workItemId, html, BriefCommentRenderer.Marker(target.RunId), publication.Attempt > 1, cancellationToken);
             var elapsed = await store.MarkPublishedAsync(

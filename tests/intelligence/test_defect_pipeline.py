@@ -648,9 +648,6 @@ def test_a_run_logs_each_stage_with_ids_and_codes(tmp_path: Path) -> None:
     stages = [e["event"] for e in events if e["event"] not in ("fix_execution", "llm_call")]
     assert stages == [
         "fix_started",
-        # No Gemini in this test: the file suggestion is skipped and the rules alone decide.
-        "llm_not_routed",
-        "fix_file_suggestions_unavailable",
         "fix_related_files_added",
         "fix_workspace_ready",
         "fix_test_context",
@@ -803,14 +800,7 @@ def test_a_stable_assertion_with_other_wording_may_be_kept_with_a_corrected_pred
     hint = seen[1].feedback[-1]
     assert "failed the same way on every run" in hint
     assert "captured payment was retried" in hint
-    assert f"return that test unchanged: it is shown as file:{TEST_PATH}" in hint
-    # Seen live: told to return the test unchanged, the model answered that it had not been given
-    # it, and wrote a new one each time. The earlier test is now in the next attempt's context,
-    # and the feedback names the predicted text that was not in the failure.
-    shown = {file.path: file.content for file in seen[1].code}
-    assert shown[TEST_PATH] == TEST_ANSWER["test_content"]
-    assert TEST_PATH not in {file.path for file in seen[0].code}
-    assert 'These predicted texts were not in that failure: "was refunded"' in hint
+    assert "return the same test unchanged" in hint
     # The corrected prediction was checked against a fresh run like any other, then fixed.
     assert result.reproduction.reproducibility == "REPRODUCED"
     assert result.verdict == "VERIFIED"
@@ -827,8 +817,7 @@ def test_a_crash_is_not_offered_to_be_kept(tmp_path: Path) -> None:
     run(tmp_path, model, behaviour)
 
     assert "The test must fail with the failure you predict." in seen[1].feedback[-1]
-    assert "return that test unchanged" not in seen[1].feedback[-1]
-    assert TEST_PATH not in {file.path for file in seen[1].code}  # a crashed test is not kept
+    assert "return the same test unchanged" not in seen[1].feedback[-1]
 
 
 def test_why_a_test_was_refused_is_logged(tmp_path: Path) -> None:
@@ -854,7 +843,7 @@ def test_the_existing_tests_of_the_code_are_shown_before_the_first_fix(tmp_path:
 
     first_fix = model.tasks[1].user_prompt
     assert f"file:{OLD_TEST}" in first_fix  # the existing test of retry_policy.py, read only
-    assert "Keep them passing, unless one expects the behaviour the ticket reports" in first_fix
+    assert "must keep them passing" in first_fix
     assert result.verdict == "VERIFIED"
 
 
@@ -867,126 +856,4 @@ def test_a_test_the_fix_broke_is_shown_to_the_next_attempt(tmp_path: Path, monke
 
     assert f"file:{OLD_TEST}" not in model.tasks[1].user_prompt
     assert f"file:{OLD_TEST}" in model.tasks[2].user_prompt  # shown after it broke
-    assert result.verdict == "VERIFIED"
-
-
-# ---- The new test joins the existing test file; a decline is asked for another scenario ---------
-
-DECLINE = {
-    "reproducible": False,
-    "unavailable_reason": "No test could be written.",
-    "limitations": [],
-}
-
-
-def test_a_test_added_to_the_existing_test_file_is_proven_and_the_old_tests_replayed_first(
-    tmp_path: Path,
-) -> None:
-    demo = make_demo(tmp_path)
-    before = (demo.repo / OLD_TEST).read_text(encoding="utf-8")
-    added = {
-        **TEST_ANSWER,
-        "test_path": OLD_TEST,
-        "test_content": before
-        + "\n\ndef test_captured_payment_is_not_retried():\n"
-        + "    assert False, 'captured payment was retried'\n",
-    }
-
-    def behaviour(call: Call):
-        # One report per file: the new test's result where the file holds it and it fails,
-        # otherwise the result of the tests that were already in the file.
-        if call.test_path != OLD_TEST:
-            return honest(call)
-        old_tests = honest(call)
-        if TEST_ID not in call.source(OLD_TEST):
-            return old_tests  # the original file: the baseline of the regression replay
-        new_test = honest(replace(call, test_path=TEST_PATH))
-        return new_test if str(new_test) != "pass" else old_tests
-
-    result = run(tmp_path, [added, SAFE_FIX], behaviour, demo=demo)
-
-    assert result.verdict == "VERIFIED"
-    assert result.reproduction.test.path == OLD_TEST
-    first = result.regression.tests[0]
-    assert (first.test_path, first.outcome) == (OLD_TEST, "PASS")
-    assert first.discovery_method == "existing_tests_of_the_file_the_new_test_was_added_to"
-
-
-def test_a_decline_is_asked_for_another_scenario_before_the_run_gives_up(tmp_path: Path) -> None:
-    # Seen live: the model answered "cannot be reproduced" and the run ended with attempts unused.
-    seen, model = _scripted([DECLINE, TEST_ANSWER, SAFE_FIX])
-
-    result = run(tmp_path, model)
-
-    assert "try a different scenario" in seen[1].feedback[-1]
-    assert result.verdict == "VERIFIED" and result.reason_codes == []
-
-
-def test_a_decline_on_every_attempt_still_ends_unavailable(tmp_path: Path) -> None:
-    model = claude(DECLINE)
-
-    result = run(tmp_path, gateway_for(model))
-
-    assert result.reproduction.reproducibility == "UNAVAILABLE"
-    assert result.reason_codes == ["reproduction_unavailable"]
-    assert len(model.tasks) == 2  # every attempt was used, and no more
-
-
-# ---- Identify the defect properly: a test is evidence, not proof --------------------------------
-
-
-def test_a_test_of_an_internal_step_cannot_give_a_verified_fix(tmp_path: Path) -> None:
-    # Seen live: the new test asserted an internal step, the fix satisfied the step, the result
-    # the ticket reported stayed as it was, and the run still said "verified".
-    indirect = {**TEST_ANSWER, "checks": "internal_step"}
-
-    result = run(tmp_path, [indirect, SAFE_FIX])
-
-    assert (result.state, result.verdict) == ("PARTIAL", "INCONCLUSIVE")
-    assert result.reason_codes == ["reproduction_indirect"]
-    assert result.reproduction.reproducibility == "REPRODUCED"  # the step is still shown
-    assert any("internal step" in limit for limit in result.limitations)
-
-
-def test_a_test_that_does_not_say_what_it_checks_is_not_taken_as_direct(tmp_path: Path) -> None:
-    unstated = {key: value for key, value in TEST_ANSWER.items() if key != "checks"}
-
-    result = run(tmp_path, [unstated, SAFE_FIX])
-
-    assert result.verdict == "INCONCLUSIVE" and "reproduction_indirect" in result.reason_codes
-
-
-def test_an_existing_test_that_expects_the_defect_is_named_not_worked_around(
-    tmp_path: Path,
-) -> None:
-    # Seen live: an existing test expected the behaviour the ticket called a defect, and the fix
-    # was bent to keep it passing. Named with the fix, it is reported and no repair is asked for.
-    named = {
-        **UNSAFE_FIX,
-        "conflicting_tests": [
-            {"path": OLD_TEST, "reason": "It expects the retry the ticket rejects."}
-        ],
-    }
-    model = claude(TEST_ANSWER, named)
-
-    result = run(tmp_path, gateway_for(model), honest)
-
-    assert len(model.tasks) == 2  # the test, one fix: no repair round against that test
-    assert (result.state, result.verdict) == ("PARTIAL", "INCONCLUSIVE")
-    # The demo's suite contains that test, so it is reported as unclear too, not as a failure.
-    assert result.reason_codes == ["existing_test_contradicts_ticket", "suite_inconclusive"]
-    assert result.regression.status == "INCONCLUSIVE"
-    assert any(
-        OLD_TEST in limit and "It expects the retry the ticket rejects." in limit
-        for limit in result.limitations
-    )
-
-
-def test_a_broken_test_that_was_not_named_is_still_a_regression(tmp_path: Path) -> None:
-    other = {**UNSAFE_FIX, "conflicting_tests": [{"path": "tests/test_other.py", "reason": "x"}]}
-    model = claude(TEST_ANSWER, other, SAFE_FIX)
-
-    result = run(tmp_path, gateway_for(model), honest)
-
-    assert "broke tests that passed before" in model.tasks[2].user_prompt
     assert result.verdict == "VERIFIED"

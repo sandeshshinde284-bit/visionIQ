@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from app.llm.types import CallRole, DataClassification, ModelProvider, TaskKind
 
-ROUTING_REVISION = "routing-2026-11-10.2"
+ROUTING_REVISION = "routing-2026-11-16.1"
 
 # S08-10: the only reasons a brief gets a second opinion.
 ESCALATE_EVIDENCE_CONFLICT = "evidence_conflict"
@@ -42,11 +42,9 @@ ROUTING_TABLE: Mapping[TaskKind, Route] = {
     # Gemini reviews code only if a benchmark justifies it (not yet): no escalation, no fallback.
     TaskKind.REPRODUCTION_TEST: Route("claude"),
     TaskKind.CODE_FIX: Route("claude"),
-    # Choosing among listed files and tests: cheap reading at scale. No fallback: when Gemini is
-    # not available, VisionIQ's own rules choose, so a model outage never blocks a run.
-    TaskKind.FILE_SELECTION: Route("gemini"),
-    TaskKind.TEST_SELECTION: Route("gemini"),
     TaskKind.ENHANCEMENT_APPROACH: Route("gemini", "claude", frozenset({"cross_repo_contract"})),
+    # ENH-02 (PROP-05): code leaves the process, as for a fix, so the same single route.
+    TaskKind.STARTER_SCAFFOLD: Route("claude"),
     TaskKind.KNOWLEDGE_EXTRACTION: Route("gemini", "claude", frozenset({"unresolved_cluster"})),
     # SQL and verified outcomes first; no model by default.
     TaskKind.ADVICE_ANALYTICS: Route(None),

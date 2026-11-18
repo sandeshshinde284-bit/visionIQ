@@ -59,7 +59,8 @@ public static class BriefCommentRenderer
     public static string Marker(Guid runId) => $"{MarkerPrefix} run={runId:D}";
 
     /// <summary>Renders the comment. <paramref name="brief"/> is null when the run has no stored brief.</summary>
-    public static string Render(BriefTarget target, BriefDocument? brief)
+    /// <param name="offerStarter">ENH-02: say how to ask for a starter pull request (published guidance only).</param>
+    public static string Render(BriefTarget target, BriefDocument? brief, bool offerStarter = false)
     {
         ArgumentNullException.ThrowIfNull(target);
         var html = new StringBuilder();
@@ -125,6 +126,14 @@ public static class BriefCommentRenderer
         }
 
         AppendLimits(html, brief);
+        if (offerStarter && brief is { IsEnhancementGuidance: true } && target.ResultState == "PUBLISHED")
+        {
+            html.Append("<p><b>Want a starter pull request?</b> Reply on this ticket with a line ")
+                .Append("<code>").Append(Starters.StarterCommand.Text).Append("</code>. ")
+                .Append("If the change is understood well enough, VisionIQ opens a draft pull request with a scaffold to begin from. ")
+                .Append("It is optional: nothing is built or tested, and the bot cannot approve or merge it.</p>");
+        }
+
         AppendFooter(html, target, canRateAdvice);
         return Finish(html, target);
     }

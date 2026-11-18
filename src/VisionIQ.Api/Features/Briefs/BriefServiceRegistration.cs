@@ -39,7 +39,11 @@ public static class BriefServiceRegistration
             provider.GetRequiredService<IBriefPublicationStore>(),
             provider.GetRequiredService<IBriefCommentPublisher>(),
             policy,
-            provider.GetRequiredService<ILogger<BriefPublisher>>()));
+            provider.GetRequiredService<ILogger<BriefPublisher>>(),
+            // ENH-02: published enhancement guidance says how to ask for a starter pull request, when asking is
+            // how one is created (not in auto mode, where it is already on its way) and it can be delivered.
+            offerStarter: provider.GetService<Starters.StarterPullRequestOptions>() is { Mode: Starters.StarterPullRequestMode.OnRequest } &&
+                          provider.GetService<Fixes.FixPullRequestOptions>() is { Mode: not Fixes.FixPullRequestMode.Off }));
         services.AddHostedService<BriefPublishWorker>();
         return options;
     }

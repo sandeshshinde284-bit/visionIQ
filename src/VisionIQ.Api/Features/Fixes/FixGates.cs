@@ -42,12 +42,33 @@ public static class FixGates
         ("patch_policy", "visioniq/patch-policy"),
     ];
 
+    /// <summary>
+    /// The gates of a stored result as the API will show them. ENH-02: nothing is built or run for a starter,
+    /// so whatever the stored document says, no gate of a starter other than the patch policy is ever passed.
+    /// </summary>
+    public static IReadOnlyList<FixGate> For(FixDocument fix)
+    {
+        ArgumentNullException.ThrowIfNull(fix);
+        var gates = fix.Gates ?? [];
+        return fix.IsStarter
+            ? [.. gates.Where(gate => gate is not null).Select(gate => gate.Status == Pass && gate.Name != "patch_policy"
+                ? gate with { Status = NotRun, Detail = "A starter scaffold is not built or tested." }
+                : gate)]
+            : gates;
+    }
+
     /// <summary>The gate as it stands for <paramref name="headSha"/>: a result for another commit is stale.</summary>
     public static FixGate Effective(FixGate gate, string? headSha)
     {
         ArgumentNullException.ThrowIfNull(gate);
         if (headSha is null || string.Equals(gate.CommitSha, headSha, StringComparison.OrdinalIgnoreCase))
         {
+            return gate;
+        }
+
+        if (gate.Status == NotApplicable)
+        {
+            // Not a measurement of any commit: a check that does not apply stays so after a new commit.
             return gate;
         }
 

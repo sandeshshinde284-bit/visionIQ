@@ -46,6 +46,9 @@ class EventContext:
     brief_pipeline_enabled: bool = False
     # DEFECT_PIPELINE_ENABLED: accepted deep requests are answered by the fix worker (DEF-01).
     defect_pipeline_enabled: bool = False
+    # STARTER_PIPELINE_ENABLED: accepted deep requests of an ENHANCEMENT ticket are answered by
+    # the same worker with a starter scaffold (ENH-02).
+    starter_pipeline_enabled: bool = False
 
 
 Handler = Callable[[psycopg.Connection, EventEnvelope, EventContext], None]
@@ -59,6 +62,8 @@ class EventProcessor(Protocol):
 # Deep analysis is the defect fix pipeline (app/defect); it is answered only when that is on.
 PIPELINE_DISABLED = "analysis_pipeline_disabled"
 DEEP_ANALYSIS_NOT_IMPLEMENTED = "deep_analysis_not_implemented"
+# A deep request for an enhancement asks for a starter scaffold (ENH-02), never for a fix.
+STARTER_PIPELINE_DISABLED = "starter_pipeline_disabled"
 
 _INSERT_REQUEST = (
     "INSERT INTO knowledge.analysis_requests (run_id, event_id, tenant_id, project_id, "
@@ -74,13 +79,15 @@ def handle_analysis_requested(
     connection: psycopg.Connection, envelope: EventEnvelope, context: EventContext
 ) -> None:
     """Accept a request. A brief is queued for the analysis worker (BRF-03) and a deep request
-    for the fix worker (DEF-01); each answers with ``analysis.completed``. Anything this service
+    for the fix worker (DEF-01 for a defect, ENH-02 for an enhancement); each answers with
+    ``analysis.completed``. Anything this service
     is not set up to do is answered BLOCKED now."""
     request = AnalysisRequestedV1.model_validate(envelope.data)
-    if request.analysis_mode != "brief":
-        blocked: str | None = (
-            None if context.defect_pipeline_enabled else DEEP_ANALYSIS_NOT_IMPLEMENTED
-        )
+    blocked: str | None
+    if request.analysis_mode != "brief" and request.ticket_kind == "enhancement":
+        blocked = None if context.starter_pipeline_enabled else STARTER_PIPELINE_DISABLED
+    elif request.analysis_mode != "brief":
+        blocked = None if context.defect_pipeline_enabled else DEEP_ANALYSIS_NOT_IMPLEMENTED
     else:
         blocked = None if context.brief_pipeline_enabled else PIPELINE_DISABLED
     result = (

@@ -28,9 +28,6 @@ _SECRET_NAME = re.compile(r"(?i)(password|passwd|secret|token|credential|api_?ke
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 RECIPE_PLACEHOLDERS = {
     "test_file": {"test_path", "test_name", "junit"},
-    # Optional: several test files in one run, {test_paths} separated by ";". When every test
-    # passes, that one run stands for all of them; otherwise each is run alone.
-    "test_files": {"test_paths", "junit"},
     "suite": {"junit"},
     "benchmark": {"output"},
 }
@@ -101,6 +98,21 @@ class BenchmarkPolicy(_Model):
     warmup_pairs: int = Field(default=1, ge=0, le=10)
     max_regression_percent: float = Field(default=10.0, gt=0, le=1000)
     max_noise_percent: float = Field(default=15.0, gt=0, le=1000)
+
+
+class StarterPolicy(_Model):
+    """ENH-02: whether this repository takes starter pull requests for enhancements, and how
+    much one may contain. Off unless the repository's owners turn it on."""
+
+    enabled: bool = False
+    # "Well understood" (the story's condition) as a rule: how many of the eight guidance
+    # sections (ENH-01) must be covered by evidence before a scaffold is attempted.
+    min_covered_sections: int = Field(default=3, ge=1, le=8)
+    max_iterations: int = Field(default=2, ge=1, le=5)
+    # A starter is narrow (design 3: "a narrow starter PR"): its own, smaller budget.
+    # Never above the number of files one model answer may carry (generate.MAX_CHANGES).
+    max_files: int = Field(default=8, ge=1, le=40)
+    max_lines: int = Field(default=400, ge=1, le=5000)
 
 
 class RepositoryPolicy(_Model):
@@ -190,6 +202,8 @@ class RepositoryPolicy(_Model):
     benchmark: BenchmarkPolicy | None = None
     # 8.6.4: a draft PR with accurately reported failed or incomplete checks, when owners allow.
     draft_pr_on_incomplete: bool = False
+    # ENH-02: optional starter pull requests for enhancement tickets of this repository.
+    starter_pr: StarterPolicy = Field(default_factory=StarterPolicy)
 
     @field_validator("recipes")
     @classmethod

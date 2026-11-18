@@ -5,6 +5,7 @@ using VisionIQ.Api.Configuration;
 using VisionIQ.Api.Features.Briefs;
 using VisionIQ.Api.Features.Events;
 using VisionIQ.Api.Features.Fixes;
+using VisionIQ.Api.Features.Starters;
 using static VisionIQ.Api.Tests.PickupTestData;
 
 namespace VisionIQ.Api.Tests;
@@ -160,6 +161,130 @@ public sealed class FixDeliveryDatabaseIntegrationTests
         // The fix run's own result is queued for a pull request and starts no further run.
         await inbox.ProcessAsync(Completed(tenant, fixRun, Guid.NewGuid(), ResultState.Partial, "fix_budget_exhausted"), default);
         Assert.Single(await DeepRunsAsync(api, tenant));
+    }
+
+    // ---- ENH-02: the optional starter pull request of an enhancement -----------------------------------
+
+    [DatabaseFact(Flag)]
+    public async Task Published_enhancement_guidance_gets_at_most_one_starter_run_whoever_asks()
+    {
+        await using var api = NpgsqlDataSource.Create(Connection("DB_API_USER", "DB_API_PASSWORD", "visioniq_api"));
+        var tenant = "starter-test-" + Guid.NewGuid().ToString("N");
+        var (byPolicy, onRequest, partial, defect) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var (policyTicket, requestTicket, partialTicket, defectTicket) = (NewTicket(), NewTicket(), NewTicket(), NewTicket());
+        await CreateRunAsync(api, tenant, byPolicy, policyTicket, AnalysisMode.Brief, "enhancement");
+        await CreateRunAsync(api, tenant, onRequest, requestTicket, AnalysisMode.Brief, "enhancement");
+        await CreateRunAsync(api, tenant, partial, partialTicket, AnalysisMode.Brief, "enhancement");
+        await CreateRunAsync(api, tenant, defect, defectTicket, AnalysisMode.Brief, "defect");
+        var auto = new PostgresInboundEventProcessor(
+            api, NullLogger<PostgresInboundEventProcessor>.Instance, Briefs, Record, new StarterPullRequestOptions(StarterPullRequestMode.Auto));
+        var asked = new PostgresInboundEventProcessor(
+            api, NullLogger<PostgresInboundEventProcessor>.Instance, Briefs, Record, new StarterPullRequestOptions(StarterPullRequestMode.OnRequest));
+
+        // "Policy allows it": published guidance starts one starter run; a redelivery starts no second one.
+        var guidance = Completed(tenant, byPolicy, Guid.NewGuid(), ResultState.Published);
+        Assert.Equal(InboundOutcome.Processed, await auto.ProcessAsync(guidance, default));
+        Assert.Equal(InboundOutcome.Duplicate, await auto.ProcessAsync(guidance, default));
+        // Partial guidance and the brief of a defect never start one, in any mode.
+        await auto.ProcessAsync(Completed(tenant, partial, Guid.NewGuid(), ResultState.Partial, "weak_evidence"), default);
+        await auto.ProcessAsync(Completed(tenant, defect, Guid.NewGuid(), ResultState.Published), default);
+        // on_request: the guidance alone starts nothing.
+        await asked.ProcessAsync(Completed(tenant, onRequest, Guid.NewGuid(), ResultState.Published), default);
+
+        var (starterRun, ticket, baseSha, policyRevision, requested) = Assert.Single(await DeepRunsAsync(api, tenant));
+        Assert.Equal((policyTicket, Sha, "test-policy.starter", 1L), (ticket, baseSha, policyRevision, requested));
+        Assert.Equal(("enhancement", "enhancement"), await KindsAsync(api, starterRun));
+
+        // "The engineer asks for it": one run, however often it is asked for.
+        var store = new PostgresStarterRequestStore(api);
+        var first = await store.RequestAsync(tenant, "payments-core", requestTicket, Trace, default);
+        var again = await store.RequestAsync(tenant, "payments-core", requestTicket, Trace, default);
+        Assert.Equal("queued", first.Status);
+        Assert.Equal(new StarterResponse("duplicate", StarterRunStarter.AlreadyRequested), again);
+        // Asking after the policy already started one is a duplicate too.
+        Assert.Equal("duplicate", (await store.RequestAsync(tenant, "payments-core", policyTicket, Trace, default)).Status);
+        // Nothing to start from: acknowledged, never an error.
+        Assert.Equal(
+            new StarterResponse("ignored", PostgresStarterRequestStore.GuidanceNotPublished),
+            await store.RequestAsync(tenant, "payments-core", partialTicket, Trace, default));
+        Assert.Equal(
+            new StarterResponse("ignored", PostgresStarterRequestStore.NoGuidance),
+            await store.RequestAsync(tenant, "payments-core", defectTicket, Trace, default));
+        Assert.Equal(
+            new StarterResponse("ignored", PostgresStarterRequestStore.NoGuidance),
+            await store.RequestAsync(tenant, "payments-core", NewTicket(), Trace, default));
+        // Guidance that is still being written is not answered from anything older.
+        var pendingTicket = NewTicket();
+        await CreateRunAsync(api, tenant, Guid.NewGuid(), pendingTicket, AnalysisMode.Brief, "enhancement");
+        Assert.Equal(
+            new StarterResponse("ignored", PostgresStarterRequestStore.GuidanceNotReady),
+            await store.RequestAsync(tenant, "payments-core", pendingTicket, Trace, default));
+
+        var runs = await DeepRunsAsync(api, tenant);
+        Assert.Equal(
+            new[] { policyTicket, requestTicket }.Order(StringComparer.Ordinal),
+            runs.Select(run => run.Ticket).Order(StringComparer.Ordinal));
+        Assert.Equal(first.RunId, runs.Single(run => run.Ticket == requestTicket).RunId);
+
+        // The starter run's own result starts no further run.
+        await auto.ProcessAsync(Completed(tenant, starterRun, Guid.NewGuid(), ResultState.Blocked, "starter_declined_by_model"), default);
+        Assert.Equal(2, (await DeepRunsAsync(api, tenant)).Count);
+    }
+
+    [DatabaseFact(Flag)]
+    public async Task A_starter_result_is_recorded_as_one_draft_pull_request_on_a_starter_branch()
+    {
+        await using var api = NpgsqlDataSource.Create(Connection("DB_API_USER", "DB_API_PASSWORD", "visioniq_api"));
+        var tenant = "starter-test-" + Guid.NewGuid().ToString("N");
+        var (runId, resultId) = (Guid.NewGuid(), Guid.NewGuid());
+        var starterJson = File.ReadAllText(
+            Path.Combine(EventContractTests.ContractsDirectory, "..", "fixes", "fixtures", "fix-result.starter.v1.json"));
+        var starter = FixDocument.Parse(starterJson)!;
+        await CreateRunAsync(api, tenant, runId, starter.Ticket.Id, AnalysisMode.Deep, "enhancement", starter.BaseSha);
+        await StoreFixAsIntelligenceAsync(tenant, runId, resultId, starterJson);
+
+        var inbox = new PostgresInboundEventProcessor(api, NullLogger<PostgresInboundEventProcessor>.Instance, Briefs, Record);
+        await inbox.ProcessAsync(Completed(tenant, runId, resultId, ResultState.Partial, "starter_scaffold_not_verified"), default);
+        var publisher = new FixPullRequestPublisher(
+            new PostgresFixPullRequestStore(api), new RecordingPullRequestPublisher(), Policy,
+            NullLogger<FixPullRequestPublisher>.Instance);
+        while (await publisher.ProcessPendingAsync(batchSize: 100) > 0)
+        {
+        }
+
+        await using var connection = await api.OpenConnectionAsync();
+        await using var delivery = new NpgsqlCommand(
+            "SELECT status, mode, source_branch, request_body, checks::text, " +
+            "       (SELECT count(*) FROM workflow.brief_publications WHERE run_id = $1) " +
+            "FROM workflow.fix_pull_requests WHERE run_id = $1",
+            connection);
+        delivery.Parameters.Add(new NpgsqlParameter { Value = runId });
+        await using var reader = await delivery.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(("published", "record"), (reader.GetString(0), reader.GetString(1)));
+        Assert.StartsWith("visioniq/starter/", reader.GetString(2), StringComparison.Ordinal);
+        Assert.Contains("\"is_draft\":true", reader.GetString(3), StringComparison.Ordinal);
+        // Nothing was built or run: exactly one status is green, the patch policy.
+        var checks = JsonNode.Parse(reader.GetString(4))!.AsArray();
+        Assert.Equal(
+            ["visioniq/patch-policy"],
+            checks.Where(check => check!["state"]!.GetValue<string>() == "succeeded").Select(check => check!["name"]!.GetValue<string>()));
+        Assert.Equal(0L, reader.GetInt64(5)); // a starter is never posted as a ticket comment
+    }
+
+    /// <summary>The ticket kind of a run as the API stored it and as its analysis.requested event carries it.</summary>
+    private static async Task<(string Stored, string? Requested)> KindsAsync(NpgsqlDataSource api, Guid runId)
+    {
+        await using var connection = await api.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT r.ticket_kind, (SELECT o.payload -> 'data' ->> 'ticket_kind' FROM workflow.event_outbox o " +
+            "        WHERE o.event_type = 'analysis.requested' AND o.payload ->> 'run_id' = r.run_id::text LIMIT 1) " +
+            "FROM workflow.analysis_runs r WHERE r.run_id = $1",
+            connection);
+        command.Parameters.Add(new NpgsqlParameter { Value = runId });
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        return (reader.GetString(0), await reader.IsDBNullAsync(1) ? null : reader.GetString(1));
     }
 
     private static string NewTicket() =>

@@ -168,7 +168,7 @@ def test_the_brief_its_advice_the_call_log_and_the_reply_are_stored_in_one_trans
         "scripted-1",
         None,
         "brief.defect@v1",
-        "routing-2026-11-10.2",
+        "routing-2026-11-16.1",
     )
     completed = connection.statements[-1][1][-1].obj
     CONTRACTS.validate(completed)  # the reply matches analysis.completed v1

@@ -67,6 +67,17 @@ ORDER BY created_at DESC
 LIMIT 1
 """
 
+# ENH-02: the enhancement guidance (ENH-01) a starter scaffold is built from. Same ticket
+# revision as the starter run: guidance for an older revision of the ticket is not used.
+GUIDANCE_SQL = """
+SELECT document
+FROM knowledge.briefs
+WHERE project_id = %(project)s AND ticket_id = %(ticket)s AND ticket_revision = %(revision)s
+  AND state <> 'BLOCKED' AND document ->> 'kind' = 'enhancement'
+ORDER BY created_at DESC
+LIMIT 1
+"""
+
 # Fixes of readable tickets that changed a file in scope and were not reverted: the tests such a
 # fix added or changed are the area's historical regression tests (design 4.5.1, tier 2).
 # The match is on the full path (case and a leading slash aside), not on the file name: a fix in
@@ -154,6 +165,15 @@ class PostgresFixSources:
             for item in inferred
             if item.basis == "changed_by_past_fix" and item.evidence_ids
         )
+
+    def guidance(self, project_id: str, ticket_id: str, ticket_revision: int) -> dict | None:
+        """The stored enhancement guidance of this ticket revision; None when there is none."""
+        with self._connect() as connection:
+            row = connection.execute(
+                GUIDANCE_SQL,
+                {"project": project_id, "ticket": ticket_id, "revision": ticket_revision},
+            ).fetchone()
+        return row[0] if row is not None and isinstance(row[0], dict) else None
 
     def historical_fixes(self, ticket: TicketText, paths: Sequence[str]) -> list[HistoricalFix]:
         names = sorted({path.replace("\\", "/").lstrip("/").lower() for path in paths} - {""})

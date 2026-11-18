@@ -25,11 +25,9 @@ class TaskKind(StrEnum):
     # DEF-01: the failing test that reproduces a defect. Code leaves the process, as for a fix.
     REPRODUCTION_TEST = "reproduction_test"
     CODE_FIX = "code_fix"
-    # Which files of the repository to show for a defect, and which existing tests relate to a
-    # change: choices from a list VisionIQ built and checks, never free paths.
-    FILE_SELECTION = "file_selection"
-    TEST_SELECTION = "test_selection"
     ENHANCEMENT_APPROACH = "enhancement_approach"
+    # ENH-02: the files of an optional starter pull request for an enhancement.
+    STARTER_SCAFFOLD = "starter_scaffold"
     KNOWLEDGE_EXTRACTION = "knowledge_extraction"
     ADVICE_ANALYTICS = "advice_analytics"
 
@@ -86,8 +84,6 @@ class EvidenceContext(BaseModel):
     facts: tuple[str, ...] = ()
     # Only for a critique: the draft advice being reviewed.
     draft: tuple[dict[str, Any], ...] = ()
-    # Only for a selection task: the choices, one per line; only these may be picked.
-    choices: tuple[str, ...] = ()
     # Only for the code tasks (DEF-01, DEF-02): files at the pinned baseline, and what the
     # runner reported about earlier attempts of this run.
     code: tuple[CodeFile, ...] = ()

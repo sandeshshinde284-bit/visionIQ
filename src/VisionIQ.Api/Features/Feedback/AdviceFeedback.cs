@@ -139,7 +139,7 @@ public static partial class AdviceFeedbackParser
     };
 
     /// <summary>The comment as plain text lines: block tags and line breaks end a line, other tags are dropped.</summary>
-    private static string[] PlainLines(string comment)
+    internal static string[] PlainLines(string comment)
     {
         var text = BlockBreak().Replace(comment, "\n");
         text = WebUtility.HtmlDecode(AnyTag().Replace(text, string.Empty));

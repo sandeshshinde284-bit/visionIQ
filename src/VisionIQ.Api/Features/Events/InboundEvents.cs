@@ -3,6 +3,7 @@ using Npgsql;
 using NpgsqlTypes;
 using VisionIQ.Api.Features.Briefs;
 using VisionIQ.Api.Features.Fixes;
+using VisionIQ.Api.Features.Starters;
 
 namespace VisionIQ.Api.Features.Events;
 
@@ -53,14 +54,16 @@ public sealed class EventRejectedException : Exception
 /// primary key until the first attempt commits, then sees the row and reports a duplicate. A rejected event keeps
 /// its inbox row (with the reason) but none of the handler's writes. When brief publishing is on (BRF-05), the
 /// run's ticket comment is queued in the same transaction as its result. The result of a deep run is a fix,
-/// not a brief: it is queued for a draft pull request instead (DEF-05), and never for a ticket comment.
+/// not a brief: it is queued for a draft pull request instead (DEF-05), and never for a ticket comment. The
+/// same holds for the deep run of an enhancement, whose result is a starter scaffold (ENH-02).
 /// </summary>
 public sealed class PostgresInboundEventProcessor(
     NpgsqlDataSource dataSource, ILogger<PostgresInboundEventProcessor> logger, BriefPublishOptions publishing,
-    FixPullRequestOptions? fixes = null)
+    FixPullRequestOptions? fixes = null, StarterPullRequestOptions? starters = null)
     : IInboundEventProcessor
 {
     private readonly FixPullRequestOptions fixes = fixes ?? FixPullRequestOptions.Disabled;
+    private readonly StarterPullRequestOptions starters = starters ?? StarterPullRequestOptions.Disabled;
 
     public async Task<InboundOutcome> ProcessAsync(EventEnvelope envelope, CancellationToken cancellationToken)
     {
@@ -191,6 +194,27 @@ public sealed class PostgresInboundEventProcessor(
                 else
                 {
                     FixLog.NoFixRun(logger, envelope.RunId!.Value);
+                }
+            }
+
+            // ENH-02, "policy allows it": only for guidance that came out PUBLISHED. The starter decides for
+            // itself that the run is an enhancement's; for a defect's brief nothing is started.
+            if (starters.Mode == StarterPullRequestMode.Auto && result.ResultState == ResultState.Published)
+            {
+                // A starter is optional. If asking for one fails, only that is undone: the guidance result
+                // above is kept, and the engineer can still ask with a comment.
+                await transaction.SaveAsync("starter", cancellationToken);
+                try
+                {
+                    if ((await StarterRunStarter.StartAsync(connection, transaction, envelope.RunId!.Value, envelope.TraceId, cancellationToken)).RunId is { } starterRun)
+                    {
+                        StarterLog.RequestedByPolicy(logger, starterRun, envelope.RunId!.Value);
+                    }
+                }
+                catch (Exception error) when (error is PostgresException or InvalidOperationException or EventContractException)
+                {
+                    await transaction.RollbackAsync("starter", cancellationToken);
+                    StarterLog.PolicyStartFailed(logger, envelope.RunId!.Value, error.GetType().Name);
                 }
             }
         }

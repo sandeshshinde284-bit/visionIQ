@@ -21,6 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field
 SCHEMA_VERSION = 1
 
 FixState = Literal["PUBLISHED", "PARTIAL", "BLOCKED"]
+# ENH-02: "starter" is the scaffold of an enhancement. It is never VERIFIED: nothing is built
+# or run for it, and no gate of a starter is ever shown as passed except the patch policy.
+FixKind = Literal["fix", "starter"]
 # What the run established about the fix. Only VERIFIED means red on the baseline, green on the
 # candidate and no known regression; it still needs native CI and an engineer's approval.
 Verdict = Literal["VERIFIED", "FAIL", "INCONCLUSIVE", "NEEDS_REVIEW", "BLOCKED"]
@@ -329,10 +332,23 @@ class Timings(_Model):
     total_ms: int = Field(default=0, ge=0)
 
 
+class Starter(_Model):
+    """ENH-02: what a starter scaffold was built from, and what it leaves to the engineer."""
+
+    # The enhancement guidance (ENH-01) of the same ticket revision.
+    guidance_brief_id: uuid.UUID
+    advice_ids: list[str] = Field(default_factory=list)
+    covered_sections: list[str] = Field(default_factory=list)
+    summary: str = ""
+    checklist: list[str] = Field(default_factory=list)
+
+
 class FixResult(_Model):
     schema_version: Literal[1] = SCHEMA_VERSION
     fix_id: uuid.UUID
     run_id: uuid.UUID
+    # "fix": a defect fix (DEF-01 to DEF-06). "starter": an enhancement scaffold (ENH-02).
+    kind: FixKind = "fix"
     ticket: TicketRef
     repository_id: str
     base_sha: str
@@ -352,6 +368,8 @@ class FixResult(_Model):
     manifests: list[ExecutionManifest] = Field(default_factory=list)
     executions: list[Execution] = Field(default_factory=list)
     pull_request: PullRequestDraft | None = None
+    # Only for kind "starter".
+    starter: Starter | None = None
     limitations: list[str] = Field(default_factory=list)
     generation: Generation
     policy_revision: str | None = None

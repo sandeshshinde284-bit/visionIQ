@@ -21,9 +21,16 @@ public sealed record FixDocument(
     FixReproduction? Reproduction = null,
     FixPatch? Patch = null,
     IReadOnlyList<FixGate>? Gates = null,
-    FixPullRequestDraft? PullRequest = null)
+    FixPullRequestDraft? PullRequest = null,
+    string Kind = FixDocument.FixKind)
 {
     public const int SupportedSchemaVersion = 1;
+    public const string FixKind = "fix";
+
+    /// <summary>ENH-02: the scaffold of an enhancement. It has no reproduction test and is never verified.</summary>
+    public const string StarterKind = "starter";
+
+    public bool IsStarter => string.Equals(Kind, StarterKind, StringComparison.Ordinal);
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -39,7 +46,7 @@ public sealed record FixDocument(
             return fix is
             {
                 SchemaVersion: SupportedSchemaVersion, Ticket: not null, RepositoryId: not null, BaseSha: not null,
-                State: not null, Verdict: not null,
+                State: not null, Verdict: not null, Kind: FixKind or StarterKind,
             }
                 ? fix
                 : null;
@@ -52,10 +59,19 @@ public sealed record FixDocument(
 
     /// <summary>
     /// Every file of the candidate commit: the reproduction test and the fix. Null when the result does not carry
-    /// what is needed to recreate the commit (then nothing is pushed).
+    /// what is needed to recreate the commit (then nothing is pushed). A starter (ENH-02) has no reproduction
+    /// test: its commit is the scaffold's files alone.
     /// </summary>
     public IReadOnlyList<FixFileChange>? CommitFiles()
     {
+        if (IsStarter)
+        {
+            return Patch?.Files is { Count: > 0 } scaffold &&
+                   scaffold.All(file => file is not null && !string.IsNullOrEmpty(file.Path) && file.Content is not null && file.Change is "added" or "modified")
+                ? [.. scaffold]
+                : null;
+        }
+
         if (Reproduction?.Test is not { Path.Length: > 0, Content: not null } test || Patch?.Files is not { Count: > 0 } files ||
             files.Any(file => file is null || string.IsNullOrEmpty(file.Path) || file.Content is null || file.Change is not ("added" or "modified")))
         {
@@ -97,6 +113,13 @@ internal static partial class FixPatterns
     /// <summary>The only branches the bot may create: under visioniq/fix/, plain characters.</summary>
     [GeneratedRegex("^visioniq/fix/[A-Za-z0-9_-]{1,80}$")]
     public static partial Regex FixBranch();
+
+    /// <summary>ENH-02: a starter scaffold is pushed under visioniq/starter/, never under visioniq/fix/.</summary>
+    [GeneratedRegex("^visioniq/starter/[A-Za-z0-9_-]{1,80}$")]
+    public static partial Regex StarterBranch();
+
+    /// <summary>The branches the bot may create for this kind of result.</summary>
+    public static Regex SourceBranch(FixDocument fix) => fix.IsStarter ? StarterBranch() : FixBranch();
 
     [GeneratedRegex(@"^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]{0,200}$")]
     public static partial Regex TargetBranch();

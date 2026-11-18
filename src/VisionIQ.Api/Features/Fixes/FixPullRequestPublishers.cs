@@ -145,7 +145,7 @@ public sealed class AdoPullRequestPublisher : IFixPullRequestPublisher
             throw new FixPublishException("tested_tree_missing", permanent: true);
         }
 
-        if (!FixPatterns.FixBranch().IsMatch(draft.SourceBranch) || !FixPatterns.TargetBranch().IsMatch(draft.TargetBranch) || !FixPatterns.Sha().IsMatch(draft.BaseSha))
+        if (!FixPatterns.SourceBranch(fix).IsMatch(draft.SourceBranch) || !FixPatterns.TargetBranch().IsMatch(draft.TargetBranch) || !FixPatterns.Sha().IsMatch(draft.BaseSha))
         {
             throw new FixPublishException("branch_not_allowed", permanent: true);
         }

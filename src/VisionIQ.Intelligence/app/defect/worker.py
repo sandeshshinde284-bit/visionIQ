@@ -1,5 +1,9 @@
 """The fix worker: answers accepted ``analysis.requested`` events of mode ``deep``.
 
+A deep request for a defect is a fix run (DEF-01 to DEF-06). A deep request for an enhancement
+is a starter scaffold (ENH-02, app/starter). Both are answered here, with the same lease,
+retry and storage rules, and each only when its own pipeline is switched on.
+
 It works like the brief's analysis worker and shares its queue (``knowledge.analysis_requests``),
 taking only the deep requests. A request is leased while it runs, so replicas never work on the
 same run. The fix result, its executions, the model-call log and the ``analysis.completed`` event
@@ -37,9 +41,14 @@ from app.defect.schema import (
 from app.defect.sources import FixSources
 from app.events.envelope import AnalysisCompletedV1, EventEnvelope, follow_up
 from app.events.outbox import enqueue
-from app.events.processing import EventContext
+from app.events.processing import (
+    DEEP_ANALYSIS_NOT_IMPLEMENTED,
+    STARTER_PIPELINE_DISABLED,
+    EventContext,
+)
 from app.llm.gateway import Budget, ModelGateway, RunLedger
 from app.llm.routing import ROUTING_REVISION
+from app.starter.pipeline import run_starter
 
 # A run clones, builds and tests several times; the lease must outlast the whole budget. The
 # pipeline starts no execution that cannot end inside FixSettings.max_seconds, so the budget
@@ -74,6 +83,11 @@ class ClaimedFix:
     event: EventEnvelope
     accepted_at: datetime
     attempt: int
+
+    @property
+    def starter(self) -> bool:
+        """ENH-02: a deep request for an enhancement asks for a starter scaffold, not a fix."""
+        return self.event.data.get("ticket_kind") == "enhancement"
 
 
 def claim(
@@ -234,6 +248,8 @@ def failed_fix(
 ) -> FixOutcome:
     """The honest answer for a run that could not be completed: BLOCKED, with the reason."""
     request = claimed.request
+    if claimed.starter and limitation.startswith("The fix run"):
+        limitation = "The starter run failed repeatedly and was stopped. Nothing was proposed."
     reproduction = Reproduction(reproducibility="INCONCLUSIVE", detail="The run did not complete.")
     regression = Regression(status="NOT_RUN", historical_found=False, detail="Not run.")
     performance = Performance(status="NOT_MEASURED", detail="Not run.")
@@ -241,6 +257,7 @@ def failed_fix(
     result = FixResult(
         fix_id=uuid.uuid4(),
         run_id=request.run_id,
+        kind="starter" if claimed.starter else "fix",
         ticket=request.ticket,
         repository_id=request.repository_id,
         base_sha=request.base_commit_sha,
@@ -275,7 +292,14 @@ class FixWorker:
         settings: FixSettings,
         context: EventContext,
         runner_for: Callable[[RunnerPolicy], Runner] | None = None,
+        fixes_enabled: bool = True,
+        starters_enabled: bool = False,
     ) -> None:
+        # One worker takes every deep request; which kinds it works on is configuration
+        # (DEFECT_PIPELINE_ENABLED, STARTER_PIPELINE_ENABLED). The other kind is answered
+        # BLOCKED, as it would be when it arrives.
+        self._fixes_enabled = fixes_enabled
+        self._starters_enabled = starters_enabled
         self._connect = connect
         self._sources_for = sources_for
         self._gateway = gateway
@@ -324,14 +348,7 @@ class FixWorker:
                 )
                 return
             try:
-                outcome = run_fix(
-                    claimed.request,
-                    self._sources_for(claimed.request.security_scope_id),
-                    self._gateway,
-                    self._policy,
-                    self._settings,
-                    self._runner_for,
-                )
+                outcome = self._run(claimed)
             except Exception as error:
                 # Type only: database, git and provider messages can carry connection details.
                 if claimed.attempt < MAX_ATTEMPTS:
@@ -376,15 +393,47 @@ class FixWorker:
                 model_calls=len(outcome.ledger.calls),
             )
 
+    def _run(self, claimed: ClaimedFix) -> FixOutcome:
+        sources = self._sources_for(claimed.request.security_scope_id)
+        if claimed.starter:
+            if not self._starters_enabled:
+                return failed_fix(
+                    claimed,
+                    self._settings,
+                    STARTER_PIPELINE_DISABLED,
+                    "The starter pipeline was switched off before this request was worked on.",
+                )
+            return run_starter(
+                claimed.request,
+                sources,  # type: ignore[arg-type]
+                self._gateway,
+                self._policy,
+                self._settings,
+            )
+        if not self._fixes_enabled:
+            return failed_fix(
+                claimed,
+                self._settings,
+                DEEP_ANALYSIS_NOT_IMPLEMENTED,
+                "The fix pipeline was switched off before this request was worked on.",
+            )
+        return run_fix(
+            claimed.request,
+            sources,
+            self._gateway,
+            self._policy,
+            self._settings,
+            self._runner_for,
+        )
+
 
 def answer_stranded(connection: psycopg.Connection, context: EventContext, batch: int = 50) -> int:
-    """With the fix pipeline off, answer deep requests that were accepted while it was on.
+    """With both deep pipelines off, answer deep requests that were accepted while one was on.
 
     Nothing claims them any more, so without this they (and the API's runs) would wait for ever.
-    Each gets the answer a new deep request gets: BLOCKED / deep_analysis_not_implemented.
+    Each gets the answer a new deep request gets: BLOCKED / deep_analysis_not_implemented for a
+    defect, BLOCKED / starter_pipeline_disabled for an enhancement.
     """
-    from app.events.processing import DEEP_ANALYSIS_NOT_IMPLEMENTED
-
     settings = FixSettings(work_dir=Path("."), artifact_dir=Path("."))
     answered = 0
     while True:
@@ -396,8 +445,10 @@ def answer_stranded(connection: psycopg.Connection, context: EventContext, batch
             outcome = failed_fix(
                 item,
                 settings,
-                DEEP_ANALYSIS_NOT_IMPLEMENTED,
-                "The fix pipeline was switched off before this request was worked on.",
+                STARTER_PIPELINE_DISABLED if item.starter else DEEP_ANALYSIS_NOT_IMPLEMENTED,
+                "The starter pipeline was switched off before this request was worked on."
+                if item.starter
+                else "The fix pipeline was switched off before this request was worked on.",
             )
             if store(connection, item, outcome, context):
                 answered += 1

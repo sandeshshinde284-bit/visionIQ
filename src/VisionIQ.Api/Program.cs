@@ -7,6 +7,7 @@ using VisionIQ.Api.Features.Fixes;
 using VisionIQ.Api.Features.Graph;
 using VisionIQ.Api.Features.Health;
 using VisionIQ.Api.Features.Pickup;
+using VisionIQ.Api.Features.Starters;
 using VisionIQ.Api.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -75,6 +76,8 @@ var pickup = builder.Services.AddTicketPickup(builder.Configuration);
 builder.Services.AddBriefPublishing(builder.Configuration, pickup?.Policy);
 // DEF-05 draft pull requests: off unless FIX_PR_MODE is record or ado (ado also needs ADO_PR_PAT).
 builder.Services.AddFixPullRequests(builder.Configuration, pickup?.Policy);
+// ENH-02 starter pull requests for enhancements: off unless STARTER_PR_MODE is on_request or auto.
+var starters = builder.Services.AddStarterPullRequests(builder.Configuration);
 
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
@@ -87,6 +90,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var app = builder.Build();
+if (starters.Enabled)
+{
+    // A starter is delivered by the DEF-05 path: with FIX_PR_MODE=off it is prepared and never opened.
+    StarterServiceRegistration.LogEnabled(app.Logger, starters, app.Services.GetRequiredService<FixPullRequestOptions>());
+}
+
 app.UseMiddleware<RequestLoggingMiddleware>();
 
 // Validate runtime database credentials during startup, after test-host configuration is applied.

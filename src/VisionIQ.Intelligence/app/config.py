@@ -143,12 +143,17 @@ class Settings(BaseSettings):
     defect_model_standard: str = ""
     defect_model_complex: str = ""
     # Per-run budget of a fix. The seconds cover the test runs as well as the model calls.
-    # Up to 3 tests, 2 fixes, choosing files once and related tests once per fix.
-    defect_max_calls_per_run: int = Field(default=10, ge=1, le=30)
+    defect_max_calls_per_run: int = Field(default=6, ge=1, le=30)
     defect_max_tokens_per_run: int = Field(default=400_000, ge=1_000, le=5_000_000)
     defect_max_seconds_per_run: float = Field(default=1800.0, gt=0, le=14_400)
     # LLM_MODE=offline only: prepared test and patch answers for a demo (see app/defect/cli.py).
     defect_offline_script: Path | None = None
+
+    # ENH-02 optional starter pull request for an enhancement. Off by default: a starter request
+    # is then answered BLOCKED / starter_pipeline_disabled. It uses the fix policy file
+    # (DEFECT_POLICY_FILE: a repository must set starter_pr.enabled) and the same workspace,
+    # clone and budget settings as a fix run. It runs no code: nothing is built or tested.
+    starter_pipeline_enabled: bool = False
 
     @model_validator(mode="after")
     def select_runtime_role(self) -> "Settings":

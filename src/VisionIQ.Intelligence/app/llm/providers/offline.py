@@ -21,6 +21,8 @@ from app.llm.types import (
 )
 
 MAX_ADVICE = 4
+# The tasks that write code: a stand-in has no answer of its own, only prepared ones.
+_SCRIPTED = (TaskKind.REPRODUCTION_TEST, TaskKind.CODE_FIX, TaskKind.STARTER_SCAFFOLD)
 _QUOTE_LENGTH = 110
 
 
@@ -39,7 +41,8 @@ def _reverted(item: EvidenceItem) -> bool:
 
 class OfflineProvider:
     """``code_script`` (DEFECT_OFFLINE_SCRIPT) holds prepared answers for the code tasks:
-    ``{"reproduction_test": {...}, "code_fix": [{...}, ...]}``. A stand-in cannot write a test
+    ``{"reproduction_test": {...}, "code_fix": [{...}, ...], "starter_scaffold": {...}}``
+    (the last one for ENH-02). A stand-in cannot write a test
     or a patch, so a demo supplies them; the runner still executes them for real. Without a
     script the code tasks return nothing and the run reports that no model was available.
     """
@@ -60,7 +63,7 @@ class OfflineProvider:
             output = self._draft(context)
         elif task.kind is TaskKind.ENHANCEMENT_APPROACH:
             output = self._guidance(context)
-        elif task.kind in (TaskKind.REPRODUCTION_TEST, TaskKind.CODE_FIX):
+        elif task.kind in _SCRIPTED:
             output = self._scripted(task.kind)
         else:
             output = {}
@@ -71,7 +74,7 @@ class OfflineProvider:
                 for support in advice["support"]
             }
         )
-        if not output and task.kind in (TaskKind.REPRODUCTION_TEST, TaskKind.CODE_FIX):
+        if not output and task.kind in _SCRIPTED:
             # No prepared answer: say so, instead of an empty object that fails the schema.
             return ModelResult(
                 provider=self.name,

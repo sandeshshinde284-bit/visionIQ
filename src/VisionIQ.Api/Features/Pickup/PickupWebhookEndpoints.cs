@@ -81,12 +81,24 @@ public static class PickupWebhookEndpoints
         var delivery = AdoServiceHook.Parse(body, out var problem);
         if (delivery is null)
         {
-            // BRF-06: a comment on a ticket may rate the advice of its brief. It never starts a run.
+            // BRF-06: a comment on a ticket may rate the advice of its brief. A rating never starts a run.
             if (problem == "unsupported_event" &&
                 Feedback.AdviceFeedbackParser.ParseDelivery(body, out _) is { } comment)
             {
-                return await Feedback.AdviceFeedbackEndpoint.HandleAsync(
+                var rated = await Feedback.AdviceFeedbackEndpoint.HandleAsync(
                     comment, options.Policy, request.HttpContext.RequestServices, logger, cancellationToken);
+                // ENH-02: the same comment may ask for a starter pull request. Ratings in it are recorded
+                // first; if that failed, ADO retries the delivery and both steps are safe to repeat.
+                if (!Starters.StarterCommand.IsRequested(comment.Text) ||
+                    rated is IStatusCodeHttpResult { StatusCode: StatusCodes.Status503ServiceUnavailable })
+                {
+                    return rated;
+                }
+
+                return await Starters.StarterRequestEndpoint.HandleAsync(
+                    comment, options.Policy, request.HttpContext.RequestServices, logger,
+                    Activity.Current?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString(),
+                    cancellationToken);
             }
 
             // S11-17: a new commit on a pull request VisionIQ opened invalidates its checks.

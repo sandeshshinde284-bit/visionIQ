@@ -7,9 +7,10 @@ namespace VisionIQ.Api.Features.Fixes;
 /// <summary>A fix result claimed for delivery, with the stored result it refers to.</summary>
 /// <param name="RepositoryId">The repository the API recorded for the run; the stored result must name the same.</param>
 /// <param name="BaseSha">The baseline commit the API recorded for the run.</param>
+/// <param name="TicketKind">What the API recorded the ticket as: defect or enhancement (null for a run not started by pickup).</param>
 public sealed record PendingFixPullRequest(
     Guid RunId, Guid ResultId, string ProjectId, string TicketId, int Attempt, string? FixJson,
-    string? RepositoryId = null, string? BaseSha = null);
+    string? RepositoryId = null, string? BaseSha = null, string? TicketKind = null);
 
 /// <summary>A pull request VisionIQ opened: the commit its results apply to and the head last seen on it.</summary>
 public sealed record OpenedFixPullRequest(
@@ -82,7 +83,7 @@ public sealed class PostgresFixPullRequestStore(NpgsqlDataSource dataSource) : I
             "  FROM due WHERE p.run_id = due.run_id " +
             "  RETURNING p.run_id, p.result_id, p.attempt_count) " +
             "SELECT c.run_id, c.result_id, c.attempt_count, r.project_id, r.ticket_id, f.document::text, " +
-            "       r.repository_id, r.base_commit_sha " +
+            "       r.repository_id, r.base_commit_sha, r.ticket_kind " +
             "FROM claimed c " +
             "JOIN workflow.analysis_runs r ON r.run_id = c.run_id " +
             "LEFT JOIN knowledge.fix_runs f ON f.fix_id = c.result_id AND f.run_id = c.run_id");
@@ -96,7 +97,8 @@ public sealed class PostgresFixPullRequestStore(NpgsqlDataSource dataSource) : I
                 reader.GetGuid(0), reader.GetGuid(1), reader.GetString(3), reader.GetString(4), reader.GetInt32(2),
                 await reader.IsDBNullAsync(5, cancellationToken) ? null : reader.GetString(5),
                 reader.GetString(6),
-                reader.GetString(7)));
+                reader.GetString(7),
+                await reader.IsDBNullAsync(8, cancellationToken) ? null : reader.GetString(8)));
         }
 
         return pending;

@@ -89,6 +89,16 @@ public sealed class FixPullRequestPublisher(
             return;
         }
 
+        // ENH-02: a starter has no reproduction test and no sandbox results. That is acceptable for an
+        // enhancement's run only: a result that calls itself a starter on a defect's run (or a fix on an
+        // enhancement's) is not what the API asked for and is never pushed.
+        if (pending.TicketKind is not null &&
+            fix.IsStarter != string.Equals(pending.TicketKind, Events.AnalysisRequestedV1.Enhancement, StringComparison.Ordinal))
+        {
+            await FailAsync(pending.RunId, "fix_result_does_not_match_run", cancellationToken);
+            return;
+        }
+
         // The pilot list is applied again here: narrowing it also stops deliveries that were already queued.
         if (policy?.AllowedWorkItemIds is not null &&
             !(int.TryParse(pending.TicketId, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var workItem) &&
@@ -105,7 +115,7 @@ public sealed class FixPullRequestPublisher(
             var opened = await pullRequests.PublishAsync(project, fix, pending.Attempt > 1, cancellationToken);
             // The sandbox results are about the candidate's content; they are shown against the commit that
             // now carries that content on the pull request.
-            var checks = FixGates.Checks(FixGates.ForPushedCommit(fix.Gates ?? [], opened.HeadSha), opened.HeadSha);
+            var checks = FixGates.Checks(FixGates.ForPushedCommit(FixGates.For(fix), opened.HeadSha), opened.HeadSha);
             await pullRequests.PostChecksAsync(project, fix.RepositoryId, opened.PullRequestId, checks, cancellationToken);
             var request = JsonSerializer.Serialize(
                 new
@@ -216,7 +226,7 @@ public sealed class FixPullRequestHeadWatcher(
 
         // A result that cannot be read gives no gates, and then every check is posted as pending.
         var fix = opened.FixJson is null ? null : FixDocument.Parse(opened.FixJson);
-        var gates = FixGates.ForPushedCommit(fix?.Gates ?? [], opened.VerifiedHeadSha);
+        var gates = FixGates.ForPushedCommit(fix is null ? [] : FixGates.For(fix), opened.VerifiedHeadSha);
         var checks = FixGates.Checks(gates, head);
         await pullRequests.PostChecksAsync(project, opened.RepositoryId, opened.PullRequestId, checks, cancellationToken);
         await store.MarkHeadAsync(opened.RunId, head, checks, cancellationToken);

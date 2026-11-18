@@ -330,9 +330,8 @@ def test_prompt_versions_are_named_and_unique() -> None:
         "brief.defect@v1",
         "brief.critique@v1",
         "brief.enhancement@v1",  # ENH-01: enhancement guidance (master design 8.5)
-        "defect.reproduction@v4",  # the test asserts what the ticket reports, and says so
-        "defect.fix@v3",  # a test that expects the defect is named, not worked around
-        "defect.files@v1",  # which files to read for a defect (Gemini, choices only)
-        "defect.tests@v1",  # which existing tests relate to a change (Gemini, choices only)
+        "defect.reproduction@v2",  # test_id: how vitest and Jest name a test
+        "defect.fix@v2",  # analyse first; keep the existing tests shown passing
+        "enhancement.starter@v1",  # ENH-02: the optional starter scaffold
     ]
     assert len(set(versions)) == len(versions)

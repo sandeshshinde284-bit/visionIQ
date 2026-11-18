@@ -80,6 +80,7 @@ def check(
     reproduction_test: str,
     shown: Collection[str],
     baseline_files: Collection[str] = (),
+    allow_new_tests: bool = False,
 ) -> PolicyResult:
     """Judge a proposal against the repository's policy before anything is written or run.
 
@@ -87,6 +88,10 @@ def check(
     existing file the model did not see (or saw cut short) may not be changed: the rest of it
     would be lost. ``baseline_files`` are the files of the baseline commit: whether a path
     exists is decided from that list, not from whether the file could be read as text.
+
+    ``allow_new_tests`` (ENH-02, a starter scaffold) lets a proposal ADD a test file where the
+    repository keeps its tests. An existing test may still never be edited, and a fix never
+    sets it: a fix that could add tests could add one that hides the defect.
     """
     existing = set(baseline_files)
     folded = {name.lower(): name for name in existing}
@@ -135,9 +140,18 @@ def check(
         if old is not None and old == change.content:
             block("unchanged_file", path, "The proposed content equals the baseline.")
             continue
+        new_test = False
         if path == reproduction_test or matches(path, policy.test_file_patterns):
-            block("test_changed", path, "A fix may not add, edit or weaken tests.")
-            continue
+            new_test = (
+                allow_new_tests
+                and path != reproduction_test
+                and old is None
+                and path not in existing
+                and matches(path, policy.new_test_paths)
+            )
+            if not new_test:
+                block("test_changed", path, "A fix may not add, edit or weaken tests.")
+                continue
         if old is not None and path not in shown:
             block("file_not_shown", path, "Only files that were provided in full may be edited.")
             continue
@@ -146,7 +160,7 @@ def check(
             continue
         if matches(path, policy.secret_paths):
             review("secret_change", path, "The path holds secrets or credentials.")
-        elif not matches(path, policy.writable_paths):
+        elif not new_test and not matches(path, policy.writable_paths):
             block("path_not_writable", path, "The path is outside the writable paths.")
             continue
         if matches(path, policy.dependency_files):

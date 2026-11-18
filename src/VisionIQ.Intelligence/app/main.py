@@ -78,12 +78,21 @@ def build_fix_worker(settings: Settings, context: EventContext):
     from app.llm.factory import build_gateway
 
     if settings.defect_policy_file is None:
-        raise ValueError("DEFECT_POLICY_FILE is required when DEFECT_PIPELINE_ENABLED is true.")
+        raise ValueError(
+            "DEFECT_POLICY_FILE is required when DEFECT_PIPELINE_ENABLED or "
+            "STARTER_PIPELINE_ENABLED is true."
+        )
     policy = load_policy(settings.defect_policy_file)
     # Refused unless it was allowed on purpose: a forgotten APP_ENV must not be enough to run
-    # model-written code on the host.
+    # model-written code on the host. A starter run (ENH-02) executes nothing, so the runner
+    # does not matter to a service that only answers starter requests.
     production = FixSettings.local_runner_refused(settings)
-    if production and any(repo.runner.kind == "local" for repo in policy.repositories):
+    starters_only = settings.starter_pipeline_enabled and not settings.defect_pipeline_enabled
+    if (
+        not starters_only
+        and production
+        and any(repo.runner.kind == "local" for repo in policy.repositories)
+    ):
         raise ValueError(
             "The local runner has no network isolation. Use a docker runner, or set "
             "DEFECT_ALLOW_LOCAL_RUNNER=true on a developer machine (never in production)."
@@ -105,6 +114,8 @@ def build_fix_worker(settings: Settings, context: EventContext):
         policy,
         FixSettings.from_app(settings, work_dir),
         context,
+        fixes_enabled=settings.defect_pipeline_enabled,
+        starters_enabled=settings.starter_pipeline_enabled,
     )
 
 
@@ -131,7 +142,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(
             asyncio.create_task(run_analysis_worker(worker, settings.brief_worker_interval_seconds))
         )
-    if settings.defect_pipeline_enabled:
+    if settings.defect_pipeline_enabled or settings.starter_pipeline_enabled:
         from app.defect.worker import run_fix_worker
 
         fix_worker = build_fix_worker(settings, app.state.event_context)
@@ -171,6 +182,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         load_topology(contracts.directory),
         resolved.brief_pipeline_enabled,
         resolved.defect_pipeline_enabled,
+        resolved.starter_pipeline_enabled,
     )
     app.state.event_processor = PostgresEventProcessor(resolved, app.state.event_context)
     app.dependency_overrides[get_settings] = lambda: resolved
