@@ -42,6 +42,10 @@ ROUTING_TABLE: Mapping[TaskKind, Route] = {
     # Gemini reviews code only if a benchmark justifies it (not yet): no escalation, no fallback.
     TaskKind.REPRODUCTION_TEST: Route("claude"),
     TaskKind.CODE_FIX: Route("claude"),
+    # Choosing among listed files and tests: cheap reading at scale. No fallback: when Gemini is
+    # not available, VisionIQ's own rules choose, so a model outage never blocks a run.
+    TaskKind.FILE_SELECTION: Route("gemini"),
+    TaskKind.TEST_SELECTION: Route("gemini"),
     TaskKind.ENHANCEMENT_APPROACH: Route("gemini", "claude", frozenset({"cross_repo_contract"})),
     # ENH-02 (PROP-05): code leaves the process, as for a fix, so the same single route.
     TaskKind.STARTER_SCAFFOLD: Route("claude"),

@@ -170,3 +170,189 @@ def test_what_a_test_must_set_up_comes_before_child_components() -> None:
         "ui/src/components/CheckoutScreen/lazy.js",
         "ui/src/components/OptionList/OptionList.vue",  # a child component: last
     ]
+
+
+def test_a_new_test_file_is_refused_when_the_code_it_exercises_has_a_test_file(
+    tmp_path: Path,
+) -> None:
+    # The test goes into the existing test file of the code it exercises; a new file only when
+    # there is none. The existing file is shown to the next attempt so the test can be added.
+    from brief_support import ScriptedProvider, gateway_for
+
+    demo = make_demo(
+        tmp_path,
+        test_file_patterns=["tests/**", "**/*.test.ts"],
+        new_test_paths=["tests/**", "**/*.test.ts"],
+    )
+    existing = "import Widget from './Widget.vue'\ndescribe('Widget', () => {})\n"
+    sha = _commit(
+        demo.repo,
+        {
+            "web/package.json": "{}",
+            "web/src/Widget.vue": "<template><button>Go</button></template>\n",
+            "web/src/Widget.test.ts": existing,
+        },
+    )
+    new_file = {
+        **TEST_ANSWER,
+        "test_path": "web/src/WidgetEnabled.test.ts",
+        "test_id": "keeps Go enabled",
+        "test_content": "import Widget from './Widget.vue'\nit('keeps Go enabled', () => {})\n",
+    }
+    seen: list = []
+    answers = [new_file, TEST_ANSWER, SAFE_FIX]
+
+    def script(_task, context):
+        seen.append(context)
+        return answers[len(seen) - 1]
+
+    previous = structlog.get_config()
+    _, events = logged(
+        tmp_path,
+        gateway_for(ScriptedProvider("claude", script)),
+        demo=replace(demo, base_sha=sha),
+    )
+    structlog.configure(**previous)
+
+    refused = next(e for e in events if e["event"] == "fix_reproduction_test_declined")
+    assert "already has a test file: web/src/Widget.test.ts" in refused["detail"]
+    shown = {file.path: file.content for file in seen[1].code}
+    assert shown["web/src/Widget.test.ts"] == existing
+    assert "Add the test to that file" in seen[1].feedback[-1]
+
+
+# ---- A model suggests files and picks related tests; related tests run in one batch -------------
+
+FAKE_RECIPES = {
+    "test_file": ["test-file", "{test_path}", "{junit}"],
+    "suite": ["suite", "{junit}"],
+    "benchmark": ["benchmark", "{output}"],
+}
+
+
+def _models(claude_answers: list, gemini_answer):
+    """Claude for the test and the fix; Gemini for the two choices. Gemini's contexts are kept."""
+    from brief_support import ScriptedProvider, gateway_for
+
+    asked: list = []
+
+    def gemini(task, context):
+        asked.append((task.kind, context))
+        return gemini_answer(task.kind)
+
+    claude = ScriptedProvider("claude", claude_answers)
+    return asked, gateway_for(claude, ScriptedProvider("gemini", gemini))
+
+
+def _area(demo) -> str:
+    """Another source file, a test of the code that uses the changed file, and an old test of
+    another area that a past fix changed together with it."""
+    return _commit(
+        demo.repo,
+        {
+            "src/kiosk/charges.py": "def charge():\n    return 1\n",
+            "tests/test_receipt.py": "def test_receipt_shows_total():\n    assert True\n",
+            "tests/test_other_area.py": "def test_printer_paper():\n    assert True\n",
+        },
+    )
+
+
+def test_a_model_suggests_files_from_a_list_and_only_listed_paths_are_taken(
+    tmp_path: Path,
+) -> None:
+    from app.llm.types import TaskKind
+
+    demo = make_demo(tmp_path)
+    sha = _area(demo)
+
+    def answer(kind):
+        if kind is TaskKind.FILE_SELECTION:
+            return {
+                "files": [
+                    {"path": "src/kiosk/charges.py", "reason": "Charging is what the ticket says."},
+                    {"path": "src/kiosk/made_up.py", "reason": "Not in the list."},
+                ]
+            }
+        return {"tests": []}
+
+    asked, model = _models([TEST_ANSWER, SAFE_FIX], answer)
+    previous = structlog.get_config()
+    _, events = logged(tmp_path, model, demo=replace(demo, base_sha=sha))
+    structlog.configure(**previous)
+
+    by_event = {e["event"]: e for e in events}
+    assert by_event["fix_files_suggested"]["paths"] == ["src/kiosk/charges.py"]
+    assert "src/kiosk/charges.py" in by_event["fix_workspace_ready"]["context_files"]
+    choices = asked[0][1].choices
+    assert "src/kiosk/charges.py" in choices and not any(c.startswith("tests/") for c in choices)
+
+
+def test_a_model_picks_the_related_tests_and_the_changed_files_tests_are_always_run(
+    tmp_path: Path,
+) -> None:
+    from defect_support import OLD_TEST, SOURCE, FakeFixSources
+
+    from app.defect import sources
+    from app.llm.types import TaskKind
+
+    demo = make_demo(tmp_path)
+    sha = _area(demo)
+    history = (
+        sources.HistoricalFix("101", "PR 201", (SOURCE, OLD_TEST)),
+        sources.HistoricalFix("102", "PR 202", (SOURCE, "tests/test_other_area.py")),
+    )
+
+    def answer(kind):
+        if kind is TaskKind.TEST_SELECTION:
+            return {"tests": [{"path": "tests/test_receipt.py", "reason": "Uses the retry rule."}]}
+        return {"files": []}
+
+    asked, model = _models([TEST_ANSWER, SAFE_FIX], answer)
+    result = run_fix_with(tmp_path, demo, sha, model, FakeFixSources(fixes=history))
+
+    ran = [test.test_path for test in result.regression.tests]
+    assert ran == [OLD_TEST, "tests/test_receipt.py"]  # the changed file's own test, then the pick
+    choices = next(context for kind, context in asked if kind is TaskKind.TEST_SELECTION).choices
+    assert any(
+        c.startswith("tests/test_receipt.py | found as: test of code that uses") for c in choices
+    )
+    assert any("test_printer_paper" in c for c in choices)  # test names help the choice
+    assert any("judged unrelated to this change" in line for line in result.limitations)
+    assert result.verdict == "VERIFIED"
+
+
+def test_related_tests_run_in_one_batch_and_one_by_one_only_when_it_fails(tmp_path: Path) -> None:
+    from defect_support import Call, FakeRunner, honest
+
+    demo = make_demo(
+        tmp_path, recipes={**FAKE_RECIPES, "test_files": ["test-files", "{test_paths}", "{junit}"]}
+    )
+    sha = _area(demo)
+
+    def passing(call: Call):
+        return "pass" if call.kind == "test-files" else honest(call)
+
+    runner = FakeRunner(passing)
+    result = run_fix_with(tmp_path, demo, sha, [TEST_ANSWER, SAFE_FIX], runner=runner)
+
+    batch = [call for call in runner.calls if call.kind == "test-files"]
+    assert len(batch) == 1 and result.verdict == "VERIFIED"
+    assert len({tuple(test.execution_ids) for test in result.regression.tests}) == 1
+    assert len(result.regression.tests) >= 2
+
+    def failing(call: Call):
+        return "fail:AssertionError: something" if call.kind == "test-files" else honest(call)
+
+    runner = FakeRunner(failing)
+    result = run_fix_with(tmp_path / "again", demo, sha, [TEST_ANSWER, SAFE_FIX], runner=runner)
+
+    alone = [call for call in runner.calls if call.kind == "test-file" and call.tree == "candidate"]
+    assert len(alone) >= len(result.regression.tests)  # each one alone, to tell which failed
+    assert result.verdict == "VERIFIED"  # the batch failure was not a regression of any test
+
+
+def run_fix_with(tmp_path, demo, sha, model, sources=None, runner=None):
+    from defect_support import FakeRunner, honest
+    from test_defect_pipeline import run
+
+    return run(tmp_path, model, runner or FakeRunner(honest), sources, replace(demo, base_sha=sha))

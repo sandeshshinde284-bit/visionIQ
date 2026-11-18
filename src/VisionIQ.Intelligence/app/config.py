@@ -143,7 +143,8 @@ class Settings(BaseSettings):
     defect_model_standard: str = ""
     defect_model_complex: str = ""
     # Per-run budget of a fix. The seconds cover the test runs as well as the model calls.
-    defect_max_calls_per_run: int = Field(default=6, ge=1, le=30)
+    # Up to 3 tests, 2 fixes, choosing files once and related tests once per fix.
+    defect_max_calls_per_run: int = Field(default=10, ge=1, le=30)
     defect_max_tokens_per_run: int = Field(default=400_000, ge=1_000, le=5_000_000)
     defect_max_seconds_per_run: float = Field(default=1800.0, gt=0, le=14_400)
     # LLM_MODE=offline only: prepared test and patch answers for a demo (see app/defect/cli.py).

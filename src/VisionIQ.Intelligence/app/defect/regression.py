@@ -45,6 +45,11 @@ SCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue")
 _CODE_KINDS = frozenset({"script", ".cs", ".py", ".java", ".kt", ".go", ".rb", ".php", ".swift"})
 
 
+def is_code(path: str) -> bool:
+    """Whether a file is source code (not data, documents or configuration)."""
+    return kind(path) in _CODE_KINDS
+
+
 def kind(path: str) -> str:
     """The kind of a file: "script" for JavaScript, TypeScript and Vue, else its suffix."""
     suffix = PurePosixPath(path).suffix.lower()

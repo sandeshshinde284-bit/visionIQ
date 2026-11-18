@@ -364,7 +364,8 @@ def test_the_fix_pipeline_is_off_by_default_and_its_budget_is_bounded() -> None:
     defaults = Settings(_env_file=None)
 
     assert defaults.defect_pipeline_enabled is False and defaults.defect_policy_file is None
-    assert (defaults.defect_max_calls_per_run, defaults.defect_max_seconds_per_run) == (6, 1800.0)
+    # 3 tests, 2 fixes, choosing files once and related tests once per fix.
+    assert (defaults.defect_max_calls_per_run, defaults.defect_max_seconds_per_run) == (10, 1800.0)
     with pytest.raises(ValidationError):
         Settings(_env_file=None, defect_max_calls_per_run=0)
 

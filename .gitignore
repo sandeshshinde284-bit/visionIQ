@@ -77,4 +77,6 @@ pgdata/
 artifacts/
 
 # BRF-01: local pickup policies may name real projects and repositories
-#config/*.local.json
+config/*.local.json
+# Copies of them (config/defect-policy.local.backup-<time>.json) name the same projects.
+config/*.local.*.json

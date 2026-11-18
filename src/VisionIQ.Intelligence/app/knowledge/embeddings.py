@@ -11,6 +11,7 @@ import hashlib
 import math
 import os
 import re
+import threading
 import time
 from collections.abc import Sequence
 from typing import Protocol
@@ -85,6 +86,8 @@ class VertexGeminiEmbedder:
         max_retries: int = 5,
         request_timeout: int = 60,
         sleep=time.sleep,
+        # How many embedding requests may be in flight at once (the indexer's workers).
+        concurrency: int = 1,
     ) -> None:
         if dimension != DIMENSION:
             raise ValueError(f"Only {DIMENSION} dimensions are supported by the index schema")
@@ -102,6 +105,11 @@ class VertexGeminiEmbedder:
         self.max_retries = max(1, max_retries)
         self.request_timeout = max(10, request_timeout)
         self.sleep = sleep
+        self.concurrency = max(1, concurrency)
+        # A session is not shared between threads: each worker opens its own on first use.
+        # An injected session (tests) is used by every thread.
+        self._injected = session is not None
+        self._local = threading.local()
         if session is None:
             # Imported lazily: google-auth is only needed when Vertex is actually used, so the
             # test/hashing path (and anything importing this module) has no hard dependency on it.
@@ -112,7 +120,21 @@ class VertexGeminiEmbedder:
                 scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
             session = AuthorizedSession(credentials)
-        self.session = session
+        self.session = session  # opened now, so a missing login fails before any work
+
+    def _session(self):
+        if self._injected or threading.current_thread() is threading.main_thread():
+            return self.session
+        session = getattr(self._local, "session", None)
+        if session is None:
+            import google.auth
+            from google.auth.transport.requests import AuthorizedSession
+
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            session = self._local.session = AuthorizedSession(credentials)
+        return session
 
     def _predict(self, texts: Sequence[str], task: str) -> list[list[float]]:
         body = {
@@ -121,7 +143,7 @@ class VertexGeminiEmbedder:
             "parameters": {"outputDimensionality": self.dimension, "autoTruncate": False},
         }
         for attempt in range(self.max_retries + 1):
-            response = self.session.post(self.url, json=body, timeout=self.request_timeout)
+            response = self._session().post(self.url, json=body, timeout=self.request_timeout)
             if response.status_code in (429, 500, 502, 503, 504) and attempt < self.max_retries:
                 self.sleep(min(60.0, 2.0**attempt))
                 continue
@@ -173,6 +195,7 @@ def vertex_from_environment() -> VertexGeminiEmbedder:
         batch_size=int(setting("EMBEDDING_BATCH_SIZE", "1")),
         request_timeout=int(setting("EMBEDDING_REQUEST_TIMEOUT", "60")),
         max_retries=int(setting("EMBEDDING_MAX_RETRIES", "5")),
+        concurrency=int(setting("EMBEDDING_CONCURRENCY", "8")),
     )
 
 

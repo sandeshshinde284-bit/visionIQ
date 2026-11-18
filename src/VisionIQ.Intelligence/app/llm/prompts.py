@@ -88,10 +88,21 @@ reason) and later on a proposed fix (where it must pass).
 {_UNTRUSTED_RULE}
 
 Rules:
-- Use the test framework and conventions of the test files provided. Add one new test file;
-  never edit an existing file and never change production code.
-- The test must fail because of the behaviour the ticket reports, not because of a missing
-  import, a typo or the environment. Assert the behaviour the ticket says is expected.
+- Use the test framework and conventions of the test files provided. Never change production
+  code.
+- Put the test where the tests of that code already live. If a test file for the code your test
+  exercises is shown in full, add your test to THAT file: return the complete file in
+  test_content, every existing line unchanged, with your test added at the end of the file (in
+  its last test group or class) and any import lines you need. Never edit, move or remove an
+  existing test. Write a new test file only when no test file for that code is shown.
+- Identify the defect from the outside in: perform the action the ticket describes and assert
+  the result the ticket says should follow, as a user or caller observes it. The test must fail
+  because of that behaviour, not because of a missing import, a typo or the environment.
+- Do not assert an internal step (an event being emitted, a flag being set, a function being
+  called) in place of the reported result: a fix can satisfy the step and leave the result as it
+  was. In checks answer reported_behaviour only if the test asserts the result the ticket
+  reports. If the files shown only let you assert an internal step, answer internal_step and
+  say in limitations what could not be observed; the fix will then not be called verified.
 - In test_id give the test's name as the test runner reports it: for C#, Java or Python the
   test method, optionally with its class (Class.Method); for vitest or Jest the exact title
   passed to it() or test(), after any describe() titles joined with " > ".
@@ -113,9 +124,16 @@ The failing test reproduces a reported defect; it was run on the current code an
 Rules:
 - Change production code only. Never edit, delete or weaken the failing test or any other test.
 - Fix the cause in the layer where it belongs; do not special-case the test's inputs.
-- Existing tests of this code may be shown, read only. They describe behaviour that must not
-  change. Before writing the fix, work out the cause and which behaviour those tests protect,
-  then write ONE fix that makes the failing test pass AND keeps those tests passing.
+- Existing tests of this code may be shown, read only. They describe how the code behaves
+  today. That is usually right, but a test is not proof: it can expect the very behaviour the
+  ticket reports as a defect, or rest on mock data that hides it. Before writing the fix, work
+  out the cause and which behaviour those tests protect, then write ONE fix that makes the
+  failing test pass and keeps passing every test that does not contradict the ticket.
+- Never bend the fix to keep a test passing that expects the defect: fix what the ticket
+  reports, at the place where the reported result is decided. List each such test in
+  conflicting_tests with what it expects and why that contradicts the ticket. It will fail with
+  your fix, and an engineer decides whether it needs updating. Do not list a test only because
+  your fix breaks it.
 - Keep the change small: touch only the files that must change, and return the COMPLETE new
   content of each changed file.
 - Do not add or upgrade dependencies, do not touch secrets or configuration, and do not add
@@ -198,6 +216,8 @@ REPRODUCTION_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
         },
         "rationale": {"type": "string"},
+        # What the test asserts: the result the ticket reports, or only an internal step.
+        "checks": {"type": "string", "enum": ["reported_behaviour", "internal_step"]},
         "limitations": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["reproducible", "limitations"],
@@ -218,9 +238,81 @@ FIX_SCHEMA: dict[str, Any] = {
         },
         "cause": {"type": "string"},
         "summary": {"type": "string"},
+        # Existing tests that expect the behaviour the ticket reports as a defect.
+        "conflicting_tests": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            },
+        },
         "limitations": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["changes", "cause", "summary", "limitations"],
+    "additionalProperties": False,
+}
+
+_FILES_SYSTEM = f"""You choose which source files of a repository an engineer should read to find
+the cause of a reported defect.
+
+{_UNTRUSTED_RULE}
+
+Rules:
+- Pick only from the choices listed, by copying the path exactly. Never invent a path.
+- The files already chosen are listed in the facts; do not repeat them. Add the files that most
+  likely hold the behaviour the ticket reports: the screen, component, service or function where
+  the reported result is decided, and what it depends on.
+- Judge by the ticket's words and by what each path suggests (folders, names); prefer fewer,
+  likelier files. Pick none if no listed file is likely.
+- Give one short reason per file, naming the part of the ticket it relates to."""
+
+FILES_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["files"],
+    "additionalProperties": False,
+}
+
+_TESTS_SYSTEM = f"""You choose which existing automated tests should be run again to check that a
+code change broke nothing.
+
+{_UNTRUSTED_RULE}
+
+Rules:
+- Pick only from the choices listed, by copying the path exactly. Never invent a path.
+- Each choice shows how it was found and the names of the tests in the file. Pick the tests that
+  exercise the changed code or its behaviour: tests of the changed files, of code that uses them,
+  and tests whose names describe the behaviour the change touches.
+- A test that was only changed together with these files in some past fix, but tests unrelated
+  behaviour, is not related: leave it out.
+- Give one short reason per test. Pick none if no listed test relates to the change."""
+
+TESTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "tests": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["tests"],
     "additionalProperties": False,
 }
 
@@ -336,12 +428,14 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
         "brief.enhancement", 1, _ENHANCEMENT_SYSTEM, ENHANCEMENT_SCHEMA
     ),
     TaskKind.REPRODUCTION_TEST: PromptTemplate(
-        "defect.reproduction", 2, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
+        "defect.reproduction", 4, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
     ),
-    TaskKind.CODE_FIX: PromptTemplate("defect.fix", 2, _FIX_SYSTEM, FIX_SCHEMA),
+    TaskKind.CODE_FIX: PromptTemplate("defect.fix", 3, _FIX_SYSTEM, FIX_SCHEMA),
     TaskKind.STARTER_SCAFFOLD: PromptTemplate(
         "enhancement.starter", 1, _STARTER_SYSTEM, STARTER_SCHEMA
     ),
+    TaskKind.FILE_SELECTION: PromptTemplate("defect.files", 1, _FILES_SYSTEM, FILES_SCHEMA),
+    TaskKind.TEST_SELECTION: PromptTemplate("defect.tests", 1, _TESTS_SYSTEM, TESTS_SCHEMA),
 }
 
 
@@ -380,6 +474,9 @@ def render_user_prompt(kind: TaskKind, context: EvidenceContext) -> str:
             )
             for file in context.code
         )
+    if context.choices:
+        parts.append("Choices (pick only from these, copying the path exactly):")
+        parts.append(_block("choices", "\n".join(context.choices)))
     if context.feedback:
         parts.append(
             "Earlier attempts of this run and why they were rejected:"
