@@ -330,7 +330,7 @@ def test_prompt_versions_are_named_and_unique() -> None:
         "brief.defect@v1",
         "brief.critique@v1",
         "brief.enhancement@v1",  # ENH-01: enhancement guidance (master design 8.5)
-        "defect.reproduction@v2",  # test_id: how vitest and Jest name a test
+        "defect.reproduction@v3",  # the test is added to the existing test file of the code
         "defect.fix@v2",  # analyse first; keep the existing tests shown passing
         "enhancement.starter@v1",  # ENH-02: the optional starter scaffold
     ]

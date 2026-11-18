@@ -9,7 +9,7 @@ what it may touch is decided in :mod:`app.defect.guardrails`. Text the model wro
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 
 from app.defect.guardrails import ProposedChange, adds_secret
@@ -96,6 +96,72 @@ def context_for(
     )
 
 
+# Adding a test to an existing test file. Existing lines may not change, so the tests already
+# there cannot be edited or removed; new lines may go in two places only, so they cannot be
+# slipped into the body of an existing test (a `return` there would switch it off): import lines
+# anywhere, and a block at the end of the file, where only closing brackets may follow it.
+_CLOSERS = re.compile(r"[\s})\];,]*")
+_IMPORT_STATEMENT = re.compile(
+    r"""\s*(?:"""
+    r"""import\s+(?:type\s+)?(?:[\w*{}\s,$]+?\s+from\s+)?["'][^"']+["']\s*;?"""  # JS / TS
+    r"""|import\s+(?:static\s+)?[\w.*]+(?:\s+as\s+\w+)?\s*;?"""  # Python, Java, Kotlin
+    r"""|from\s+[\w.]+\s+import\s+[\w*,\s()]+"""  # Python
+    r"""|(?:global\s+)?using\s+(?:static\s+)?[\w.]+(?:\s*=\s*[\w.<>,\s]+)?\s*;"""  # C#
+    r""")\s*"""
+)
+
+
+def _only_imports(lines: Sequence[str]) -> bool:
+    written = [line for line in lines if line.strip()]
+    if all(_IMPORT_STATEMENT.fullmatch(line) for line in written):
+        return True
+    # One import written over several lines: judge the statements, not the lines.
+    joined = " ".join(line.strip() for line in written)
+    statements = [part for part in re.split(r"(?<=;)\s*", joined) if part]
+    return bool(statements) and all(_IMPORT_STATEMENT.fullmatch(part) for part in statements)
+
+
+def add_to_existing(before: str, after: str) -> tuple[str | None, str | None]:
+    """``after`` as an addition to the test file ``before``: (the file to write, None), or
+    (None, why it is refused).
+
+    The file written keeps every existing line byte for byte (and the file's line endings), so
+    the pull request shows only the lines that were added.
+    """
+    mark = "\ufeff" if before.startswith("\ufeff") else ""
+    newline = "\r\n" if "\r\n" in before else "\n"
+    old = before.removeprefix("\ufeff").splitlines()
+    merged: list[str] = []
+    added: list[tuple[int, list[str]]] = []  # (existing lines before it, the lines added)
+    kept = 0
+    for line in after.removeprefix("\ufeff").splitlines():
+        if kept < len(old) and line.rstrip() == old[kept].rstrip():
+            merged.append(old[kept])
+            kept += 1
+            continue
+        if added and added[-1][0] == kept:
+            added[-1][1].append(line)
+        else:
+            added.append((kept, [line]))
+        merged.append(line.rstrip())
+    if kept < len(old):
+        return None, (
+            "An existing test file may only be added to: every existing line must stay, "
+            f"unchanged and in order (line {kept + 1} of the existing file is missing or changed)."
+        )
+    if not any(line.strip() for _, lines in added for line in lines):
+        return None, "The existing test file was returned unchanged: no test was added."
+    for position, lines in added:
+        at_the_end = all(_CLOSERS.fullmatch(rest) for rest in old[position:])
+        if not at_the_end and not _only_imports(lines):
+            return None, (
+                "New lines may be added to an existing test file only as import lines, or as a "
+                "new test at the end of the file (before its closing brackets); nothing may be "
+                "inserted between or inside the existing tests."
+            )
+    return mark + newline.join(merged) + newline, None
+
+
 def propose_test(
     gateway: ModelGateway,
     ledger: RunLedger,
@@ -103,7 +169,12 @@ def propose_test(
     policy: RepositoryPolicy,
     baseline_files: Collection[str],
     tier: str | None = None,
+    read_existing: Callable[[str], str | None] | None = None,
 ) -> TestProposal | Declined:
+    """A reproduction test: a new test file, or a test added to an existing test file.
+
+    ``read_existing`` returns a file at the baseline; without it only a new file is accepted.
+    """
     outcome = gateway.generate(TaskKind.REPRODUCTION_TEST, context, ledger, tier)
     if outcome.result is None:
         return Declined(outcome.reason or "llm_unavailable", "No model produced a test.", llm=True)
@@ -125,9 +196,20 @@ def propose_test(
     if not matches(path, policy.new_test_paths) or not matches(path, policy.test_file_patterns):
         return invalid("The test file is not in a place where this repository keeps its tests.")
     lowered = path.lower()
-    if any(lowered == existing.lower() for existing in baseline_files):
-        # Compared without case: on Windows and macOS the other spelling is the same file.
-        return invalid("The test must be a new file; an existing file may not be edited.")
+    # Compared without case: on Windows and macOS the other spelling is the same file.
+    existing_file = next((known for known in baseline_files if known.lower() == lowered), None)
+    before = ""
+    if existing_file is not None:
+        # The path already passed the test-file rules above, so this is an existing test file.
+        previous = read_existing(existing_file) if read_existing and existing_file == path else None
+        if previous is None:
+            return invalid(
+                "The test must be a new file, or an existing test file with the test added to it."
+            )
+        merged, problem = add_to_existing(previous, content)
+        if merged is None:
+            return invalid(problem or "The existing test file could not be added to.")
+        before, content = previous, merged
     if any(existing.lower().startswith(f"{lowered}/") for existing in baseline_files):
         return invalid("The test path is an existing directory.")
     titled = not _TEST_ID.match(test_id)
@@ -138,7 +220,7 @@ def propose_test(
     named = test_id.split(" > ")[-1] if titled else test_id.rsplit(".", 1)[-1].split("[", 1)[0]
     if named not in content:
         return invalid("The test file does not define the test it names.")
-    if adds_secret("", content):
+    if adds_secret(before, content):
         # The test is committed with the fix and shown on the pull request.
         return invalid("The test file contains text that looks like a credential.")
     if not isinstance(expected_raw, dict):
