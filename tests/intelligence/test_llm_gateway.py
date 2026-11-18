@@ -330,7 +330,7 @@ def test_prompt_versions_are_named_and_unique() -> None:
         "brief.defect@v1",
         "brief.critique@v1",
         "brief.enhancement@v1",  # ENH-01: enhancement guidance (master design 8.5)
-        "defect.reproduction@v3",  # the test is added to the existing test file of the code
-        "defect.fix@v2",  # analyse first; keep the existing tests shown passing
+        "defect.reproduction@v4",  # the test asserts what the ticket reports, and says so
+        "defect.fix@v3",  # a test that expects the defect is named, not worked around
     ]
     assert len(set(versions)) == len(versions)

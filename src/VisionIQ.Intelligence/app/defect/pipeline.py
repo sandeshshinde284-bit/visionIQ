@@ -44,6 +44,7 @@ from app.defect.generate import (
     REPRODUCTION_UNAVAILABLE,
     TEST_INVALID,
     Declined,
+    PatchProposal,
     TestProposal,
     context_for,
     propose_patch,
@@ -116,6 +117,10 @@ REGRESSION_FAILED = "regression_failed"
 REGRESSION_INCONCLUSIVE = "regression_inconclusive"
 SUITE_FAILED = "suite_failed"
 SUITE_INCONCLUSIVE = "suite_inconclusive"
+# The new test asserts an internal step, not the result the ticket reports.
+REPRODUCTION_INDIRECT = "reproduction_indirect"
+# An existing test fails with the fix and is stated to expect the reported defect.
+EXISTING_TEST_CONTRADICTS = "existing_test_contradicts_ticket"
 PERFORMANCE_REGRESSION = "performance_regression"
 PERFORMANCE_INCONCLUSIVE = "performance_inconclusive"
 
@@ -434,6 +439,8 @@ class _FixRun:
         # The files expected to change (ticket, brief, history), without the related files shown
         # beside them: complexity and restricted areas are judged on these.
         self.scope_files: list[str] = []
+        # The accepted reproduction test asserts an internal step, not the reported result.
+        self.indirect_test = False
         self._clear_candidate()
 
     def _clear_candidate(self) -> None:
@@ -441,6 +448,8 @@ class _FixRun:
         self.patch: Patch | None = None
         self.candidate_sha: str | None = None
         self.candidate_test: CheckEvidence | None = None
+        # (path, the model's reason, failure) of existing tests that contradict the ticket.
+        self.contradicted: list[tuple[str, str, str]] = []
         self.suite: CheckEvidence | None = None
         self.regression = Regression(
             status="NOT_RUN", historical_found=False, detail="No candidate reached this step."
@@ -1137,6 +1146,7 @@ class _FixRun:
                 execution_ids=last.execution_ids,
             )
             if outcome == "FAIL_TARGET_SIGNATURE":
+                self.indirect_test = not proposal.direct
                 return proposal
             if outcome in ("FLAKY", "TIMEOUT"):
                 break  # another test would not make this one trustworthy
@@ -1223,10 +1233,10 @@ class _FixRun:
         if existing:
             facts = (
                 *facts,
-                "These existing tests of this code are shown read only. They describe behaviour "
-                "that must not change; the fix must keep them passing: "
+                "These existing tests of this code are shown read only: "
                 + ", ".join(file.path for file in existing)
-                + ".",
+                + ". Keep them passing, unless one expects the behaviour the ticket reports as a "
+                "defect: then fix the defect and list that test in conflicting_tests.",
             )
             _log().info("fix_existing_tests_shown", paths=[file.path for file in existing])
         context_code = [*code, CodeFile(path=test.path, content=test.content), *existing]
@@ -1381,6 +1391,19 @@ class _FixRun:
                 unavailable=sum(1 for item in replayed if item.availability == "UNAVAILABLE"),
                 not_passing=[item.test_path for item in replayed if item.outcome != "PASS"],
             )
+            self.contradicted = self._contradicted(proposal)
+            if self.contradicted:
+                # Not a regression to repair: the tests that fail were named with the fix, before
+                # anything ran, as expecting the defect. It is reported, never called green.
+                paths = ", ".join(path for path, _, _ in self.contradicted)
+                self.regression = self.regression.model_copy(
+                    update={
+                        "status": "INCONCLUSIVE",
+                        "detail": f"{len(self.contradicted)} existing test(s) fail with the fix "
+                        f"and are stated to expect the reported defect: {paths}.",
+                    }
+                )
+                _log().warning("fix_existing_test_contradicts_ticket", tests=paths)
             if self.regression.status == "FAIL":
                 tested = True
                 self._attempt(iteration, REGRESSION_FAILED, self.regression.detail)
@@ -1404,7 +1427,18 @@ class _FixRun:
                 ]
                 context_code.extend(self._read(missing[:MAX_EXISTING_TESTS]))
                 continue
-            if self._suite(manifest) == "FAIL":
+            suite_status = self._suite(manifest)
+            if suite_status == "FAIL" and self.contradicted and self.suite is not None:
+                # The suite holds the tests named as expecting the defect, so it fails with them.
+                # That is no reason for a repair round; what else fails in it was not separated.
+                suite_status = "INCONCLUSIVE"
+                self.suite = self.suite.model_copy(update={"outcome": "INCONCLUSIVE"})
+                self.limitations.append(
+                    "The project's suite fails with this fix. It contains the existing test(s) "
+                    "named as expecting the defect; whether anything else in it fails was not "
+                    "separated."
+                )
+            if suite_status == "FAIL":
                 tested = True
                 signature = self.suite.failure_signature if self.suite else None
                 self._attempt(iteration, SUITE_FAILED, signature or "")
@@ -1647,11 +1681,45 @@ class _FixRun:
             }
         )
 
+    def _contradicted(self, proposal: PatchProposal) -> list[tuple[str, str, str]]:
+        """The existing tests this candidate broke, when every one of them was named with the fix
+        as expecting the defect the ticket reports; else nothing, and they are regressions.
+
+        A test is not proof: it can expect the very behaviour a ticket calls a defect. Seen live,
+        a fix was bent to keep such a test passing and left the defect in place.
+        """
+        broke = [
+            item
+            for item in self.regression.tests
+            if item.outcome in _FAILED and item.baseline_outcome == "PASS"
+        ]
+        stated = dict(proposal.conflicts)
+        if not broke or any(item.test_path not in stated for item in broke):
+            return []
+        return [
+            (item.test_path, stated[item.test_path], item.failure_signature or "") for item in broke
+        ]
+
     def _settle(self) -> Verdict:
         """The verdict for a candidate that is green on the new test and broke nothing known."""
         unclear: list[str] = []
-        if self.regression.status == "INCONCLUSIVE":
+        if self.contradicted:
+            unclear.append(EXISTING_TEST_CONTRADICTS)
+            for path, reason, _ in self.contradicted:
+                self.limitations.append(
+                    f"The existing test {path} fails with this fix. The model states that it "
+                    f"expects the behaviour the ticket reports as a defect: {reason} An engineer "
+                    "decides whether that test needs updating; until then the fix is not verified."
+                )
+        elif self.regression.status == "INCONCLUSIVE":
             unclear.append(REGRESSION_INCONCLUSIVE)
+        if self.indirect_test:
+            unclear.append(REPRODUCTION_INDIRECT)
+            self.limitations.append(
+                "The new test checks an internal step of the code, not the result the ticket "
+                "reports. It shows that step changed; it does not prove that what the ticket "
+                "describes is fixed."
+            )
         if not self.regression.historical_found:
             self.limitations.append(
                 f"{regression_rules.NOT_FOUND}: no runnable regression test linked to a past "
