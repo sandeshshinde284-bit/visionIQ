@@ -68,12 +68,76 @@ def _cell(text: str) -> str:
     return " ".join(text.replace("|", "/").split())
 
 
+def _runs(ids: list[str]) -> str:
+    """Every run, with consecutive ones as a range: X3, X4, X17-X26."""
+    numbered = [(int(i[1:]), i) for i in ids if i[:1] == "X" and i[1:].isdigit()]
+    if len(numbered) != len(ids):
+        return ", ".join(ids) or "-"
+    parts: list[str] = []
+    start = end = None
+    for number, _ in sorted(numbered):
+        if end is not None and number == end + 1:
+            end = number
+            continue
+        if start is not None:
+            parts.append(f"X{start}" if start == end else f"X{start}-X{end}")
+        start = end = number
+    if start is not None:
+        parts.append(f"X{start}" if start == end else f"X{start}-X{end}")
+    return ", ".join(parts) or "-"
+
+
+def _sentences(text: str, limit: int = 320) -> str:
+    """Whole sentences only: text cut off mid-sentence ends at its last full stop, or with '...'."""
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[:limit]
+    if text and text[-1] not in ".!?":
+        stop = max(text.rfind(". "), text.rfind("! "), text.rfind("? "))
+        text = text[: stop + 1] if stop > 0 else text.rstrip(",;: ") + "..."
+    return text
+
+
+def _distinct(lines: list[str]) -> list[str]:
+    """Lines that do not repeat an earlier one (models restate the same limit each attempt)."""
+    kept: list[str] = []
+    seen: list[str] = []
+    for line in lines:
+        key = " ".join(re.sub(r"[^a-z0-9 ]", " ", line.lower()).split())[:80]
+        if key and not any(key in other or other in key for other in seen):
+            kept.append(line)
+            seen.append(key)
+    return kept
+
+
+# Why a result is not verified, in words a reviewer reads.
+_REASON = {
+    "reproduction_indirect": "the new test checks an internal step, not the result the ticket "
+    "describes",
+    "existing_test_contradicts_ticket": "an existing test fails with this change and is stated "
+    "to expect the behaviour the ticket reports as a defect",
+    "regression_failed": "the change breaks existing tests that passed before",
+    "regression_inconclusive": "some related tests gave no clear result",
+    "suite_failed": "the project's test suite fails with the change",
+    "suite_inconclusive": "the project's test suite gave no clear result",
+    "candidate_test_failed": "the new test still fails with the change",
+    "fix_budget_exhausted": "no attempt passed every check within the attempts allowed",
+    "performance_regression": "the change is measurably slower",
+    "performance_inconclusive": "its effect on performance could not be told from noise",
+}
+# Environment notes, kept with the technical details rather than in what the reviewer must check.
+_ENVIRONMENT = ("Commands ran on the local runner",)
+
+
+def _gate(result: FixResult, name: str) -> Gate | None:
+    return next((gate for gate in result.gates if gate.name == name), None)
+
+
 def _gate_row(gate: Gate) -> str:
-    runs = ", ".join(gate.execution_ids[:6]) or "-"
     need = "required" if gate.required else "informational"
     return (
-        f"| {_GATE_LABEL[gate.name]} | **{_MARK[gate.status]}** ({need}) | "
-        f"{_cell(gate.detail)} | {runs} |"
+        f"| {_GATE_LABEL[gate.name]} | {_MARK[gate.status]} ({need}) | "
+        f"{_cell(gate.detail)} | {_runs(gate.execution_ids)} |"
     )
 
 
@@ -91,68 +155,138 @@ def title(result: FixResult) -> str:
     return text[:MAX_TITLE_CHARS].rstrip(": ")
 
 
+def _status(result: FixResult) -> str:
+    reasons = [_REASON.get(code, code.replace("_", " ")) for code in result.reason_codes]
+    because = "; ".join(reasons)
+    if result.verdict == "VERIFIED":
+        return (
+            "VisionIQ reproduced the defect with a test, and this change passed every check it "
+            "ran in a sandbox. Before it is merged, this repository's own pipeline has to pass "
+            "and an engineer has to review it."
+        )
+    if result.verdict == "FAIL":
+        return (
+            f"**Not verified: the change did not pass VisionIQ's checks** ({because}). It is "
+            "shared as a draft so an engineer can see what was tried."
+        )
+    return (
+        f"**Not verified.** VisionIQ proposes this change, but its checks did not confirm it "
+        f"({because or 'see the checks below'}). Treat it as a starting point and review it "
+        "with care."
+    )
+
+
+def _checked(result: FixResult) -> list[str]:
+    """How it was checked, as sentences; one line per sandbox check that ran."""
+    lines: list[str] = []
+    reproduced = _gate(result, "reproduction")
+    candidate = _gate(result, "candidate_test")
+    if reproduced is not None and reproduced.status == "PASS":
+        lines.append(
+            "The new test fails on the code before this change, for the predicted reason "
+            f"(runs {_runs(reproduced.execution_ids)})."
+        )
+    elif reproduced is not None:
+        lines.append(f"Reproduction: {_MARK[reproduced.status]}. {_cell(reproduced.detail)}")
+    if candidate is not None and candidate.status == "PASS":
+        lines.append(f"It passes with this change (run {_runs(candidate.execution_ids)}).")
+    elif candidate is not None and candidate.status != "NOT_RUN":
+        lines.append(f"With this change the new test is {_MARK[candidate.status]}.")
+    regression = _gate(result, "historical_regression")
+    if regression is not None and regression.status not in ("NOT_RUN", "NOT_APPLICABLE"):
+        tests = result.regression.tests
+        passed = sum(1 for test in tests if test.outcome == "PASS")
+        runs = f" (runs {_runs(regression.execution_ids)})" if regression.execution_ids else ""
+        if regression.status == "PASS":
+            still = "test still passes" if passed == 1 else "tests still pass"
+            lines.append(f"{passed} existing related {still} with this change{runs}.")
+        elif regression.status == "UNAVAILABLE":
+            lines.append("No existing test of this area was found to run again.")
+        else:
+            lines.append(f"Existing related tests: {_cell(regression.detail)}{runs}")
+    suite = _gate(result, "touched_suite")
+    if suite is not None and suite.status not in ("NOT_RUN", "NOT_APPLICABLE"):
+        said = {
+            "PASS": "passes",
+            "FAIL": "fails",
+            "INCONCLUSIVE": "gave no clear result",
+        }.get(suite.status, _MARK[suite.status].lower())
+        runs = _runs(suite.execution_ids)
+        lines.append(f"The project's test suite {said} in the sandbox (runs {runs}).")
+    performance = _gate(result, "performance")
+    if performance is not None and performance.status == "PASS":
+        lines.append("No slowdown was measured on the changed code path.")
+    elif performance is not None and performance.status not in ("NOT_RUN", "NOT_APPLICABLE"):
+        lines.append(f"Performance: {_cell(performance.detail)}")
+    policy = _gate(result, "patch_policy")
+    if policy is not None and policy.status == "PASS":
+        lines.append("The change stays within the files and size this repository allows.")
+    elif policy is not None and policy.status not in ("NOT_RUN", "NOT_APPLICABLE"):
+        lines.append(f"Repository rules: {_cell(policy.detail)}")
+    if suite is None or suite.status in ("NOT_RUN", "NOT_APPLICABLE"):
+        lines.append(
+            "The project's full test suite was not run here; this repository's pipeline runs it "
+            "on this pull request."
+        )
+    return lines
+
+
 def description(result: FixResult) -> str:
-    """Markdown for the PR description, at most 4000 characters."""
+    """Markdown for the PR description, at most 4000 characters: what a reviewer needs first,
+    the technical trail after it."""
     reproduction = result.reproduction
     patch = result.patch
-    summary = result.gate_summary
+    ticket = _plain(result.ticket.title or "Work item " + result.ticket.id)
     head = [
-        f"Draft fix for work item #{result.ticket.id}, opened by the VisionIQ bot. "
-        "It is a proposal: the bot cannot approve or merge it.",
+        f"VisionIQ prepared this draft for work item #{result.ticket.id}: {ticket}. It is a "
+        "proposal for an engineer to review; VisionIQ cannot approve or merge it.",
         "",
-        f"**Status: {summary.overall.replace('_', ' ')}** (sandbox verdict: {result.verdict}). "
-        + (
-            f"Still open: {', '.join(_GATE_LABEL[name] for name in summary.blocking)}."
-            if summary.blocking
-            else "Every required gate passed for this commit."
-        ),
-        "",
-        "### Defect",
-        f"{_plain(result.ticket.title or 'Work item ' + result.ticket.id)} "
-        f"(baseline `{result.base_sha}`).",
+        _status(result),
     ]
-    if reproduction.test is not None and reproduction.evidence is not None:
+    if patch is not None:
         head += [
             "",
-            "### Reproduction",
-            f"Test `{reproduction.test.test_id}` in `{reproduction.test.path}` ran on the "
-            f"unchanged baseline: **{reproduction.evidence.outcome}**.",
+            "### What was wrong",
+            (_plain(_sentences(patch.cause, 600)) if patch.cause else "Not stated.")
+            + " _(The model's analysis, checked by the tests below but not yet by a person.)_",
+            "",
+            "### What changed",
+            _plain(_sentences((patch.summary or "See the diff").rstrip(".") + ".", 600)),
+            "",
+            "Files: "
+            + ", ".join(
+                f"`{file.path}` (+{file.added_lines} -{file.removed_lines})"
+                for file in patch.files[:8]
+            )
+            + ".",
+        ]
+    if reproduction.test is not None and reproduction.evidence is not None:
+        shown = [
+            "",
+            "### How the defect was shown",
+            f"Test `{reproduction.test.test_id}` in `{reproduction.test.path}`.",
         ]
         if reproduction.evidence.failure_signature:
             # Inside a code span nothing is markup; a backtick in the text would end the span.
             failure = _cell(reproduction.evidence.failure_signature).replace("`", "'")[:200]
-            head.append(f"Failure: `{failure}`")
-    if patch is not None:
-        files = ", ".join(
-            f"`{file.path}` (+{file.added_lines}/-{file.removed_lines})" for file in patch.files[:8]
-        )
-        head += [
-            "",
-            "### Cause (proposed by the model, not verified)",
-            _plain(patch.cause) if patch.cause else "Not stated.",
-            "",
-            "### Fix",
-            f"{_plain((patch.summary or 'See the diff').rstrip('.'))}. "
-            f"Sandbox candidate `{patch.candidate_sha or 'none'}`, "
-            f"iteration {patch.iteration}. Files: {files}.",
-        ]
-    gates = [
-        "",
-        "### Verification",
-        "| Check | Result | Detail | Runs |",
-        "| --- | --- | --- | --- |",
-        *(_gate_row(gate) for gate in result.gates),
-    ]
-    risk: list[str] = []
-    if result.limitations:
-        # Limitations can quote a model's own words (a reason it gave), so they are plain text too.
-        risk = [
-            "",
-            "### Risks and limits",
-            *(f"- {_plain(line)}" for line in result.limitations[:6]),
-        ]
+            shown.append(f"Before this change it fails with: `{failure}`")
+        head += shown
+    head += ["", "### How it was checked", *(f"- {line}" for line in _checked(result))]
+    review = _distinct(
+        [_sentences(line) for line in result.limitations if not line.startswith(_ENVIRONMENT)]
+    )
+    if review:
+        # Limitations can quote a model's own words, so they are plain text too.
+        head += ["", "### Please check", *(f"- {_plain(line)}" for line in review[:5])]
     manifest = result.manifests[-1] if result.manifests else None
-    trail = ["", "### Evidence"]
+    trail = [
+        "",
+        "### Details",
+        f"Baseline `{result.base_sha}`, sandbox candidate "
+        f"`{patch.candidate_sha if patch and patch.candidate_sha else 'none'}`"
+        + (f", iteration {patch.iteration}" if patch else "")
+        + ".",
+    ]
     if manifest is not None:
         runner = manifest.runner
         trail.append(
@@ -162,6 +296,11 @@ def description(result: FixResult) -> str:
             f"Manifest `{manifest.sha256[:12]}`."
         )
     trail += [
+        "",
+        "| Check | Result | Detail | Runs |",
+        "| --- | --- | --- | --- |",
+        *(_gate_row(gate) for gate in result.gates),
+        "",
         "| Run | Purpose | Code | Outcome | Exit | Log SHA-256 |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
@@ -170,7 +309,7 @@ def description(result: FixResult) -> str:
         f"Full result: fix `{result.fix_id}`, run `{result.run_id}`.",
     ]
 
-    fixed = "\n".join([*head, *gates, *risk, *trail])
+    fixed = "\n".join([*head, *trail])
     tail = "\n".join(footer)
     # Benchmark runs are many and all alike: one line for them, a row for every other run.
     benchmarks = [e.execution_id for e in result.executions if e.purpose == "benchmark"]
