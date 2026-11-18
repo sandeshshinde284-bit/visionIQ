@@ -729,11 +729,12 @@ class _FixRun:
         return self._read(ordered[:MAX_EXISTING_TESTS])
 
     def _test_examples(self, code: Sequence[CodeFile], tests: Sequence[str]) -> list[CodeFile]:
-        """The two most useful existing tests, so the model sees this project's conventions."""
+        """The most useful existing tests: the model sees this project's conventions, and the
+        test file of the code under test, which a new test is added to."""
         ordered = order_tests([file.path for file in code], tests)
         kinds = {_kind(file.path) for file in code}
         same_kind = [path for path in ordered if _kind(path) in kinds]
-        return self._read((same_kind or ordered)[:2])
+        return self._read((same_kind or ordered)[:MAX_EXISTING_TESTS])
 
     def _test_data(self, code: Sequence[CodeFile], shown: Collection[str]) -> list[CodeFile]:
         """The project's own mock or test data for what the shown code imports (test_data_paths):
@@ -994,7 +995,7 @@ class _FixRun:
         self, ticket: TicketText, code: Sequence[CodeFile], files: Sequence[str]
     ) -> TestProposal | None:
         """A test that is red on the baseline for the predicted reason, or None with the reason."""
-        repo, _ = self._ready()
+        repo, workspace = self._ready()
         tests = order_tests(
             [file.path for file in code],
             [p for p in files if is_safe_path(p) and matches(p, repo.test_file_patterns)],
@@ -1023,6 +1024,8 @@ class _FixRun:
                 repo,
                 set(files),
                 self._tier(attempt),
+                # The complete file at the baseline: a test may be added to an existing test file.
+                lambda path: workspace.read(path, "base"),
             )
             if isinstance(proposal, Declined):
                 # The code only: an "unavailable" reason is model text and is not logged.
@@ -1041,6 +1044,23 @@ class _FixRun:
                             reproducibility="INCONCLUSIVE", detail=proposal.detail
                         )
                     break
+                if (
+                    proposal.code == REPRODUCTION_UNAVAILABLE
+                    and attempt < repo.limits.max_test_attempts
+                ):
+                    # Seen live: the model answered "cannot be reproduced" and the run ended at
+                    # once, with attempts unused. It is asked for another scenario first; the
+                    # last attempt's answer stands, and a red is still never invented.
+                    feedback.append(
+                        f"Attempt {attempt} answered that the defect cannot be reproduced. "
+                        "Before giving up, try a different scenario: test the smallest unit that "
+                        "shows the reported behaviour (one function or component instead of a "
+                        "whole screen or flow), start from another state, or call the code path "
+                        "directly, with the mocks and test data shown. Say what you assumed in "
+                        "limitations. Answer reproducible=false again only if no such test can be "
+                        "written from the files shown."
+                    )
+                    continue
                 if proposal.code == REPRODUCTION_UNAVAILABLE:
                     # 8.6.2: say so and escalate; never invent a red.
                     self.reproduction = Reproduction(
@@ -1485,6 +1505,21 @@ class _FixRun:
         found = regression_rules.discover(
             fixes, baseline, changed, repo, exclude={reproduction_test}, limit=False
         )
+        if reproduction_test in baseline:
+            # The new test was added to an existing test file: the tests that were already in
+            # that file are replayed first, whatever else is found. On the baseline that file
+            # is the original one, so a test of it that the change broke shows as broken.
+            found.insert(
+                0,
+                regression_rules.RegressionCandidate(
+                    test_path=reproduction_test,
+                    tier="explicit",
+                    discovery_method="existing_tests_of_the_file_the_new_test_was_added_to",
+                    ticket_id=None,
+                    fix_reference=None,
+                    available=True,
+                ),
+            )
         candidates = found[: repo.limits.max_regression_tests]
         if len(found) > len(candidates):
             self.limitations.append(
