@@ -231,6 +231,7 @@ def test_empty_settings_copied_from_the_template_fall_back_to_defaults(monkeypat
         "EMBEDDING_BATCH_SIZE",
         "EMBEDDING_REQUEST_TIMEOUT",
         "EMBEDDING_MAX_RETRIES",
+        "EMBEDDING_CONCURRENCY",
     ):
         monkeypatch.setenv(name, "")  # present but empty, as in a .env copied from the template
     monkeypatch.setenv("GCP_PROJECT_ID", "my-gcp-project")
@@ -246,6 +247,7 @@ def test_empty_settings_copied_from_the_template_fall_back_to_defaults(monkeypat
         "batch_size": 1,
         "request_timeout": 60,
         "max_retries": 5,
+        "concurrency": 8,  # embedding requests in flight at once while indexing
     }
 
 
@@ -274,3 +276,39 @@ def test_work_item_discussion_comments_are_indexed_as_their_own_sections():
         for s in extract("work_item_current", {**record, "comments": None}).sections
         if s.name == "Discussion"
     ]  # unavailable comments add nothing
+
+
+def test_each_indexing_thread_opens_its_own_vertex_session(monkeypatch):
+    # A requests session is not safe to share between threads: workers open their own; the main
+    # thread keeps the one opened at start (so a missing login fails before any work).
+    import threading
+
+    import google.auth
+    import google.auth.transport.requests as transport
+
+    opened = []
+
+    class Session:
+        def __init__(self, credentials):
+            opened.append(self)
+
+    monkeypatch.setattr(google.auth, "default", lambda scopes: (object(), "project"))
+    monkeypatch.setattr(transport, "AuthorizedSession", Session)
+    embedder = VertexGeminiEmbedder(
+        project="my-gcp-project", location="europe-west1", concurrency=4
+    )
+    seen = []
+
+    def work():
+        seen.append(embedder._session())
+        seen.append(embedder._session())
+
+    threads = [threading.Thread(target=work) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert embedder._session() is embedder.session
+    assert len({id(s) for s in seen}) == 3 and embedder.session not in seen
+    assert len(opened) == 4  # one at start, one per worker thread

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -69,6 +70,11 @@ class IndexReport:
     failed: list[str] = field(default_factory=list)
 
 
+# Items prepared ahead per embedding worker: enough to keep every worker busy, few enough that a
+# pass holds little in memory.
+WINDOW_PER_WORKER = 4
+
+
 def _vector(values: list[float]) -> str:
     return "[" + ",".join(f"{v:.9g}" for v in values) + "]"
 
@@ -100,29 +106,53 @@ def run(
                     "limit": limit,
                 },
             ).fetchall()
-            for row in pending:
-                try:
-                    total, embedded, reused = _index_item(conn, row, read_raw, embedder)
-                    report.chunks += total
-                    report.embedded += embedded
-                    report.reused += reused
-                    report.indexed += 1
-                except Exception as error:  # isolate: one bad item never stops the run
-                    report.failed.append(row[0])
-                    log.warning(
-                        "index.item_failed",
-                        item_key=row[0],
-                        kind=row[2],
-                        error_type=type(error).__name__,
-                        error_code=(
-                            "unsupported_archive_uri"
-                            if isinstance(error, UnsupportedArchiveError)
-                            else "index_item_failed"
-                        ),
-                    )
+            # The embedding model is the slow part: one request per chunk, a second or two each.
+            # Items are prepared and written here, in order, one transaction each, as before;
+            # only the embedding requests of several items are in flight at once.
+            workers = max(1, int(getattr(embedder, "concurrency", 1) or 1))
+            window = workers * WINDOW_PER_WORKER
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                for start in range(0, len(pending), window):
+                    prepared: list[_Prepared] = []
+                    for row in pending[start : start + window]:
+                        try:
+                            prepared.append(_prepare(conn, row, read_raw, embedder))
+                        except Exception as error:  # isolate: one bad item never stops the run
+                            _failed(report, row, error)
+                    requests = [
+                        pool.submit(embedder.embed_documents, [c.text for c in item.fresh])
+                        if item.fresh
+                        else None
+                        for item in prepared
+                    ]
+                    for item, request in zip(prepared, requests, strict=True):
+                        try:
+                            vectors = request.result() if request is not None else []
+                            total, embedded, reused = _write(conn, item, vectors, embedder)
+                            report.chunks += total
+                            report.embedded += embedded
+                            report.reused += reused
+                            report.indexed += 1
+                        except Exception as error:
+                            _failed(report, item.row, error)
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (LOCK,))
     return report
+
+
+def _failed(report: IndexReport, row, error: Exception) -> None:
+    report.failed.append(row[0])
+    log.warning(
+        "index.item_failed",
+        item_key=row[0],
+        kind=row[2],
+        error_type=type(error).__name__,
+        error_code=(
+            "unsupported_archive_uri"
+            if isinstance(error, UnsupportedArchiveError)
+            else "index_item_failed"
+        ),
+    )
 
 
 def _chunk_key(entry_key: str, chunk_key: str) -> str:
@@ -137,19 +167,24 @@ def _parse_vector(text: str) -> list[float]:
 def _index_item(
     conn: psycopg.Connection, row, read_raw, embedder: Embedder
 ) -> tuple[int, int, int]:
-    (
-        item_key,
-        provider,
-        kind,
-        project,
-        repository,
-        revision,
-        content_sha,
-        uri,
-        acl,
-        source_updated,
-        source_url,
-    ) = row
+    """One item, start to end: prepare, embed what changed, write."""
+    prepared = _prepare(conn, row, read_raw, embedder)
+    texts = [c.text for c in prepared.fresh]
+    return _write(conn, prepared, embedder.embed_documents(texts) if texts else [], embedder)
+
+
+@dataclass
+class _Prepared:
+    """An item read, extracted and chunked, with the vectors it already has (S12-11)."""
+
+    row: tuple
+    chunks: list
+    known: dict
+    fresh: list
+
+
+def _prepare(conn: psycopg.Connection, row, read_raw, embedder: Embedder) -> _Prepared:
+    item_key, kind, revision, uri = row[0], row[2], row[5], row[7]
     # The reader owns the archive scheme policy: production accepts gs:// only,
     # while isolated integration tests inject a mem:// fixture reader.
     record = json.loads(read_raw(uri))
@@ -170,13 +205,28 @@ def _index_item(
         )
     }
     fresh = [c for c in chunks if c.content_sha256 not in known]
-    new_vectors = dict(
-        zip(
-            (c.content_sha256 for c in fresh),
-            embedder.embed_documents([c.text for c in fresh]) if fresh else [],
-            strict=True,
-        )
-    )
+    return _Prepared(row, chunks, known, fresh)
+
+
+def _write(
+    conn: psycopg.Connection, prepared: _Prepared, fresh_vectors: list[list[float]], embedder
+) -> tuple[int, int, int]:
+    """Store one prepared item with the vectors of its fresh chunks, in one transaction."""
+    (
+        item_key,
+        provider,
+        kind,
+        project,
+        repository,
+        revision,
+        content_sha,
+        _uri,
+        acl,
+        source_updated,
+        source_url,
+    ) = prepared.row
+    chunks, known, fresh = prepared.chunks, prepared.known, prepared.fresh
+    new_vectors = dict(zip((c.content_sha256 for c in fresh), fresh_vectors, strict=True))
     vectors = [known.get(c.content_sha256) or new_vectors[c.content_sha256] for c in chunks]
     now = datetime.now(UTC)
     acl_json = json.dumps(acl)

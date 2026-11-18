@@ -1384,6 +1384,48 @@
       "title": "RunnerInfo",
       "type": "object"
     },
+    "Starter": {
+      "additionalProperties": false,
+      "description": "ENH-02: what a starter scaffold was built from, and what it leaves to the engineer.",
+      "properties": {
+        "advice_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Advice Ids",
+          "type": "array"
+        },
+        "checklist": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Checklist",
+          "type": "array"
+        },
+        "covered_sections": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Covered Sections",
+          "type": "array"
+        },
+        "guidance_brief_id": {
+          "format": "uuid",
+          "title": "Guidance Brief Id",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "guidance_brief_id"
+      ],
+      "title": "Starter",
+      "type": "object"
+    },
     "TicketRef": {
       "additionalProperties": false,
       "properties": {
@@ -1509,6 +1551,15 @@
     "generation": {
       "$ref": "#/$defs/Generation"
     },
+    "kind": {
+      "default": "fix",
+      "enum": [
+        "fix",
+        "starter"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
     "limitations": {
       "items": {
         "type": "string"
@@ -1587,6 +1638,17 @@
       "default": 1,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "starter": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Starter"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "state": {
       "enum": [
