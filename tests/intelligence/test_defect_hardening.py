@@ -700,3 +700,48 @@ def test_without_the_baseline_file_an_existing_path_is_refused(tmp_path: Path) -
     _, proposal = _proposal_for(tmp_path, answer, read=False)
 
     assert isinstance(proposal, Declined) and proposal.code == TEST_INVALID
+
+
+# ---- The pull request reads like an engineer wrote it ------------------------------------------
+
+
+def test_every_run_is_listed_with_consecutive_runs_as_ranges() -> None:
+    from app.defect.report import _runs
+
+    # Seen live: a check listed 6 runs for 10 tests, the rest silently dropped.
+    assert _runs(["X3", "X4", "X17", "X18", "X19", "X20", "X21", "X22", "X25"]) == (
+        "X3-X4, X17-X22, X25"
+    )
+    assert _runs([]) == "-"
+
+
+def test_limits_are_whole_sentences_and_not_repeated() -> None:
+    from app.defect.report import _distinct, _sentences
+
+    cut = "The test asserts the emitted event. It covers the component in isolation, not the f"
+    assert _sentences(cut) == "The test asserts the emitted event."
+    assert _sentences("no full stop at all in this one") == "no full stop at all in this one..."
+    # Models restate the same limit on each attempt.
+    lines = [
+        "The test was not executed here; the expected failure is predicted.",
+        "The test was not executed here; the expected failure is predicted from code reading.",
+        "Mocks are assumed to follow existing conventions.",
+    ]
+    assert _distinct(lines) == [lines[0], lines[2]]
+
+
+def test_a_not_verified_pull_request_says_so_first_and_why_in_plain_words(tmp_path: Path) -> None:
+    from test_defect_pipeline import run
+
+    demo = make_demo(tmp_path, draft_pr_on_incomplete=True)
+    indirect = {**TEST_ANSWER, "checks": "internal_step"}
+
+    result = run(tmp_path, [indirect, SAFE_FIX], demo=demo)
+
+    text = result.pull_request.description
+    status = text.split("\n\n")[1]
+    assert status.startswith("**Not verified.**")
+    assert "the new test checks an internal step" in status
+    assert (
+        "### Please check" in text and "NOT\\_GREEN" not in text and "sandbox verdict" not in text
+    )
