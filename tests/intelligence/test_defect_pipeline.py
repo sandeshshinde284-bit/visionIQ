@@ -851,7 +851,7 @@ def test_the_existing_tests_of_the_code_are_shown_before_the_first_fix(tmp_path:
 
     first_fix = model.tasks[1].user_prompt
     assert f"file:{OLD_TEST}" in first_fix  # the existing test of retry_policy.py, read only
-    assert "must keep them passing" in first_fix
+    assert "Keep them passing, unless one expects the behaviour the ticket reports" in first_fix
     assert result.verdict == "VERIFIED"
 
 
@@ -927,3 +927,63 @@ def test_a_decline_on_every_attempt_still_ends_unavailable(tmp_path: Path) -> No
     assert result.reproduction.reproducibility == "UNAVAILABLE"
     assert result.reason_codes == ["reproduction_unavailable"]
     assert len(model.tasks) == 2  # every attempt was used, and no more
+
+
+# ---- Identify the defect properly: a test is evidence, not proof --------------------------------
+
+
+def test_a_test_of_an_internal_step_cannot_give_a_verified_fix(tmp_path: Path) -> None:
+    # Seen live: the new test asserted an internal step, the fix satisfied the step, the result
+    # the ticket reported stayed as it was, and the run still said "verified".
+    indirect = {**TEST_ANSWER, "checks": "internal_step"}
+
+    result = run(tmp_path, [indirect, SAFE_FIX])
+
+    assert (result.state, result.verdict) == ("PARTIAL", "INCONCLUSIVE")
+    assert result.reason_codes == ["reproduction_indirect"]
+    assert result.reproduction.reproducibility == "REPRODUCED"  # the step is still shown
+    assert any("internal step" in limit for limit in result.limitations)
+
+
+def test_a_test_that_does_not_say_what_it_checks_is_not_taken_as_direct(tmp_path: Path) -> None:
+    unstated = {key: value for key, value in TEST_ANSWER.items() if key != "checks"}
+
+    result = run(tmp_path, [unstated, SAFE_FIX])
+
+    assert result.verdict == "INCONCLUSIVE" and "reproduction_indirect" in result.reason_codes
+
+
+def test_an_existing_test_that_expects_the_defect_is_named_not_worked_around(
+    tmp_path: Path,
+) -> None:
+    # Seen live: an existing test expected the behaviour the ticket called a defect, and the fix
+    # was bent to keep it passing. Named with the fix, it is reported and no repair is asked for.
+    named = {
+        **UNSAFE_FIX,
+        "conflicting_tests": [
+            {"path": OLD_TEST, "reason": "It expects the retry the ticket rejects."}
+        ],
+    }
+    model = claude(TEST_ANSWER, named)
+
+    result = run(tmp_path, gateway_for(model), honest)
+
+    assert len(model.tasks) == 2  # the test, one fix: no repair round against that test
+    assert (result.state, result.verdict) == ("PARTIAL", "INCONCLUSIVE")
+    # The demo's suite contains that test, so it is reported as unclear too, not as a failure.
+    assert result.reason_codes == ["existing_test_contradicts_ticket", "suite_inconclusive"]
+    assert result.regression.status == "INCONCLUSIVE"
+    assert any(
+        OLD_TEST in limit and "It expects the retry the ticket rejects." in limit
+        for limit in result.limitations
+    )
+
+
+def test_a_broken_test_that_was_not_named_is_still_a_regression(tmp_path: Path) -> None:
+    other = {**UNSAFE_FIX, "conflicting_tests": [{"path": "tests/test_other.py", "reason": "x"}]}
+    model = claude(TEST_ANSWER, other, SAFE_FIX)
+
+    result = run(tmp_path, gateway_for(model), honest)
+
+    assert "broke tests that passed before" in model.tasks[2].user_prompt
+    assert result.verdict == "VERIFIED"

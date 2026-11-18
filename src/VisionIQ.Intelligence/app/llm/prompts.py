@@ -95,8 +95,14 @@ Rules:
   test_content, every existing line unchanged, with your test added at the end of the file (in
   its last test group or class) and any import lines you need. Never edit, move or remove an
   existing test. Write a new test file only when no test file for that code is shown.
-- The test must fail because of the behaviour the ticket reports, not because of a missing
-  import, a typo or the environment. Assert the behaviour the ticket says is expected.
+- Identify the defect from the outside in: perform the action the ticket describes and assert
+  the result the ticket says should follow, as a user or caller observes it. The test must fail
+  because of that behaviour, not because of a missing import, a typo or the environment.
+- Do not assert an internal step (an event being emitted, a flag being set, a function being
+  called) in place of the reported result: a fix can satisfy the step and leave the result as it
+  was. In checks answer reported_behaviour only if the test asserts the result the ticket
+  reports. If the files shown only let you assert an internal step, answer internal_step and
+  say in limitations what could not be observed; the fix will then not be called verified.
 - In test_id give the test's name as the test runner reports it: for C#, Java or Python the
   test method, optionally with its class (Class.Method); for vitest or Jest the exact title
   passed to it() or test(), after any describe() titles joined with " > ".
@@ -118,9 +124,16 @@ The failing test reproduces a reported defect; it was run on the current code an
 Rules:
 - Change production code only. Never edit, delete or weaken the failing test or any other test.
 - Fix the cause in the layer where it belongs; do not special-case the test's inputs.
-- Existing tests of this code may be shown, read only. They describe behaviour that must not
-  change. Before writing the fix, work out the cause and which behaviour those tests protect,
-  then write ONE fix that makes the failing test pass AND keeps those tests passing.
+- Existing tests of this code may be shown, read only. They describe how the code behaves
+  today. That is usually right, but a test is not proof: it can expect the very behaviour the
+  ticket reports as a defect, or rest on mock data that hides it. Before writing the fix, work
+  out the cause and which behaviour those tests protect, then write ONE fix that makes the
+  failing test pass and keeps passing every test that does not contradict the ticket.
+- Never bend the fix to keep a test passing that expects the defect: fix what the ticket
+  reports, at the place where the reported result is decided. List each such test in
+  conflicting_tests with what it expects and why that contradicts the ticket. It will fail with
+  your fix, and an engineer decides whether it needs updating. Do not list a test only because
+  your fix breaks it.
 - Keep the change small: touch only the files that must change, and return the COMPLETE new
   content of each changed file.
 - Do not add or upgrade dependencies, do not touch secrets or configuration, and do not add
@@ -203,6 +216,8 @@ REPRODUCTION_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
         },
         "rationale": {"type": "string"},
+        # What the test asserts: the result the ticket reports, or only an internal step.
+        "checks": {"type": "string", "enum": ["reported_behaviour", "internal_step"]},
         "limitations": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["reproducible", "limitations"],
@@ -223,6 +238,16 @@ FIX_SCHEMA: dict[str, Any] = {
         },
         "cause": {"type": "string"},
         "summary": {"type": "string"},
+        # Existing tests that expect the behaviour the ticket reports as a defect.
+        "conflicting_tests": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            },
+        },
         "limitations": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["changes", "cause", "summary", "limitations"],
@@ -341,9 +366,9 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
         "brief.enhancement", 1, _ENHANCEMENT_SYSTEM, ENHANCEMENT_SCHEMA
     ),
     TaskKind.REPRODUCTION_TEST: PromptTemplate(
-        "defect.reproduction", 3, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
+        "defect.reproduction", 4, _REPRODUCTION_SYSTEM, REPRODUCTION_SCHEMA
     ),
-    TaskKind.CODE_FIX: PromptTemplate("defect.fix", 2, _FIX_SYSTEM, FIX_SCHEMA),
+    TaskKind.CODE_FIX: PromptTemplate("defect.fix", 3, _FIX_SYSTEM, FIX_SCHEMA),
     TaskKind.STARTER_SCAFFOLD: PromptTemplate(
         "enhancement.starter", 1, _STARTER_SYSTEM, STARTER_SCHEMA
     ),
