@@ -3,7 +3,7 @@
   // and point DEFECT_POLICY_FILE at it. A repository that is not listed here is never cloned or
   // run. A model never chooses a command or a path outside this file.
   // Changing the rules? Bump revision: it is recorded with every run.
-  "revision": "defect-policy-2026-11-17.2",
+  "revision": "defect-policy-2026-11-18.1",
   "repositories": [
     {
       // Must equal repository_id of the pickup policy (config/pickup-policy.example.json).
@@ -33,6 +33,10 @@
       //              for frameworks that select tests by class (as dotnet test does below).
       //              "--results-directory ." makes the TRX logger write {junit} relative to the
       //              directory the command runs in (the workspace root).
+      //   test_files runs SEVERAL test files in one go, {test_paths} separated by ";", report to {junit}
+      //              (optional). Related tests then run once instead of once each; only when that run
+      //              fails is each test run alone, to tell which one failed. Needs a command that takes
+      //              several files, such as the Windows test dispatcher's "-Mode test-files -TestPaths".
       //   suite      runs the touched project's tests, report to {junit}          (optional)
       //   benchmark  writes {"metric", "unit", "value"} (lower is better) to {output} (optional)
       "recipes": {
@@ -87,6 +91,9 @@
         "max_changed_files": 8,
         "max_changed_lines": 400,
         "max_regression_tests": 10,
+        // Files shown to the model: the ones in scope, the ones that use them, what they import,
+        // and up to 4 a model suggests. 6 if not set; 10 leaves room for a screen and its store.
+        "max_context_files": 10,
         "flaky_reruns": 2,
         "red_confirmations": 1,
         "environment_retries": 1
