@@ -648,6 +648,9 @@ def test_a_run_logs_each_stage_with_ids_and_codes(tmp_path: Path) -> None:
     stages = [e["event"] for e in events if e["event"] not in ("fix_execution", "llm_call")]
     assert stages == [
         "fix_started",
+        # No Gemini in this test: the file suggestion is skipped and the rules alone decide.
+        "llm_not_routed",
+        "fix_file_suggestions_unavailable",
         "fix_related_files_added",
         "fix_workspace_ready",
         "fix_test_context",

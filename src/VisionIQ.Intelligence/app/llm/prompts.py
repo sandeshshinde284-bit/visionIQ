@@ -254,6 +254,68 @@ FIX_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+_FILES_SYSTEM = f"""You choose which source files of a repository an engineer should read to find
+the cause of a reported defect.
+
+{_UNTRUSTED_RULE}
+
+Rules:
+- Pick only from the choices listed, by copying the path exactly. Never invent a path.
+- The files already chosen are listed in the facts; do not repeat them. Add the files that most
+  likely hold the behaviour the ticket reports: the screen, component, service or function where
+  the reported result is decided, and what it depends on.
+- Judge by the ticket's words and by what each path suggests (folders, names); prefer fewer,
+  likelier files. Pick none if no listed file is likely.
+- Give one short reason per file, naming the part of the ticket it relates to."""
+
+FILES_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["files"],
+    "additionalProperties": False,
+}
+
+_TESTS_SYSTEM = f"""You choose which existing automated tests should be run again to check that a
+code change broke nothing.
+
+{_UNTRUSTED_RULE}
+
+Rules:
+- Pick only from the choices listed, by copying the path exactly. Never invent a path.
+- Each choice shows how it was found and the names of the tests in the file. Pick the tests that
+  exercise the changed code or its behaviour: tests of the changed files, of code that uses them,
+  and tests whose names describe the behaviour the change touches.
+- A test that was only changed together with these files in some past fix, but tests unrelated
+  behaviour, is not related: leave it out.
+- Give one short reason per test. Pick none if no listed test relates to the change."""
+
+TESTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "tests": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["tests"],
+    "additionalProperties": False,
+}
+
 BRIEF_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -372,6 +434,8 @@ TEMPLATES: dict[TaskKind, PromptTemplate] = {
     TaskKind.STARTER_SCAFFOLD: PromptTemplate(
         "enhancement.starter", 1, _STARTER_SYSTEM, STARTER_SCHEMA
     ),
+    TaskKind.FILE_SELECTION: PromptTemplate("defect.files", 1, _FILES_SYSTEM, FILES_SCHEMA),
+    TaskKind.TEST_SELECTION: PromptTemplate("defect.tests", 1, _TESTS_SYSTEM, TESTS_SCHEMA),
 }
 
 
@@ -410,6 +474,9 @@ def render_user_prompt(kind: TaskKind, context: EvidenceContext) -> str:
             )
             for file in context.code
         )
+    if context.choices:
+        parts.append("Choices (pick only from these, copying the path exactly):")
+        parts.append(_block("choices", "\n".join(context.choices)))
     if context.feedback:
         parts.append(
             "Earlier attempts of this run and why they were rejected:"

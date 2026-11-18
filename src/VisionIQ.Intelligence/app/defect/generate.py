@@ -90,6 +90,7 @@ def context_for(
     facts: Sequence[str],
     code: Sequence[CodeFile],
     feedback: Sequence[str] = (),
+    choices: Sequence[str] = (),
 ) -> EvidenceContext:
     return EvidenceContext(
         snapshot_id=None,
@@ -99,6 +100,7 @@ def context_for(
         facts=tuple(facts),
         code=tuple(code),
         feedback=tuple(feedback),
+        choices=tuple(choices),
     )
 
 
@@ -247,6 +249,34 @@ def propose_test(
         outcome.result,
         direct=output.get("checks") == "reported_behaviour",
     )
+
+
+def select(
+    gateway: ModelGateway,
+    ledger: RunLedger,
+    kind: TaskKind,
+    context: EvidenceContext,
+    allowed: Collection[str],
+    limit: int,
+) -> list[tuple[str, str]] | None:
+    """A model's pick among listed paths, as (path, reason); None when no model answered.
+
+    Only listed paths are kept, each once, at most ``limit``: a model can suggest, never add.
+    """
+    if limit <= 0 or not allowed:
+        return []
+    outcome = gateway.generate(kind, context, ledger)
+    if outcome.result is None:
+        return None
+    key = "files" if kind is TaskKind.FILE_SELECTION else "tests"
+    picked: list[tuple[str, str]] = []
+    for item in outcome.result.output.get(key) or []:
+        path = str(item.get("path", "")).strip() if isinstance(item, dict) else ""
+        if path in allowed and path not in (p for p, _ in picked):
+            picked.append((path, clean(item.get("reason"), 200)))
+        if len(picked) >= limit:
+            break
+    return picked
 
 
 def propose_patch(
