@@ -53,6 +53,9 @@ class TestProposal:
     rationale: str
     limitations: tuple[str, ...]
     result: ModelResult
+    # Whether the model states that the test asserts the result the ticket reports. False when
+    # it asserts an internal step, or does not say: such a test cannot prove the defect is fixed.
+    direct: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,9 @@ class PatchProposal:
     summary: str
     limitations: tuple[str, ...]
     result: ModelResult
+    # Existing tests the model states expect the behaviour the ticket reports as a defect:
+    # (path, why). Stated with the fix, before anything is run.
+    conflicts: tuple[tuple[str, str], ...] = ()
 
 
 def clean(text: object, limit: int = MAX_TEXT_CHARS) -> str:
@@ -239,6 +245,7 @@ def propose_test(
         clean(output.get("rationale")),
         _limitations(output),
         outcome.result,
+        direct=output.get("checks") == "reported_behaviour",
     )
 
 
@@ -253,10 +260,16 @@ def propose_patch(
         ProposedChange(str(change["path"]), str(change["content"]))
         for change in output["changes"][:MAX_CHANGES]
     )
+    conflicts = tuple(
+        (str(item["path"]), clean(item.get("reason")))
+        for item in (output.get("conflicting_tests") or [])[:MAX_CHANGES]
+        if isinstance(item, dict) and item.get("path")
+    )
     return PatchProposal(
         changes,
         clean(output.get("cause")),
         clean(output.get("summary")),
         _limitations(output),
         outcome.result,
+        conflicts,
     )

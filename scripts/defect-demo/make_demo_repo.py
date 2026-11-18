@@ -143,6 +143,7 @@ OFFLINE_SCRIPT = {
             "message_contains": ["captured payment was retried"],
         },
         "rationale": "The ticket says a captured payment is retried; the test asks the policy.",
+        "checks": "reported_behaviour",
         "limitations": [],
     },
     "code_fix": [
